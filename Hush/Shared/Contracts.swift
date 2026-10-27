@@ -49,7 +49,7 @@ public struct ScreenLayout: Equatable, Sendable {
 
     public init(size: CGSize = CGSize(width: canvasWidth, height: canvasHeight), hasFold: Bool,
                 visibleRect: CGRect? = nil) {
-        self.size = CGSize(width: canvasWidth, height: max(size.height, canvasHeight)); self.hasFold = hasFold
+        self.size = CGSize(width: Self.canvasWidth, height: max(size.height, Self.canvasHeight)); self.hasFold = hasFold
         self.visibleRect = visibleRect ?? CGRect(x: 0, y: 0, width: Self.canvasWidth, height: Self.canvasHeight)
     }
 
