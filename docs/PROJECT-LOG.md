@@ -31,3 +31,12 @@
 | — | **Founder:** "do extensive internal testing with all your agents and get this app to a level where this is at a standard of launch" before setting up TestFlight. |
 | — | **R1 review:** Apple juror 6.0, UX 6.5, Duo specialist 6.0. Three fresh testers: understood 6 / 7 / 8, premium 5–7, would pay 5–6. The game-feel designer found there was no real gamble yet and proposed tuning plus four features. QA-1: 1 P0 (the placeholder icon), 3 P1s. |
 | — | **R2 dispatched** (`design/ROUND-2.md`): art unification, HUD labels, no bars on phones, turning round inside the scene, the two Duo blockers (Release orientation, bite on reopen), the R2 balance, Hush Chain, golden mimic, relic glimmer, bag jingle, and every QA-1 item. |
+
+### 27 Oct, afternoon: round 2 and its review
+| Time | What happened |
+|---|---|
+| ~12:20 | **R2 built.** It took three CI fix-ups: an unqualified static in Contracts, a mutating call inside `#expect`, a test arithmetic slip. Then 220 tests passed. A real-finger XCUITest drag through the turned scene **passed**. |
+| ~12:45 | **Duo run 40506125012: 1 PASS, 6 FAIL.** A regression: a portrait lock set while landscape letterboxed the app to 469 × 669. **Fix:** lock only once the interface is portrait. |
+| ~13:35 | **Duo run 40510297922: 6 PASS.** REOPEN-NO-BITE failed only on a log race in the check. The app paused at 62.7°, resumed at 117.9° and didn't bite. The check is fixed. |
+| — | **R2 review:** juror 7.5, UX 8.0, Duo 7.0. QA-2: no P0, 2 P1s. Fresh testers 4–6: would pay 7 / 7 / 7, premium 8 / 6.5 / 8. |
+| — | **R3 dispatched** (`design/ROUND-3.md`). The cover fallback is deleted; noise is frozen in pause; one verb, "bank"; copy follows the layout; in-world plates; the icon redrawn; the bank black-out, the sleeping mouth, the tongue, collisions, edges, the relic card, the CREAK accent; Results restructured; the store pipeline; the docs made truthful. |
