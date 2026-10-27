@@ -32,7 +32,7 @@ b) Shut is about 100 degrees, wide open about 165. Ease back to 110 or less and 
 c) The skill is moving the hinge SLOWLY: fast movement makes noise. Movement below 97 or above 168 degrees makes none.
 d) iOS briefly blurs one half of the inner screen when a fold starts, so Hush draws the chest turned round: the blurring half is the lid; loot and warnings stay on the sharp half. Settings > Turn the chest round switches this off.
 e) PAUSE: below 70 degrees (for 0.4 s) play pauses: "Lift the lid a little to carry on". If iOS moves the app to the outer display first, that is a pause too (a sleeping-mimic card). While paused the candle stops and the noise is frozen.
-f) RESUME: at 95 degrees or more (after the outer display: where the inner one lit, if lower) AND held still (under 6 degrees/s for 0.3 s), on the inner display; until then "Hold still". Lid noise is ignored for 0.5 s after resuming, so reopening never bites.
+f) RESUME: at 95 degrees or more (after the outer display: where the inner one lit, if lower) AND still (under 6 degrees/s for 0.3 s), on the inner display; until then "Hold still". Lid noise is ignored for 0.5 s after resuming, so reopening never bites.
 g) Above 172 degrees: "That's wide enough" (no penalty).
 
 3. KIND TO THE DEVICE (2.4.2, 1.4.5)
