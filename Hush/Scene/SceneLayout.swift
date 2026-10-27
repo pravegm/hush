@@ -52,11 +52,13 @@ enum ChestLayout {
     /// the same rim. R4 (UX P1-2): shortened again (it ends at x 460, was 520) so the tab sits LEFT of the front-right
     /// bracket, ≥ 16 screen pt from the edge on a phone. R5 (UX P2-4, testers 9 and 10): 46 pt shorter again (ends at
     /// x 414) so the tab can read "CHAIN ×1.2" on one line at ≥ 11 screen pt; the well keeps its 20 segments.
-    static let meterRect = CGRect(x: 56, y: 104, width: 358, height: 32)
-    static let meterWell = CGRect(x: 142, y: 109, width: 224, height: 22)
+    // R5b (CI 40597779067): "CHAIN ×1.5" drew 118.75 pt wide in a 112 pt column, so the meter gave up 14 more pt
+    // (x 56…400) and the chain tab moved left into it.
+    static let meterRect = CGRect(x: 56, y: 104, width: 344, height: 32)
+    static let meterWell = CGRect(x: 142, y: 109, width: 210, height: 22)
     static let meterSegments = 20
     static let meterLabelCenter = CGPoint(x: 99, y: 120)
-    static let meterTeethCenter = CGPoint(x: 390, y: 120)
+    static let meterTeethCenter = CGPoint(x: 376, y: 120)
     /// R4 (UX P2-6): the meter's word follows the stage, so it never relies on colour alone (`ChestCopy.meterWord`).
     static let meterLabelWidth: CGFloat = 72
 
@@ -119,12 +121,12 @@ enum ChestLayout {
     /// 10): ONE line, "CHAIN ×1.2" (no "GOLD": it never reads as a second gold multiplier beside the plate's seal), at
     /// `chainFontSize`; the tab grew leftwards (x 424…590) into the room the shorter meter left. The linked-rings
     /// medallion sits over the tab's left clasp.
-    static let chainRect = CGRect(x: 424, y: 98, width: 166, height: 44)
+    static let chainRect = CGRect(x: 410, y: 98, width: 180, height: 44)
     /// The medallion (over the tab's left clasp).
-    static let chainCenter = CGPoint(x: 433, y: 120)
+    static let chainCenter = CGPoint(x: 421, y: 120)
     static let chainRadius: CGFloat = 15
     /// The tab's text column (between the medallion and the right clasp + 8 pt) and its one line.
-    static let chainTextRect = CGRect(x: 451, y: 106, width: 112, height: 30)
+    static let chainTextRect = CGRect(x: 437, y: 106, width: 124, height: 30)
     static var chainTextX: CGFloat { chainTextRect.midX }
     static let chainTextY: CGFloat = 120
     /// R5: the tab's type (canvas pt): 20 pt is ≥ 11 screen pt at the smallest phone scale (0.55); it may shrink to
