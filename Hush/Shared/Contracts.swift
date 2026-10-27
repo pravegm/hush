@@ -11,11 +11,15 @@ import Foundation
 //
 // CANVAS (Scene/UI): portrait, 670 × 952 pt, SpriteKit origin bottom-left. On an iPhone Duo in tabletop pose the fold
 // runs left to right at mid-height (band y 456…496). The LID is the upper half (y ≥ 496), the FLOOR the lower half
-// (y ≤ 456). Other iPhones show the same canvas aspect-FIT (dungeon-coloured bars).
+// (y ≤ 456). Every geometry value below is in these CANVAS coordinates.
+// R2: the SCENE may be taller than the canvas (`ScreenLayout.size`, phones are narrower than the Duo): the scene puts
+// the 670 × 952 canvas in a world node at y = `contentOffsetY` and draws EXTENSION art above the lid and below the floor
+// so there are no bars. On the Duo the extension is ~0.
 // FLOOR SPACE (Core): points on the floor half. x 0…670 left → right; y 0 at the HINGE edge … 456 at the FRONT edge
 // (nearest the player). The bag is the strip y ≥ FloorSpace.bagMinY. Canvas ↔ floor: canvas.y = 456 − floor.y.
-// "Turned round" (the blurred-half rule, GAME-DESIGN §3) is applied by the App to the whole hosted view; the scene and
-// Core never know about it.
+// "Turned round" (the blurred-half rule, GAME-DESIGN §3), R2: applied INSIDE the scene (`ChestScene.turned` rotates the
+// world node 180° about the scene centre; touches are read with `touch.location(in: world)`, so they are correct by
+// construction) and by the App to its SwiftUI overlays. Core never knows about it.
 
 // MARK: Geometry
 
@@ -36,20 +40,33 @@ public struct ScreenLayout: Equatable, Sendable {
     public static let foldMinY: CGFloat = 456
     public static let foldMaxY: CGFloat = 496
 
-    /// Always 670 × 952.
+    /// The SCENE size: 670 wide, at least 952 tall (taller on screens narrower than the Duo's, to fill them).
     public var size: CGSize
     /// Whether this canvas has a real fold (a hinge was seen). Without one the lid half hosts the lid slider.
     public var hasFold: Bool
-    /// The canvas rect actually on screen (aspect-fit: the whole canvas on every device).
+    /// The canvas rect actually on screen, in canvas coordinates (the whole canvas on every device).
     public var visibleRect: CGRect
 
     public init(size: CGSize = CGSize(width: canvasWidth, height: canvasHeight), hasFold: Bool,
                 visibleRect: CGRect? = nil) {
-        self.size = size; self.hasFold = hasFold
-        self.visibleRect = visibleRect ?? CGRect(origin: .zero, size: size)
+        self.size = CGSize(width: canvasWidth, height: max(size.height, canvasHeight)); self.hasFold = hasFold
+        self.visibleRect = visibleRect ?? CGRect(x: 0, y: 0, width: Self.canvasWidth, height: Self.canvasHeight)
     }
 
     public static func make(hasFold: Bool) -> ScreenLayout { ScreenLayout(hasFold: hasFold) }
+
+    /// R2: the layout that fills a portrait view of `viewSize` points (aspect-fill by width; extra height becomes
+    /// extension art). Landscape sizes are treated as portrait (width ≤ height).
+    public static func make(hasFold: Bool, viewSize: CGSize) -> ScreenLayout {
+        let w = max(min(viewSize.width, viewSize.height), 1), h = max(max(viewSize.width, viewSize.height), 1)
+        let sceneHeight = max(canvasHeight, (canvasWidth * h / w).rounded())
+        return ScreenLayout(size: CGSize(width: canvasWidth, height: sceneHeight), hasFold: hasFold)
+    }
+
+    /// Where the canvas's y = 0 sits in the scene (the extension below the floor; the same amount is above the lid).
+    public var contentOffsetY: CGFloat { ((size.height - Self.canvasHeight) / 2).rounded() }
+    /// Extension height above the lid and below the floor (each).
+    public var extensionHeight: CGFloat { contentOffsetY }
 
     public var floorRect: CGRect { CGRect(x: 0, y: 0, width: size.width, height: Self.foldMinY) }
     public var lidRect: CGRect { CGRect(x: 0, y: Self.foldMaxY, width: size.width, height: size.height - Self.foldMaxY) }
@@ -110,8 +127,10 @@ public struct Relic: Codable, Hashable, Sendable, Identifiable {
     }
 }
 
+/// R2: 24 distinct silhouettes, one per relic (the juror: "12 shapes in two colours looks cheap").
 public enum RelicShape: String, Codable, CaseIterable, Sendable {
     case crown, goblet, teacup, key, ring, amulet, skull, egg, mirror, horn, dice, compass
+    case candlestick, hourglass, bell, lantern, pocketWatch, spyglass, scroll, potion, shell, feather, musicBox, idol
 }
 
 public enum LootKind: Codable, Hashable, Sendable {
@@ -148,10 +167,25 @@ public struct ChestSpec: Codable, Hashable, Sendable {
     public var multiplier: Double     // 1, 1.5, 2, 3
     public var decay: Double          // noise decay per second while quiet
     public var items: [LootItem]
+    /// R2: a rare golden mimic (loot ×2, noise ×1.25; REVIEW-1-feel feature B).
+    public var golden: Bool
     public init(index: Int, tier: ChestTier, mimic: MimicKind, mimicName: String, multiplier: Double, decay: Double,
-                items: [LootItem]) {
+                items: [LootItem], golden: Bool = false) {
         self.index = index; self.tier = tier; self.mimic = mimic; self.mimicName = mimicName
-        self.multiplier = multiplier; self.decay = decay; self.items = items
+        self.multiplier = multiplier; self.decay = decay; self.items = items; self.golden = golden
+    }
+}
+
+/// R2: one line of the Results chest-by-chest strip.
+public struct ChestOutcome: Codable, Hashable, Sendable {
+    public var tier: ChestTier
+    public var golden: Bool
+    /// Gold banked from this chest (0 if bitten or the candle went out).
+    public var value: Int
+    public var hushed: Bool
+    public var bitten: Bool
+    public init(tier: ChestTier, golden: Bool, value: Int, hushed: Bool, bitten: Bool) {
+        self.tier = tier; self.golden = golden; self.value = value; self.hushed = hushed; self.bitten = bitten
     }
 }
 
@@ -221,6 +255,8 @@ public enum HeistHint: String, Codable, Sendable {
     case dragToBag        // something lit is grabbable and the bag is empty
     case shutToBank       // the bag has loot: "Ease it shut to keep it"
     case tooWide          // the input reports tooWide: "That's wide enough"
+    case candleLow        // R2: ≤ 15 s of candle and loot in the bag: "Candle's low. Bank it!"
+    case relicDeeper      // R2: a relic glimmers but isn't lit yet: "Something glints deeper…"
 }
 
 /// Everything the scene, HUD and feedback need for one frame. Value type.
@@ -245,17 +281,24 @@ public struct HeistSnapshot: Equatable, Sendable {
     /// 0…1 progress of holding the lid in the shut zone with loot in the bag (1 = banks).
     public var shutHold: Double
     public var hint: HeistHint?
+    /// R2 Hush Chain: consecutive Hushed chests banked (resets on a stir or bite) and the multiplier the NEXT bank gets.
+    public var chain: Int
+    public var chainMultiplier: Double
+    /// R2: the noise can't decay below this while loot is in the bag ("bag jingle", REVIEW-1-feel feature D).
+    public var noiseFloor: Double
 
     public init(phase: RunPhase = .ready, mode: RunMode = .run, time: Double = 0, chest: ChestSpec? = nil,
                 loot: [LootState] = [], openness: Double = 0, lidSpeed: Double = 0, noise: Double = 0,
                 stage: MimicStage = .asleep, torchRemaining: Double = 0, torchTotal: Double = 0, bagValue: Int = 0,
                 banked: Int = 0, bestRun: Int = 0, chestsBanked: Int = 0, hushed: Int = 0, bites: Int = 0,
-                shutHold: Double = 0, hint: HeistHint? = nil) {
+                shutHold: Double = 0, hint: HeistHint? = nil, chain: Int = 0, chainMultiplier: Double = 1,
+                noiseFloor: Double = 0) {
         self.phase = phase; self.mode = mode; self.time = time; self.chest = chest; self.loot = loot
         self.openness = openness; self.lidSpeed = lidSpeed; self.noise = noise; self.stage = stage
         self.torchRemaining = torchRemaining; self.torchTotal = torchTotal; self.bagValue = bagValue
         self.banked = banked; self.bestRun = bestRun; self.chestsBanked = chestsBanked; self.hushed = hushed
         self.bites = bites; self.shutHold = shutHold; self.hint = hint
+        self.chain = chain; self.chainMultiplier = chainMultiplier; self.noiseFloor = noiseFloor
     }
 }
 
@@ -276,6 +319,10 @@ public enum HeistEvent: Equatable, Sendable {
     case torchOut
     case newBest                             // passed the personal best during the run (once)
     case finished
+    // R2
+    case chainUp(count: Int, multiplier: Double)   // a Hushed bank extended the Hush Chain (fires after `banked`)
+    case chainBroken(count: Int)             // a chain of ≥ 2 was broken by a stir or a bite
+    case biteCost(lostValue: Int, seconds: Double) // with `bitten`: what it cost (for the "−164 · −10s" callout)
 }
 
 /// What a finished run produced. Persisted and fed to ranks / achievements / Game Center.
@@ -294,13 +341,45 @@ public struct RunResult: Codable, Equatable, Sendable {
     /// The highest tier reached (the chest the torch went out on counts).
     public var highestTier: ChestTier
     public var lostToBites: Int              // gold lost in bites
+    // R2
+    public var bestChain: Int                // longest Hush Chain
+    public var goldenBanked: Int             // golden mimics banked
+    public var chestLog: [ChestOutcome]      // one per chest opened, in order (the Results strip)
     public init(mode: RunMode, seed: UInt64, gold: Int, seconds: Double, chestsOpened: Int, chestsBanked: Int,
                 hushed: Int, bites: Int, relics: [RelicID], bestChestValue: Int, itemsBagged: Int,
-                highestTier: ChestTier, lostToBites: Int) {
+                highestTier: ChestTier, lostToBites: Int, bestChain: Int = 0, goldenBanked: Int = 0,
+                chestLog: [ChestOutcome] = []) {
         self.mode = mode; self.seed = seed; self.gold = gold; self.seconds = seconds; self.chestsOpened = chestsOpened
         self.chestsBanked = chestsBanked; self.hushed = hushed; self.bites = bites; self.relics = relics
         self.bestChestValue = bestChestValue; self.itemsBagged = itemsBagged; self.highestTier = highestTier
-        self.lostToBites = lostToBites
+        self.lostToBites = lostToBites; self.bestChain = bestChain; self.goldenBanked = goldenBanked
+        self.chestLog = chestLog
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case mode, seed, gold, seconds, chestsOpened, chestsBanked, hushed, bites, relics, bestChestValue, itemsBagged
+        case highestTier, lostToBites, bestChain, goldenBanked, chestLog
+    }
+
+    /// Tolerant: R1 saves have no R2 keys.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        mode = try c.decode(RunMode.self, forKey: .mode)
+        seed = try c.decode(UInt64.self, forKey: .seed)
+        gold = try c.decode(Int.self, forKey: .gold)
+        seconds = try c.decode(Double.self, forKey: .seconds)
+        chestsOpened = try c.decode(Int.self, forKey: .chestsOpened)
+        chestsBanked = try c.decode(Int.self, forKey: .chestsBanked)
+        hushed = try c.decode(Int.self, forKey: .hushed)
+        bites = try c.decode(Int.self, forKey: .bites)
+        relics = try c.decode([RelicID].self, forKey: .relics)
+        bestChestValue = try c.decode(Int.self, forKey: .bestChestValue)
+        itemsBagged = try c.decode(Int.self, forKey: .itemsBagged)
+        highestTier = try c.decode(ChestTier.self, forKey: .highestTier)
+        lostToBites = try c.decode(Int.self, forKey: .lostToBites)
+        bestChain = try c.decodeIfPresent(Int.self, forKey: .bestChain) ?? 0
+        goldenBanked = try c.decodeIfPresent(Int.self, forKey: .goldenBanked) ?? 0
+        chestLog = try c.decodeIfPresent([ChestOutcome].self, forKey: .chestLog) ?? []
     }
 }
 
