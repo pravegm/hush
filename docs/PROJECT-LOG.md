@@ -40,3 +40,11 @@
 | ~13:35 | **Duo run 40510297922: 6 PASS.** REOPEN-NO-BITE failed only on a log race in the check. The app paused at 62.7°, resumed at 117.9° and didn't bite. The check is fixed. |
 | — | **R2 review:** juror 7.5, UX 8.0, Duo 7.0. QA-2: no P0, 2 P1s. Fresh testers 4–6: would pay 7 / 7 / 7, premium 8 / 6.5 / 8. |
 | — | **R3 dispatched** (`design/ROUND-3.md`). The cover fallback is deleted; noise is frozen in pause; one verb, "bank"; copy follows the layout; in-world plates; the icon redrawn; the bank black-out, the sleeping mouth, the tongue, collisions, edges, the relic card, the CREAK accent; Results restructured; the store pipeline; the docs made truthful. |
+
+### 27 Oct, late afternoon: round 3 and its review
+| Time | What happened |
+|---|---|
+| ~15:20 | **R3 built.** One CI fix (a main-actor helper called from a texture closure). 252 tests pass; the turned-drag XCUITest passes. The icon was redrawn in the game's style and committed as RGB. |
+| ~15:40 | Store pipeline run 40533069481: the 6.9", 6.3" and Duo sets rendered (P1–P6, D1–D6). |
+| — | **R3 review:** juror **8.5** ("fix P0 plus P1s → 9 and yes"), UX **8.8** ("launch-ready on clarity: yes"). QA-3: no P0, 1 P1. Fresh testers 7 and 8: understood 8 / 8, premium 7 / 6.5, would pay 7 / 7. |
+| — | **R4 dispatched** (`design/ROUND-4.md`): a polish-only round. Plate text padding, the chain medal, the pause socket, the bank beat dimmed, the gum curve, the stage-labelled meter, one golden number, the phone extension plaque, seams, icon safe area, the Play-anyway hinge hold, VoiceOver throttling, Dynamic Type wraps, the pose screen redraw, Diagnostics for the device test, re-shot frames. |
