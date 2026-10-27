@@ -348,6 +348,12 @@ if [[ " $PASSES " == *" hinge "* ]]; then
     [[ -n "$ra" ]] || ra=$(angle_before "$RO" "$rl")
   fi
   released=$(count "HUSH-T noise released" "$RO")
+  # Duo run 40510297922: the pause line can land in the log after the 2 s wait (it was at line 655, the resume at
+  # 662), so look again now, and accept it if it comes before the resume.
+  if [[ -z "$p" ]]; then
+    p=$(first_line "$RO" "HUSH-T paused closing" "$c0")
+    [[ -n "$p" && -n "$rl" && "$p" -gt "$rl" ]] && p=""
+  fi
   pre=$( [[ -n "$p" ]] && angle_before "$RO" "$p" || echo -)
   maxn=$(after "$RO" "${rl:-$r0}" | lid_vals noise | max_of)
   d="paused@${p:-none} (${pre}°); resumed while low: ${early:-no}; resumed@${rl:-none} angle ${ra:-none}°; bitten≤2s: ${bitten:-none}; waking≤2s: ${waking:-none}; maxNoise after resume=$maxn; noise released=$released"
