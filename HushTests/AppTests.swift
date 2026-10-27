@@ -122,7 +122,9 @@ struct DailyRuleTests {
         let before = Date(timeIntervalSince1970: 1_793_059_170)   // 2026-10-26 23:59:30 UTC
         let after = before.addingTimeInterval(60)
         #expect(DailyClock.today(now: after) == DailyClock.today(now: before) + 1)
-        #expect(DailyClock.calendar.timeZone.identifier == "UTC")
+        // CI run 40489135408: the UTC zone may report itself as "GMT"; what matters is a zero offset all year.
+        let offset = DailyClock.calendar.timeZone.secondsFromGMT(for: before)
+        #expect(offset == 0)
         let reset = DailyClock.nextReset(after: before)
         #expect(reset.map { abs($0.timeIntervalSince(before) - 30) < 1 } == true)
     }
