@@ -918,7 +918,8 @@ extension SceneTextures {
 
     /// R3: the gum's lower edge (lip-local, y up from `lipBottom`): a lip curve, lowest at the centre, rising
     /// `gumRise` at the corners.
-    static func gumEdge(_ x: CGFloat) -> CGFloat {
+    /// Pure maths, so `nonisolated`: texture-drawing closures call it off the main actor (CI 40527739288).
+    nonisolated static func gumEdge(_ x: CGFloat) -> CGFloat {
         let u = (x - 335) / 335
         return ChestLayout.gumRise * min(u * u, 1)
     }
