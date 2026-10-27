@@ -18,7 +18,7 @@ There's no tracking question once you choose "No". For the record, Hush doesn't 
 
 | Thing | Declare? | Why |
 |---|---|---|
-| **Hinge angle and lid speed** | No | Read through the public `onHingeChange` API only to move the chest lid while the game is on screen. Never stored, never leaves the phone. Apple: "collect" means transmitting data off the device |
+| **Hinge angle and lid speed** | No | Read through the public `onHingeChange` API only to move the chest lid while the game is on screen. Never leaves the phone; the only thing kept (on the phone) is the angle at which the Duo last switched screens, for an on-device diagnostics panel. Apple: "collect" means transmitting data off the device |
 | **Touches** (dragging loot, the lever) | No | Used live for play only; never stored or sent |
 | **Game Center** (sign-in, leaderboard scores, achievements) | No | Apple collects it under Apple's privacy policy. Apple: "You are not responsible for disclosing data collected by Apple." Hush never sends it anywhere itself |
 | **Crash reports** via iOS "Share With App Developers" | No | Apple-collected and opt-in. We add no crash SDK. *If one is ever added, the label must declare Crash Data first* |

@@ -74,7 +74,7 @@ PUSH YOUR LUCK
 Your candle burns down while you loot, and a flask of oil found in a chest buys six more seconds. The chests get richer as you go, from Wooden to Iron-bound, Gilded and Royal. When something glints deeper in, a relic is hiding at the back: open wider, or bank what you have? When the candle goes out the run ends, and anything still in your bag is lost.
 
 HUSH CHAIN AND GOLDEN MIMICS
-Bank a chest without the mimic ever stirring and it's Hushed. Hushed banks in a row build a Hush Chain, and each one pays more: gold ×1.1, ×1.2, up to ×1.5. One stir breaks the chain. Now and then a golden mimic turns up: double gold, but it sleeps lighter.
+Bank a chest without the mimic ever stirring and it's Hushed. Hushed banks in a row build a Hush Chain, and each one pays more: gold ×1.1, ×1.2, up to ×1.5. One stir breaks the chain. Now and then a golden mimic turns up: it doubles a chest's gold, but it sleeps lighter.
 
 DAILY DUNGEON
 The same chests for everyone, every day, and one try that counts. Then practise as much as you like.
@@ -125,7 +125,7 @@ PUSH YOUR LUCK
 Your candle burns down while you loot, and a flask of oil found in a chest buys six more seconds. The chests get richer as you go, from Wooden to Iron-bound, Gilded and Royal. When something glints deeper in, a relic is hiding at the back: open wider, or bank what you have? When the candle goes out the run ends, and anything still in your bag is lost.
 
 HUSH CHAIN AND GOLDEN MIMICS
-Bank a chest without the mimic ever stirring and it's Hushed. Hushed banks in a row build a Hush Chain, and each one pays more: gold ×1.1, ×1.2, up to ×1.5. One stir breaks the chain. Now and then a golden mimic turns up: double gold, but it sleeps lighter.
+Bank a chest without the mimic ever stirring and it's Hushed. Hushed banks in a row build a Hush Chain, and each one pays more: gold ×1.1, ×1.2, up to ×1.5. One stir breaks the chain. Now and then a golden mimic turns up: it doubles a chest's gold, but it sleeps lighter.
 
 DAILY DUNGEON
 The same chests for everyone, every day, and one try that counts. Then practice as much as you like.

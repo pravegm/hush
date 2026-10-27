@@ -12,7 +12,7 @@ App Store Connect → the app → the **1.0** version page → **App Review Info
 
 <!-- REVIEW-NOTES:BEGIN -->
 ```
-Thanks for reviewing Hush: Don't Wake the Mimic: a paid game with no ads, no in-app purchases, no accounts, no data collection and no network requests of its own.
+Thanks for reviewing Hush: a paid game. No ads, IAP, accounts, data collection or network requests of its own.
 
 1. TESTING WITHOUT AN iPHONE DUO (start here)
 The full game works on any iPhone and in the Simulator, in portrait.
@@ -26,13 +26,13 @@ The full game works on any iPhone and in the Simulator, in portrait.
 - Every achievement can be earned with the lever.
 
 2. THE HINGE (iPhone Duo)
-Hush reads the hinge angle only through the public iOS 27.1 API (SwiftUI onHingeChange), behind an availability check. The angle is used only during play, never stored or sent. On a Duo the hinge is the lid; no lever is shown.
+Hush reads the hinge angle only through the public iOS 27.1 API (SwiftUI onHingeChange), behind an availability check. The angle never leaves the phone (only the last screen-switch angle is kept, for an on-device diagnostics panel). On a Duo the hinge is the lid; if iOS keeps it in landscape, "Play anyway" offers the lever.
 a) Stand the Duo like a small laptop. The raised half is the lid; held like a book, a card shows which half to lift.
 b) Shut is about 100 degrees, wide open about 165. Ease back to 110 or less and hold a moment to bank.
 c) The skill is moving the hinge SLOWLY: fast movement makes noise. Movement below 97 or above 168 degrees makes none.
 d) iOS briefly blurs one half of the inner screen when a fold starts, so Hush draws the chest turned round: the blurring half is the lid; loot and warnings stay on the sharp half. Settings > Turn the chest round switches this off.
 e) PAUSE: below 70 degrees (for 0.4 s) play pauses: "Lift the lid a little to carry on". If iOS moves the app to the outer display first, that is a pause too (a sleeping-mimic card). While paused the candle stops and the noise is frozen.
-f) RESUME: only at 95 degrees or more AND held still (under 6 degrees/s for 0.3 s), on the inner display; until then the card says "Hold still". Lid noise is ignored for 0.5 s after resuming, so reopening never bites.
+f) RESUME: at 95 degrees or more (after the outer display: where the inner one lit, if lower) AND held still (under 6 degrees/s for 0.3 s), on the inner display; until then "Hold still". Lid noise is ignored for 0.5 s after resuming, so reopening never bites.
 g) Above 172 degrees: "That's wide enough" (no penalty).
 
 3. KIND TO THE DEVICE (2.4.2, 1.4.5)
