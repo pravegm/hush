@@ -48,3 +48,8 @@
 | ~15:40 | Store pipeline run 40533069481: the 6.9", 6.3" and Duo sets rendered (P1–P6, D1–D6). |
 | — | **R3 review:** juror **8.5** ("fix P0 plus P1s → 9 and yes"), UX **8.8** ("launch-ready on clarity: yes"). QA-3: no P0, 1 P1. Fresh testers 7 and 8: understood 8 / 8, premium 7 / 6.5, would pay 7 / 7. |
 | — | **R4 dispatched** (`design/ROUND-4.md`): a polish-only round. Plate text padding, the chain medal, the pause socket, the bank beat dimmed, the gum curve, the stage-labelled meter, one golden number, the phone extension plaque, seams, icon safe area, the Play-anyway hinge hold, VoiceOver throttling, Dynamic Type wraps, the pose screen redraw, Diagnostics for the device test, re-shot frames. |
+
+### 27 Oct, evening: the founder sets up TestFlight
+- The founder created the App Store Connect record (**Apple ID 6827663529**, link https://apps.apple.com/app/id6827663529, live
+  from launch day), added the four ASC secrets and turned on GitHub Pages (https://pravegm.github.io/hush/ answers 200).
+- **TestFlight 1.0 (1) uploaded** (run 40551080405, R4 commit; archive unsigned + ad-hoc entitlements, App Store signature by the cloud-managed certificate). R4 CI 40546513602 green: 278 tests + the turned-drag XCUITest.

@@ -2,7 +2,7 @@
 
 *For the founder to post by hand from their own accounts. Tone: warm, sly, a little giggly ("shh"): candlelight, a sleeping monster, a thief on tiptoe. Never suggest slamming, snapping or closing the phone fast, or "breaking your hinge". Never compare with or name other Duo games or *Creaks*.*
 
-**Links to fill in:** `[App Store link]` = `https://apps.apple.com/app/id<Apple ID>` (App Store Connect → App Information → Apple ID; exists once the record is created, live on launch day). `[site]` = `https://pravegm.github.io/hush/`. `[clip]` = the 15-second teaser (§3A). *(Rewritten Tue 27 Oct, Round 3: the app says "Freeze!", the candle, the lever and "bank"; every line below matches the build.)*
+**Links to fill in:** `https://apps.apple.com/app/id6827663529` = **https://apps.apple.com/app/id6827663529** (Apple ID 6827663529) (App Store Connect → App Information → Apple ID; exists once the record is created, live on launch day). `[site]` = `https://pravegm.github.io/hush/`. `[clip]` = the 15-second teaser (§3A). *(Rewritten Tue 27 Oct, Round 3: the app says "Freeze!", the candle, the lever and "bank"; every line below matches the build.)*
 
 ---
 
@@ -29,7 +29,7 @@ Recount with Node and the real link before posting (X and Mastodon count a link 
 > Stand your iPhone Duo like a little laptop. The raised half is a treasure chest lid. Open it slowly, sneak the gold out, ease it shut. Too fast and the mimic wakes.
 >
 > £1.99 / $1.99 · no ads · no IAP · a lever on every other iPhone
-> [App Store link]
+> https://apps.apple.com/app/id6827663529
 
 *Alt text:* An iPhone Duo stands on a table like a small laptop. A hand slowly lifts the top half. On the lower screen, candlelight spills into a wooden chest full of gold coins and a red gem; on the upper screen, a big sleepy eye is shut. The hand drags a coin down into a leather bag, then eases the top half back down, and the coins glint and pour into a gold counter.
 
@@ -40,7 +40,7 @@ Recount with Node and the real link before posting (X and Mastodon count a link 
 >
 > No ads, no IAP.
 >
-> [App Store link]
+> https://apps.apple.com/app/id6827663529
 
 ### Mastodon (attach the clip)
 > Hush is out. 🕯️
@@ -51,11 +51,11 @@ Recount with Node and the real link before posting (X and Mastodon count a link 
 >
 > £1.99 / $1.99, no ads, no IAP, no tracking.
 >
-> [App Store link]
+> https://apps.apple.com/app/id6827663529
 > #iPhoneDuo #iOSDev #IndieDev
 
 ### Threads (attach the clip)
-> Made a game where your iPhone Duo is a treasure chest and you have to open it very, very slowly. Hush is out today: [App Store link]
+> Made a game where your iPhone Duo is a treasure chest and you have to open it very, very slowly. Hush is out today: https://apps.apple.com/app/id6827663529
 
 ### r/iPhoneDuo (only if the rules allow a launch post; otherwise the megathread)
 **Title:** [Dev] I made a Duo game where moving the hinge slowly is the skill: Hush is out
@@ -69,7 +69,7 @@ Recount with Node and the real link before posting (X and Mastodon count a link 
 
 ### Daily Dungeon post format (any day)
 > Today's Daily Dungeon: [gold] gold, [n] chests, [n] Hushed. Can you sneak out more?
-> [App Store link]
+> https://apps.apple.com/app/id6827663529
 
 Use the real numbers from your Results screen, never made-up ones. (If the build adds a Share button with its own result line, use exactly what it produces instead.)
 

@@ -2,7 +2,7 @@
 
 *Rewritten Tue 27 Oct 2026 (Round 3) from the code as it is now (`Hush/Core/Tuning.swift`, `Ranks.swift`, `Catalogs.swift`), adapted from Swoop's and Brim's kits. Everything here is **embargo-free**: anyone may write about Hush from the day they receive it. The public version of the fact sheet is the Press section of `docs/index.html`; keep the two in step. The founder sends every email by hand; nothing is automated. Every feature named here is on `metadata.md` §10's check list: re-tick it on the release candidate before the first email goes out.*
 
-**Links to fill in:** `[App Store link]` = `https://apps.apple.com/app/id<Apple ID>` (App Store Connect → App Information → Apple ID, which exists once the record is created in runbook §1; it works from launch morning). `[clip link]`, `[press folder]`, `[TestFlight link]`, `[promo code]`, `[expiry]`, `[your name]`.
+**Links to fill in:** `https://apps.apple.com/app/id6827663529` = **https://apps.apple.com/app/id6827663529** (Apple ID 6827663529) (App Store Connect → App Information → Apple ID, which exists once the record is created in runbook §1; it works from launch morning). `[clip link]`, `[press folder]`, `[TestFlight link]`, `[promo code]`, `[expiry]`, `[your name]`.
 
 ---
 
@@ -35,7 +35,7 @@
 | **Privacy** | Data Not Collected. No accounts, no tracking, no third-party SDKs |
 | **Languages** | English |
 | **Size** | ~[XX] MB (fill in from App Store Connect after processing) |
-| **Links** | App Store: [App Store link] · Site: https://pravegm.github.io/hush/ · Support: https://pravegm.github.io/hush/support.html |
+| **Links** | App Store: https://apps.apple.com/app/id6827663529 · Site: https://pravegm.github.io/hush/ · Support: https://pravegm.github.io/hush/support.html |
 | **Press contact** | GitHub issues (https://github.com/pravegm/hush/issues), the same channel as support. [Founder to decide: a press email, which would replace this on the page] |
 
 ---
@@ -168,7 +168,7 @@ Plain text, under 150 words, clip link in the first two lines, never attach vide
 
 ### 6. Launch-day note (reply in each earlier thread)
 
-> Hush is out today: [App Store link]. The iPhone Duo's raised half is the chest lid; on other iPhones there's a lever. £1.99/$1.99, no ads, no IAP, no data collected. Everything in [press folder] is free to use. Promo code on request.
+> Hush is out today: https://apps.apple.com/app/id6827663529. The iPhone Duo's raised half is the chest lid; on other iPhones there's a lever. £1.99/$1.99, no ads, no IAP, no data collected. Everything in [press folder] is free to use. Promo code on request.
 >
 > [your name]
 
