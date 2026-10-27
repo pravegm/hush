@@ -1,6 +1,6 @@
 # Hush launch runbook (for the founder)
 
-*Written Tue 27 Oct 2026. This is the only document you need to follow. It lists **only the steps that need your own GitHub or Apple login**; Claude does everything else. It goes in order, and each step says exactly where to click and what to type. Everything Apple sees lives in `docs/appstore/`; the reason behind every choice is in `docs/appstore/DECISIONS.md`. Whenever a step says "tell Claude", a one-line message in chat is enough.*
+*Written Tue 27 Oct 2026; updated the same day in Round 3 (the device test in §4 is now the Duo specialist's 15-step script, and the steps are in the order you do them). This is the only document you need to follow. It lists **only the steps that need your own GitHub or Apple login, or your Duo**; Claude does everything else. Each step says exactly where to click and what to type. Everything Apple sees lives in `docs/appstore/`; the reason behind every choice is in `docs/appstore/DECISIONS.md`. Whenever a step says "tell Claude", a one-line message in chat is enough.*
 
 **Launch: Tuesday 1 December 2026, about 08:00 UK time, released by you (manual release).** Brim launches Tue 17 Nov and Swoop Tue 24 Nov, so the three games never share a week.
 
@@ -17,13 +17,13 @@ A few words used below:
 
 | When | What you do | Section |
 |---|---|---|
-| **Today, Tue 27 Oct** | Make the repo public and turn on the website (5 minutes). **This unblocks everything else** | §0 |
-| Tue 27 – Thu 29 Oct | Trademark check, then register Hush with Apple and create the app record (30 minutes) | §1a–e |
-| Tue 27 – Thu 29 Oct | Add the 4 GitHub secrets (10 minutes) | §2 |
-| **By Tue 10 Nov** (sooner is better) | The featuring nomination (Apple wants 3 weeks' notice) | §1f |
+| **Done** | The repo is public | §0a |
+| **Today, Tue 27 Oct** | Turn on the website (5 minutes) | §0b |
+| Tue 27 – Thu 29 Oct | **First** the trademark check, **then** register Hush with Apple and create the app record (30 minutes) | §1 |
+| Tue 27 – Thu 29 Oct | Add the 4 GitHub secrets (10 minutes), then send the featuring nomination (by **Tue 10 Nov**; Apple wants 3 weeks' notice) | §2 |
 | When Claude says the build is ready (early November) | Run the TestFlight build (2 clicks) and install it | §3 |
-| The same weekend | First play on your Duo: the 10-minute check, then send Claude your notes | §4 |
-| Until about Fri 20 Nov | Claude tunes the feel from your notes; you repeat the 10-minute check on each new build | §4 |
+| The same day or weekend | The 15-step Duo test (about 15 minutes), then send Claude your notes | §4 |
+| Until about Fri 20 Nov | Claude fixes and tunes from your notes; you repeat §4 on each new build | §4 |
 | Tue 17 Nov | **Brim's launch day.** No Hush work today | — |
 | **Sat 21 – Sun 22 Nov** | Fill in the listing with the App Store Connect robot, plus four clicks only you can do (one evening) | §5a–c |
 | Mon 23 Nov | Claude: code freeze, the final build and the screenshots | — |
@@ -33,29 +33,21 @@ A few words used below:
 | Sat 28 – Mon 30 Nov | Promo codes for creators; pre-launch posts | §6 |
 | **Tue 1 Dec, ~08:00 UK** | Press **Release This Version**. Launch-day steps | §6 |
 
-**If Hush isn't submitted by Fri 27 Nov:** move the launch to **Tue 15 Dec** (never 8 Dec, which is Swoop's fallback). Change the nomination's Publish Date (§1f) and tell Claude.
+**If Hush isn't submitted by Fri 27 Nov:** move the launch to **Tue 15 Dec** (never 8 Dec, which is Swoop's fallback). Change the nomination's Publish Date (§2c) and tell Claude.
 
 ---
 
-## §0. Make the repo public and turn on the website (do this first)
+## §0. The repo is public; turn on the website
 
-### 0a. Make the repo public
+### 0a. Make the repo public: **done**
 
-**Why:** this GitHub account's billing blocks GitHub Actions on **private** repos, which stops every build, test and TestFlight upload. Public repos build for free. Squish, Brim and Swoop are already public for the same reason. Nothing personal is in the repo. (Claude had to create it private: its safety rules don't allow it to create public repos.)
-
-1. Go to **github.com/pravegm/hush** and sign in.
-2. Click **Settings** (the gear tab along the top of the repo, on the right).
-3. Stay on **General** (the first item in the left list) and scroll to the very bottom, to the red **Danger Zone** box.
-4. Click **Change visibility** → **Change to public**.
-5. GitHub asks you to confirm (it may ask you to type `pravegm/hush`, and to confirm with your password or phone). Confirm.
-
-*Check:* the Danger Zone button now says **Change to private**, and the repo name at the top has a **Public** label next to it.
+You've already done this (thank you): GitHub Actions only builds public repos on this account. *Check:* github.com/pravegm/hush shows a **Public** label next to the repo name. Nothing personal is in the repo.
 
 ### 0b. Turn on the website (support and privacy pages)
 
 Apple needs a working support page and privacy page before it accepts the app. They're already written; this puts them online for free.
 
-1. github.com/pravegm/hush → **Settings** → **Pages** (left list, under "Code and automation").
+1. github.com/pravegm/hush → **Settings** (the gear tab along the top of the repo, on the right) → **Pages** (left list, under "Code and automation").
 2. Under **Build and deployment**, **Source**: choose **Deploy from a branch**.
 3. **Branch**: choose **main**, then in the folder box next to it choose **/docs**. Click **Save**.
 4. Wait 1–2 minutes, then open these on your phone. All three must load:
@@ -67,15 +59,15 @@ Apple needs a working support page and privacy page before it accepts the app. T
 
 Support is through **GitHub issues** (`github.com/pravegm/hush/issues`), the same choice you made for Squish, Brim and Swoop, so there's no email address to set up. Check **Settings → General → Features → Issues** is ticked.
 
-**Tell Claude "Hush is public"**: the first build runs straight away.
+**Tell Claude "the site is up".**
 
 ---
 
-## §1. Register Hush with Apple and create the app record (about 30 minutes, once)
+## §1. Trademark check first, then the app record (about 30 minutes, once)
 
 ### 1a. Trademark check for the name "Hush" (10 minutes, before anything else)
 
-Nobody has checked yet whether someone owns "Hush" as a trademark for games. Do this before the name goes public. It's a quick search, not legal advice.
+Nobody has checked yet whether someone owns "Hush" as a trademark for games. Do this before the name goes into Apple's system. It's a quick search, not legal advice.
 
 1. **UK:** go to **https://trademarks.ipo.gov.uk/ipo-tmtext** (UK IPO, "Search for a trade mark"). Search for the word `HUSH`. Under "Classes", tick **9** (software and downloadable games), **28** (games and toys) and **41** (entertainment and online games). Search.
 2. **US:** go to **https://tmsearch.uspto.gov** (USPTO Trademark Search). Search `HUSH`. Use the filters to show **Live** marks only, and look at classes **009**, **028** and **041**.
@@ -120,15 +112,9 @@ In the new app, open **App Information** (left list) and copy the **Apple ID** n
 
 In the app, open **Services** (in some layouts **Features**) → **Game Center** → turn it on. The leaderboards and achievements are added for you in §5 (or by hand: `docs/appstore/achievements.md`).
 
-### 1f. Featuring nomination (by Tue 10 Nov; sooner is better)
-
-This asks Apple's editors to consider featuring Hush on launch day. It needs only the app record from 1c, not a build. Do it once §2 is done (the robot needs the secrets):
-- **The easy way:** github.com/pravegm/hush → **Actions** → **App Store Connect tool** (left list) → **Run workflow** → tick **Contact App Store Connect** → mode **push** → in "Optional step list" type `nomination` → **Run workflow**. About 10 minutes later it shows a green tick. Then check App Store Connect → the app → **Featuring** → **Nominations**: one nomination, status **Submitted**.
-- **By hand, if that fails:** App Store Connect → the app → **Featuring** → **Nominations** → **Create Nomination**. Copy every field from `docs/appstore/featuring-nomination.md`. Press **Submit** (a saved draft doesn't count).
-
 ---
 
-## §2. Connect GitHub to Apple (10 minutes, once)
+## §2. Connect GitHub to Apple, then send the nomination (15 minutes, once)
 
 GitHub builds Hush for you on Apple's newest Xcode, and fills in the App Store listing for you. It needs four secrets: **the same four values you put into `pravegm/squish`, `pravegm/brim` and `pravegm/swoop`**. One Apple key works for all your apps.
 
@@ -147,6 +133,10 @@ You don't need to make any certificate or profile. The build uses **Apple's clou
 
 **2b. Add them to Hush's repo.** github.com/pravegm/hush → **Settings** → **Secrets and variables** (left list) → **Actions** → **New repository secret**. For each of the four: type the name exactly as above (capitals and underscores), paste the value, click **Add secret**. When you're done the list shows four names.
 
+**2c. The featuring nomination (by Tue 10 Nov; sooner is better).** This asks Apple's editors to consider featuring Hush on launch day. It needs only the app record (§1) and these secrets, not a build.
+- **The easy way:** github.com/pravegm/hush → **Actions** → **App Store Connect tool** (left list) → **Run workflow** → tick **Contact App Store Connect** → mode **push** → in "Optional step list" type `nomination` → **Run workflow**. About 10 minutes later it shows a green tick. Then check App Store Connect → the app → **Featuring** → **Nominations**: one nomination, status **Submitted**.
+- **By hand, if that fails:** App Store Connect → the app → **Featuring** → **Nominations** → **Create Nomination**. Copy every field from `docs/appstore/featuring-nomination.md`. Press **Submit** (a saved draft doesn't count).
+
 ---
 
 ## §3. Run TestFlight (when Claude says the game is ready)
@@ -159,49 +149,62 @@ You don't need to make any certificate or profile. The build uses **Apple's clou
 
 ---
 
-## §4. Play it on your Duo: the 10-minute check
+## §4. The Duo test: 15 steps, about 15 minutes
 
-**Before you start:** sit at a table. Ringer **on**, volume about half. Have a clock or timer nearby. You'll stand the Duo on the table like a little laptop: one half lying flat on the table (the **floor** of the chest), the other half raised (the **lid**).
+**Why:** some things only your Duo can tell us: when the inner and outer screens switch over, whether the screen flips while you hold it like a book, which half blurs, and whether it gets warm. Do this on the first TestFlight build and again on each new one.
 
-| Minute | Try this | Notice |
+**Before you start:**
+- Sit at a table. Ringer **on**, volume about half.
+- Words used: the **floor** is the half lying flat on the table; the **lid** is the half you lift. **Upright** means the lid straight up, like a laptop screen.
+- **Screen recording** for steps 2, 8 and 10: swipe down from the top-right corner to open Control Centre and tap the round record button (if it isn't there: Settings → Control Centre → add **Screen Recording**). Tap the red time at the top to stop; the video goes to Photos.
+- If something goes wrong, carry on with the next step and write it down.
+
+| Step | Do this | What should happen (note anything different) |
 |---|---|---|
-| 0–1 | Open Hush. The first time, it starts **First Chest** (the lesson). Its first card shows a diagram and says which half to lift | Was it obvious **which half** to lift? Did you have to **turn the Duo round** (swap which half is on the table)? Did that feel odd or fine? |
-| 1–3 | Follow the lesson: open the lid slowly, drag the coin into the bag, freeze when it says so, ease the lid shut | Did each step make sense from its one sentence? Did "Slower…" appear when you went too fast? Anything you didn't understand? |
-| 3–5 | Your first **Run**. Open each chest slowly, take what you can see, ease the lid shut to bank it | **The creak:** at what speed does it start? Does the sound **and the buzz in your fingers** feel like the phone's own hinge creaking? Too loud, too quiet, too buzzy? |
-| 5–6 | **Blur test.** Start with the lid almost shut (about where banking happens), then lift it. Watch **both** halves the moment you start | Did one half go blurry for a moment? **Which half: the lid (raised) or the floor (on the table)?** For about how long? Did the loot, the noise meter and the warnings stay **sharp**? |
-| 6–7 | **Fairness test.** Open one chest at what feels like a "normal, careful" speed, and another a bit quicker. Let the mimic wake once on purpose | Did it ever wake when you **thought you were being gentle**? When it bit, did you know **why** (the creak, the meter, the heartbeat)? Did "FREEZE" give you enough time to stop? Did freezing actually calm it? |
-| 7–8 | **Bank and wide test.** Ease the lid shut to bank. Then on the next chest open the lid as wide as feels natural (never flat) | Did banking happen reliably when the lid was low, or did you have to close it further than felt comfortable? Did "That's wide enough" ever appear? Did you ever want to push it flat? |
-| 8–9 | Close the Duo fully, look at the outer screen, then reopen it. Then open **Settings**: turn **Turn the chest round** off, play a few seconds, turn it back on. Flip the **silent switch on** and try **Sound**, **Haptics** and **Respect silent switch** | What does the outer screen show? Did it pause with "Lift the lid a little" and carry on when you opened? With "Turn the chest round" **off**, which half blurred, and was it worse? Is there sound on silent? Do the switches work? |
-| 9–10 | Play the **Daily Dungeon**, then one more Run, however you like | Did you want "one more go" when the torch went out? |
+| 1 | If an older Hush is on the Duo, delete it first. Install Hush from TestFlight. Hold the Duo open **like a book** (both halves standing up side by side) and open Hush. Then wiggle it gently for 5 seconds | A card asks you to turn the Duo and lift the glowing half, and it **stays up** while you hold it like a book. The screen should **not keep flipping round** while you wiggle |
+| 2 | **Start recording.** Put the Duo on the table and lift the **glowing** half like a laptop lid | Within about 2 seconds the chest appears, the right way up. If it doesn't, tap **I've stood it up**. You should **never see a brass lever** on the Duo |
+| 3 | While lifting from flat, watch which half goes blurry for a moment | The half you lifted (the lid) blurs, **never the floor** |
+| 4 | The lesson (First Chest): stand the lid upright. Then open it slowly, taking about 8 seconds (count them) | First "That's it", then "Open the lid… slowly. Watch the noise." While opening: **no noise, and a coin starts to glint.** Note whether the lid's picture moves smoothly or in little jumps |
+| 5 | Drag the coin into the pouch with one finger | The coin **stays under your finger** all the way |
+| 6 | In a real **Run**, after you bank a chest, stand the lid upright and leave it there for 5 seconds | Note **which screen stays lit**: the inside screen (with no card on it), or the outside screen |
+| 7 | Lower the lid **slowly** until it's shut, taking about 5 seconds. Watch the outside screen | The outside screen shows **only the sleeping mimic**, never a small chest flashing up |
+| 8 | **Start recording.** Reopen **slowly**: stop for 1 second at upright, then again about halfway between upright and flat, then carry on | The inside screen lights up, a card says **"Hold still…"**, then the run carries on **with no bite**, and the candle **hasn't burned down** while the screen was dark |
+| 9 | Close and reopen once at a normal speed. Then go to Home (pause coin → **Home**; this ends the run) → **Settings** (the gear) → **About** | If a small grey **"Test build"** line appears under About, take a screenshot (it tells Claude the angles where the screens switch). If there's no such line, skip this step |
+| 10 | **Start recording.** In the middle of a run, pick the Duo up and tilt it sideways | The picture **stays the same way up**, and the book card does **not** appear |
+| 11 | Tap the pause coin, then tap **Resume** **while you're still moving the lid** | The run **waits until you hold the lid still** before it carries on |
+| 12 | Hold the Duo upright like a normal phone, camera at the top | A gold **"Other way round"** banner appears |
+| 13 | Stand it on the table again and lift the **wrong** half on purpose (the one that wasn't glowing) | Note whether anything tells you. If Settings → About has the grey line, screenshot it again |
+| 14 | While you were easing the lid in all of the above | Did your fingers ever **tap the pause coin** by accident? |
+| 15 | Play **5 runs in a row** | Then note: is the Duo **warm**? Does the **creak** feel like the hinge itself? Is the buzz **in your fingers**, or a buzz on the table? |
 
-**Comfort check (important):** at any point did your hand or wrist get tired? Did you ever have to move the lid further or faster than felt natural, or worry about the hinge? Did the Duo stay stable on the table while you opened and dragged?
-
-**Send Claude this (copy, fill in, paste in chat):**
+**Send Claude this (copy, fill in, paste in chat), plus the 3 recordings and any screenshots:**
 ```
 Hush build [number from TestFlight], iPhone Duo, iOS [version]
-Which half the card told me to lift: [the one I'd naturally lift / I had to turn the Duo round]  Clear? [yes/no]
-Scores 1-5:
-  slow opening feels like sneaking [ ] / the creak feels like the phone's hinge [ ]
-  creak sound [ ] / creak haptics [ ] (too weak / right / too strong: ...)
-  the mimic is fair (wakes only when I deserve it) [ ] / FREEZE gives me time [ ]
-  banking by easing shut feels good [ ] / comfort [ ] / want one more go [ ]
-Blur: did half the screen blur? [yes/no]  Which half: [lid / floor]  How long: [ ] s
-  Loot, meter and warnings stayed sharp: [yes/no]
-  With "Turn the chest round" OFF, which half blurred: [lid / floor]
-Speed where the creak starts: [very slow / normal / only when fast]
-Times the mimic woke when I thought I was gentle: [ ]
-Banking: worked every time? [yes/no]  Had to close further than comfortable? [yes/no]
-Sound on silent: [yes/no]   "Respect silent switch" works: [yes/no]
-Runs (gold banked, chests, bites): 1 [ ] 2 [ ] 3 [ ]
-Did the screen ever dim or lock while playing? [yes/no]
+1  Book card stayed up: [yes/no]   Screen kept flipping when I wiggled: [yes/no]
+2  Chest appeared by itself: [yes/no, after about _ s / had to tap the button]   Saw a lever: [yes/no]
+3  Half that blurred: [lid / floor]
+4  "That's it" then "Open the lid... slowly": [yes/no]   Silent + coin glinted: [yes/no]   Lid moved: [smoothly / in jumps]
+5  Coin stayed under my finger: [yes/no]
+6  Screen lit when resting upright: [inside / outside]
+7  Outside screen showed only the sleeping mimic: [yes/no]
+8  "Hold still..." then carried on: [yes/no]   Bitten on reopening: [yes/no]   Candle burned down while dark: [yes/no]
+9  Grey "Test build" line: [screenshot sent / not there]
+10 Stayed the right way up when tilted: [yes/no]
+11 Resume waited for a still lid: [yes/no]
+12 "Other way round" banner: [yes/no]
+13 Wrong half: anything told me? [what it said / nothing]
+14 Hit the pause coin by accident: [never / sometimes / often]
+15 Warm after 5 runs: [no / a little / hot]   Creak feels like the hinge: [1-5]   Haptic: [in my fingers / on the table]
+Runs (gold banked, chests, bites): 1 [ ] 2 [ ] 3 [ ] 4 [ ] 5 [ ]
+Comfort (hand or wrist tired? ever had to move the lid further or faster than felt natural?):
 Best moment:
 Worst moment:
 Bugs (what you did, what happened):
 Anything confusing:
 ```
-A phone video of your hand and the Duo from the side while you play helps a lot: send it if you can. In TestFlight you can also take a screenshot in Hush and tap **Share Beta Feedback**.
+In TestFlight you can also take a screenshot in Hush and tap **Share Beta Feedback**. A phone video of your hand and the Duo from the side while you play helps a lot too.
 
-Repeat the check on each new build Claude sends. The release build is the one where every score is 4 or 5, comfort is 5, and the floor half stays sharp.
+The release build is the one where every "should" above happens, nothing in steps 7, 8 and 11 goes wrong, and comfort is fine.
 
 ---
 
@@ -230,7 +233,7 @@ Open each page and check:
 - **App Information → Age Rating:** the result says **9+**. (Why 9+ and not 4+: the mimic's comic bite is "mild cartoon violence" in Apple's terms; `docs/appstore/metadata.md` §8.) If it says anything else, tell Claude before submitting.
 - **The 1.0 page → App Review Information:** "Sign-in required" unticked, your contact details filled in, and the **Notes** box starts "Thanks for reviewing Hush". (The text is in `docs/appstore/review-notes.md`.)
 - **The 1.0 page → Version Release:** **Manually release this version** is chosen.
-- **Services → Game Center:** 2 leaderboards (Best Haul, Daily Dungeon) and 12 achievements, each with a picture.
+- **Services → Game Center:** 2 leaderboards (Best Haul, Daily Dungeon) and 12 achievements, each with a picture (for example **Midas Touch** and **Hush Chain**).
 
 **If the robot can't do something** (it says so in its output, and Claude will tell you), the by-hand version is: paste the code blocks from `docs/appstore/metadata.md` §1–5 into App Information and the 1.0 page (English (U.K.), then switch the language menu to English (U.S.) and paste the U.S. description); answer the age rating exactly as the table in §8; set the price and availability as in 5c; paste `review-notes.md`'s block into Notes; add the Game Center items from `achievements.md` (IDs can never be changed once saved, so type them exactly).
 
@@ -243,7 +246,7 @@ Claude tells you on Mon 23 Nov whether the robot has uploaded the screenshots or
 
 ### 5e. Pick the build (Wed 25 Nov)
 
-On the 1.0 page, **Build** → **+** → the build Claude names as the release build. In the **Game Center** section, check both leaderboards and all twelve achievements are listed (they only go live with this version).
+On the 1.0 page, **Build** → **+** → the build Claude names as the release build (the one that passed §4). In the **Game Center** section, check both leaderboards and all twelve achievements are listed (they only go live with this version).
 
 ### 5f. Submit (Wed 25 Nov; last safe day Fri 27 Nov)
 

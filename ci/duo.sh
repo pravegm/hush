@@ -34,8 +34,27 @@
 #    reopen to 120° in 0.4 s. PASS: no `event bitten` within 2 s of the reopen, and `HUSH-T resumed` only after a
 #    logged angle >= 95° (`HUSH-T resumed angle <θ>` when the App prints it, else the last `HUSH-H` sample before it).
 #
-# Env: UDID (required), OUT (duo-screens), PASSES ("hinge frames ui"), ORIENT ("portrait"), STRICT (1 = exit 1 when a
-# check FAILs; default 0: the frames and the PASS/FAIL table are the evidence).
+# R3 (design/ROUND-3.md "CI engineer", decision 1, REVIEW-2-duo P0-1 / P1-2, tester 6 "a slam that doesn't bite reads
+# as nothing"):
+#  - COVER-SLOW-CLOSE: a real run, 120 → 40° over 6 s (13°/s, the taught gentle close), then 3 s at 40°. PASS: the run
+#    paused, never logged `HUSH-T pose play` while the canvas was cover-sized (long side < 760 pt; the pose line carries
+#    the canvas size) nor `small-canvas-open`, and never resumed.
+#  - COVER-SLOW-REOPEN (same launch, after a full shut): 0 → 140° over 5 s (on to 165° if the sim's cover display is
+#    still lit and nothing resumed in 4 s: the sim relights late, R2 duo3). PASS: the first `HUSH-T resumed` is on the
+#    inner canvas (INNER_CANVAS, 669x951) at a logged angle >= 95°, no resume ever on a cover-sized canvas, and no
+#    `event bitten` in the 2 s after it (noise=0.6 held until the first pause, then frozen there by decision 2, so a
+#    reopen leaking into the noise would bite).
+#  - SLAM-CREAK: an attract slam (never bites) with `freezeOn=creak`; the inner panel is shot the moment a CREAK line
+#    (`HUSH-T freeze creak` / `HUSH-T creak …` / `HUSH-T event creak …`) appears, so duo-h2c-slam-creak shows the
+#    "CREAK!" shake and the red meter flash (design/NEEDS.md CI R3 asks the App for the tag and the line).
+#  - duo-ui-pose-card: `screen=pose;pose=book;orient=landscape` (R3 key: the card is held, no portrait ask), so the
+#    "Turn it sideways. Lift the glowing half." card is finally a frame (REVIEW-2-ux P1-6, juror "capture gaps").
+#  - PASSES=store: the App Store Duo set (ci/store-capture.sh duo → ci/duo-store-scenarios.txt), one tabletop capture
+#    per line at STORE_ANGLE (150°): store-<name>.png + logs/store-<name>.at-capture.txt (ci/store-set.sh frames them).
+#
+# Env: UDID (required), OUT (duo-screens), PASSES ("hinge frames ui"; "store" is opt-in), ORIENT ("portrait"), STRICT
+# (1 = exit 1 when a check FAILs; default 0: the frames and the PASS/FAIL table are the evidence), INNER_CANVAS
+# ("669x951"), STORE_LIST / STORE_FILTER / STORE_ANGLE (the store pass).
 # Writes: $OUT/*.png (lit panel), $OUT/raw/<shot>-inner|cover.png, $OUT/logs/<launch>.txt (app stdout+stderr),
 # $OUT/logs/run.txt (this script), $OUT/checks.tsv (check <TAB> PASS|FAIL|INFO <TAB> detail) and, when
 # $GITHUB_STEP_SUMMARY is set, a summary table.
@@ -47,6 +66,7 @@ OUT="${OUT:-duo-screens}"
 PASSES="${PASSES:-hinge frames ui}"
 ORIENT="${ORIENT-portrait}"
 STRICT="${STRICT:-0}"
+INNER_CANVAS="${INNER_CANVAS:-669x951}"
 : "${UDID:?UDID is required}"
 mkdir -p "$OUT/raw" "$OUT/logs"
 OUT_ABS="$(cd "$OUT" && pwd)"
@@ -187,6 +207,26 @@ is_portrait() {
   [[ "$w" =~ ^[0-9]+$ && "$h" =~ ^[0-9]+$ ]] && (( h > w ))
 }
 
+# canvas_before <file> <line>: the "<w>x<h>" of the last `HUSH-T canvas` line before line <line>, or "none".
+canvas_before() {
+  awk -v n="$2" 'NR >= n + 0 { exit }
+    /HUSH-T canvas [0-9]+x[0-9]+/ { if (match($0, /canvas [0-9]+x[0-9]+/)) c = substr($0, RSTART + 7, RLENGTH - 7) }
+    END { print (c == "" ? "none" : c) }' "$1" 2>/dev/null
+}
+# is_cover_size <WxH>: the long side is under 760 pt (AppRules.coverMaxSide; the sim's cover canvas is 466 x 678).
+is_cover_size() {
+  local w="${1%x*}" h="${1#*x}"
+  [[ "$w" =~ ^[0-9]+$ && "$h" =~ ^[0-9]+$ ]] || return 1
+  (( (w > h ? w : h) < 760 ))
+}
+# max_jump: from noise values on stdin (10 Hz lid lines), the largest rise over 3 samples (~0.3 s), "none" if < 4.
+max_jump() {
+  awk '$1 ~ /^-?[0-9.]+$/ { v[n++] = $1 + 0 }
+    END { m = ""; for (i = 3; i < n; i++) { lo = v[i - 3]; if (v[i - 2] < lo) lo = v[i - 2]; if (v[i - 1] < lo) lo = v[i - 1]
+            d = v[i] - lo; if (m == "" || d > m) m = d }
+          if (m == "") print "none"; else printf "%.2f\n", m }'
+}
+
 # png_wh <file>: "WxH" of a PNG, or "?". The Duo's inner-display capture follows the interface orientation (Brim:
 # 2007 x 2853 in portrait, 2853 x 2007 for the book card), so it is the ground truth for PORTRAIT.
 png_wh() {
@@ -294,6 +334,28 @@ if [[ " $PASSES " == *" hinge "* ]]; then
   [[ -f "$OUT_ABS/duo-h2-slam-bite.png" ]] || shoot_now duo-h2-slam-bite
   shoot duo-h2-after-slam inner
 
+  # 2b. SLAM-CREAK (R3, tester 6): the same slam in attract mode (never bites), so the frame is the CREAK accent alone:
+  #     the "CREAK!" shake and the red flash on the meter when the noise jumps > 0.25 in 0.3 s (Scene/Feel rule; the
+  #     App logs it and freezes on `freezeOn=creak`, design/NEEDS.md CI R3). PASS: a creak line within 3 s of the
+  #     slam. FAIL: no creak line although the logged noise rose > 0.25 over 3 lid samples. INFO otherwise (no line,
+  #     no measurable jump: the App hook or the attract noise may be missing).
+  hinge_set 105
+  launch slam-creak "screen=run;mode=attract;seed=7;freezeOn=creak" 1
+  SK="$OUT_ABS/logs/slam-creak.txt"
+  hinge_sweep 150 6; sleep 2
+  k0=$(nlines "$SK")
+  hinge_sweep 104 0.3
+  if wait_for "$SK" "HUSH-T (freeze creak|event creak|creak )" 3; then shoot_now duo-h2c-slam-creak; got="creak line seen"
+  else shoot_now duo-h2c-slam-creak; got="no creak line within 3 s (shot anyway)"; fi
+  sleep 0.5
+  kl=$(after "$SK" "$k0" | grep -m1 -E "HUSH-T (freeze creak|event creak|creak )" | tr -d '\r')
+  kj=$(after "$SK" "$k0" | lid_vals noise | max_jump)
+  kp=$(after "$SK" "$k0" | lid_vals speed | max_of)
+  d="peakSpeed=${kp}°/s noise jump(0.3 s)=$kj; first: ${kl:-none}; $got"
+  if [[ -n "$kl" ]]; then result SLAM-CREAK PASS "$d"
+  elif [[ "$kj" != none ]] && awk -v j="$kj" 'BEGIN { exit !(j + 0 > 0.25) }'; then result SLAM-CREAK FAIL "$d (the rule was met)"
+  else result SLAM-CREAK INFO "$d (no line and no jump > 0.25 logged: App hook pending?)"; fi
+
   # 4a. UPRIGHT-NO-PAUSE (REVIEW-1-duo P1-4): the closing pause moved from 85° to 70° so a lid resting upright (90°,
   #     which the Duo can read as low as ~84°) never pauses. From 120, sweep to 78° and hold 2 s: no `paused closing`.
   # 4b. CLOSE-PAUSE: then on down to 55° (< 70° held 0.4 s pauses) → `paused closing`; back to 120 → `resumed`.
@@ -368,11 +430,92 @@ if [[ " $PASSES " == *" hinge "* ]]; then
   fi
   result REOPEN-NO-BITE "$verdict" "$d"
   shoot duo-h6-reopened-120 inner
+
+  # 6. COVER-SLOW-CLOSE (R3 decision 1, REVIEW-2-duo P0-1): the cover display is a pause, always. A real run with the
+  #    noise held at 0.6 until the first pause (then frozen there, decision 2). From 120°, close gently to 40° over 6 s
+  #    (13°/s, under the 18°/s closing creak: iOS hands the app to the cover display around 74–92° on the sim), then
+  #    hold 3 s. PASS: a `HUSH-T paused` line, no `HUSH-T pose play` on a cover-sized canvas and no `small-canvas-open`
+  #    (the deleted R2 fallback), and no `HUSH-T resumed` after the pause.
+  hinge_set 120
+  launch cover-slow "screen=run;mode=run;seed=7;noise=0.6;noiseUntil=pause" 1
+  CS="$OUT_ABS/logs/cover-slow.txt"
+  sleep 1
+  k0=$(nlines "$CS")
+  hinge_sweep 40 6; sleep 3
+  k1=$(nlines "$CS")
+  kp=$(first_line "$CS" "HUSH-T paused" "$k0")
+  kc=$(first_line "$CS" "HUSH-T pose cover" "$k0")
+  kca=$( [[ -n "$kc" ]] && sed -n "${kc}p" "$CS" | grep -oE "angle=[0-9.]+" | head -1 )
+  bad=""
+  while IFS=: read -r ln sz; do
+    [[ -n "$ln" ]] || continue
+    [[ -n "$sz" ]] || sz=$(canvas_before "$CS" "$ln")
+    is_cover_size "$sz" && bad="$bad line $ln ($sz)"
+  done < <(awk -v a="$k0" -v b="$k1" 'NR > a + 0 && NR <= b + 0 && /HUSH-T pose play/ {
+             s = ""; if (match($0, /[0-9]+x[0-9]+/)) s = substr($0, RSTART, RLENGTH); print NR ":" s }' "$CS" 2>/dev/null)
+  small=$(between "$CS" "$k0" "$k1" | grep -c "small-canvas-open" | tr -d ' ')
+  kr=""; [[ -n "$kp" ]] && kr=$(first_line "$CS" "HUSH-T resumed" "$kp")
+  [[ -n "$kr" && "$kr" -gt "$k1" ]] && kr=""
+  d="paused@${kp:-none} ($( [[ -n "$kp" ]] && sed -n "${kp}p" "$CS" | grep -oE 'paused [a-z]+' || echo -), $( [[ -n "$kp" ]] && angle_before "$CS" "$kp" || echo -)°); cover pose@${kc:-none} ${kca:-}; play-on-cover:${bad:- none}; small-canvas-open=$small; resumed while low: ${kr:-no}; last canvas $(canvas_before "$CS" $(( k1 + 1 )))"
+  if [[ -n "$kp" && -z "$bad" && "${small:-0}" == 0 && -z "$kr" ]]; then result COVER-SLOW-CLOSE PASS "$d"
+  else result COVER-SLOW-CLOSE FAIL "$d"; fi
+
+  # 7. COVER-SLOW-REOPEN: on down to shut (0°, the cover display), 3 s there, then reopen over 5 s to 140° (28°/s: the
+  #    hardware relights the inner display somewhere on the way). PASS: the first `HUSH-T resumed` comes on the inner
+  #    canvas ($INNER_CANVAS) at a logged angle >= 95°, no resume at all on a cover-sized canvas, and no `event
+  #    bitten` in the 2 s after the resume. A clean run without `HUSH-T noise released` is INFO (the hold made a bite
+  #    impossible), as in REOPEN-NO-BITE.
+  hinge_sweep 10 1.5; hinge_set 0; sleep 3
+  shoot duo-h7-cover-after-slow-close cover
+  m0=$(nlines "$CS")
+  hinge_sweep 140 5
+  rl=""; t=0; went=140
+  while (( t < 20 )); do rl=$(first_line "$CS" "HUSH-T resumed" "$m0"); [[ -n "$rl" ]] && break; sleep 0.2; t=$((t+1)); done
+  if [[ -z "$rl" ]]; then
+    # The sim can keep the cover display lit up to ~150° on a reopen (R2 duo3: still lit at 118°, resumed at 134°,
+    # Brim: ~150°). Not resuming on the cover is right; go on to 165° (the known relight) and look again.
+    went=165
+    hinge_sweep 165 1
+    t=0
+    while (( t < 30 )); do rl=$(first_line "$CS" "HUSH-T resumed" "$m0"); [[ -n "$rl" ]] && break; sleep 0.2; t=$((t+1)); done
+  fi
+  sleep 2
+  mb=$(nlines "$CS")
+  sleep 1
+  ra=""; rc="none"; bit=""
+  if [[ -n "$rl" ]]; then
+    ra=$(sed -n "${rl}p" "$CS" | grep -oE "angle [0-9.]+" | awk '{print $2}')
+    [[ -n "$ra" ]] || ra=$(angle_before "$CS" "$rl")
+    rc=$(canvas_before "$CS" "$rl")
+    bit=$(between "$CS" "$rl" "$mb" | grep -m1 -E "HUSH-T event bitten" | tr -d '\r')
+  fi
+  oncover=""
+  while read -r ln; do
+    [[ -n "$ln" ]] || continue
+    c=$(canvas_before "$CS" "$ln"); is_cover_size "$c" && oncover="$oncover line $ln ($c)"
+  done < <(awk -v a="$m0" '/HUSH-T resumed/ && NR > a + 0 { print NR }' "$CS" 2>/dev/null)
+  pl=$(first_line "$CS" "HUSH-T pose play" "$m0")
+  relight=$( [[ -n "$pl" ]] && angle_before "$CS" "$pl" || echo none )
+  released=$(count "HUSH-T noise released" "$CS")
+  d="reopened to ${went}°; resumed@${rl:-none} angle ${ra:-none}° canvas $rc; relit (pose play)@${pl:-none} ~${relight}°$(grep -m1 -oE 'HUSH-T relight angle=[0-9.]+' "$CS" | sed 's/^HUSH-T / /'); resumed on cover:${oncover:- none}; bitten≤2s: ${bit:-none}; maxNoise after=$(after "$CS" "${rl:-$m0}" | lid_vals noise | max_of); noise released=$released"
+  verdict=PASS
+  if [[ -z "$rl" ]]; then verdict=FAIL; d="$d; no resume after the reopen (even at 165°)"
+  else
+    { [[ "$ra" == none ]] || lt "$ra" 95; } && { verdict=FAIL; d="$d; resumed below 95°"; }
+    [[ "$rc" != "$INNER_CANVAS" ]] && { verdict=FAIL; d="$d; resumed on $rc, not the inner $INNER_CANVAS"; }
+  fi
+  [[ -n "$oncover" ]] && verdict=FAIL
+  [[ -n "$bit" ]] && verdict=FAIL
+  if [[ "$verdict" == PASS && "$released" == 0 ]]; then
+    verdict=INFO; d="$d; INCONCLUSIVE: no 'HUSH-T noise released' (noise held all run, no bite possible)"
+  fi
+  result COVER-SLOW-REOPEN "$verdict" "$d"
+  shoot "duo-h8-cover-slow-reopened-$went" inner
 fi
 
 # ---- pass: the tabletop frames (closed 105, half 135, wide 160, cover shut, reopened) -----------------------------
 if [[ " $PASSES " == *" frames "* ]]; then
-  # Attract run on the real hinge (no pilot, the torch never burns, no bites), drawn turned round (the Duo default).
+  # Attract run on the real hinge (no pilot, the candle never burns, no bites), drawn turned round (the Duo default).
   # Slow sweeps (7–8°/s) keep the mimic asleep so the frames show the reveal, not the alarm.
   hinge_set 105
   launch frames "screen=run;mode=attract;seed=7" 1
@@ -418,9 +561,50 @@ if [[ " $PASSES " == *" ui "* ]]; then
   launch ui-pose-book "screen=home;progress=mid" 0; sleep 2; shoot duo-ui-pose-book inner
   wh=$(png_wh "$OUT_ABS/duo-ui-pose-book.png"); cl=$(canvas_line "$OUT_ABS/logs/ui-pose-book.txt")
   if [[ "$wh" != "?" ]] && ! is_portrait "$wh"; then result POSE-BOOK INFO "book pose (landscape) as expected: $wh; ${cl:-no canvas line}"
-  else result POSE-BOOK INFO "portrait ($wh), not the book card: with R2's automatic requestPortrait on the pose card (REVIEW-1-duo P0-1) that is the fix working; ${cl:-no canvas line}"; fi
+  else result POSE-BOOK INFO "portrait ($wh): the launch's automatic portrait ask (R3: only when the device orientation isn't landscape; the sim may read .unknown, REVIEW-2-duo P1-2); ${cl:-no canvas line}"; fi
+  # R3: the card itself, held (`pose=book`: no automatic or lift portrait ask; `orient=landscape` keeps the sim's book
+  # pose), so "Turn it sideways. Lift the glowing half." and its "Play anyway" way out are a frame.
+  launch ui-pose-card "screen=pose;pose=book;orient=landscape" 0; sleep 3; shoot duo-ui-pose-card inner
+  PC="$OUT_ABS/logs/ui-pose-card.txt"
+  wh=$(png_wh "$OUT_ABS/duo-ui-pose-card.png")
+  pcl=$(grep -m1 -oE "HUSH-T pose standUp[^\r]*" "$PC" 2>/dev/null)
+  d="frame $wh; ${pcl:-no 'HUSH-T pose standUp' line}; $(canvas_line "$PC"); portrait asks: $(count 'HUSH-T orient (portrait requested|ask)' "$PC")"
+  if [[ "$wh" != "?" ]] && ! is_portrait "$wh" && [[ -n "$pcl" ]]; then result POSE-CARD PASS "$d"
+  else result POSE-CARD FAIL "$d (want a landscape inner frame with the book card up)"; fi
   hinge_sweep 40 1.5; hinge_set 0; sleep 3; shoot duo-ui-cover cover
   hinge_set 160 || true
+fi
+
+# ---- pass: the App Store Duo set (opt-in: PASSES=store, run by ci/store-capture.sh duo) ----------------------------
+# One tabletop launch per line of STORE_LIST (ci/duo-store-scenarios.txt: name|demo args|wait|caption|expect|frame),
+# the hinge held at STORE_ANGLE (150°: open, so no closing pause; the pilot or lid= drives the lid itself). A freezeOn=
+# line waits for "HUSH-T freeze <tag>" (at least `wait`, at least 20 s), a freezeAfter= line for "HUSH-T freeze after",
+# then 2 s for the held frame; others wait `wait` s. Writes store-<name>.png (the lit panel, normally the 2007 x 2853
+# inner display) and logs/store-<name>.at-capture.txt (the log at capture; ci/store-set.sh checks it).
+if [[ " $PASSES " == *" store "* ]]; then
+  LIST="${STORE_LIST:-ci/duo-store-scenarios.txt}"
+  SANGLE="${STORE_ANGLE:-150}"
+  [[ -f "$LIST" ]] || log "WARN store list $LIST not found"
+  [[ -f "$LIST" ]] && while IFS='|' read -r -u 3 name args wait _caption _expect _rest; do
+    name="${name%$'\r'}"; args="${args%$'\r'}"; wait="${wait%$'\r'}"
+    [[ -z "$name" || "$name" == \#* ]] && continue
+    [[ "$name" =~ ${STORE_FILTER:-.} ]] || continue
+    wait="${wait%%.*}"; [[ "$wait" =~ ^[0-9]+$ ]] || wait=6
+    hinge_set "$SANGLE" || true
+    launch "store-$name" "$args" 1
+    SF="$OUT_ABS/logs/store-$name.txt"
+    lim=$(( wait > 20 ? wait : 20 ))
+    if [[ "$args" =~ freezeOn=([A-Za-z]+) ]]; then
+      tag="${BASH_REMATCH[1]}"
+      if wait_for "$SF" "HUSH-T freeze $tag" "$lim"; then sleep 2; else log "WARN store-$name: no 'HUSH-T freeze $tag' in ${lim} s (shooting anyway)"; fi
+    elif [[ "$args" == *freezeAfter=* ]]; then
+      if wait_for "$SF" "HUSH-T freeze after" "$lim"; then sleep 2; else log "WARN store-$name: no 'HUSH-T freeze after' in ${lim} s"; fi
+    else
+      sleep "$wait"
+    fi
+    shoot "store-$name" inner
+    cp "$SF" "$OUT_ABS/logs/store-$name.at-capture.txt" 2>/dev/null || true
+  done 3< "$LIST"
 fi
 
 ls -la "$OUT_ABS" | tee -a "$RUNLOG" >&2

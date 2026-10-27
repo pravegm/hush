@@ -99,7 +99,9 @@ struct RootView: View {
                             liftSide: AppRules.liftSide(interface: interfaceSide,
                                                         turned: controller.wantsTurnRound),
                             reduceMotion: controller.reduceMotion,
-                            onStoodUp: { controller.stoodItUp() })
+                            refused: controller.portraitRefused,
+                            onStoodUp: { controller.stoodItUp() },
+                            onPlayAnyway: { controller.choosePlayAnyway() })
                     .transition(.opacity)
             case .cover:
                 CoverCard(midRun: controller.isLiveRun, portrait: controller.portraits.cover,
@@ -123,7 +125,7 @@ struct RootView: View {
     private func currentPose(_ canvas: CGSize) -> AppPose {
         if let forced = controller.forcedPose { return forced }
         return AppRules.pose(canvas: canvas, hingeSeen: controller.hingeSeen, isShut: controller.isShut,
-                             smallCanvasOpen: controller.smallCanvasOpen)
+                             playAnyway: controller.playAnyway)
     }
 
     private func handleCanvas(_ canvas: CGSize, fold: Bool, turned: Bool, pose: AppPose) {

@@ -272,6 +272,44 @@ enum FeelSoundBook {
         ]
     }
 
+    /// The sound for a stage change: a snort up to Stirring, the wake sting up to Waking, a sigh for any step down;
+    /// nothing for a bite (the `bitten` event speaks) or no change. R3: these are the stage cues a VoiceOver player
+    /// hears, so they are gated on nothing but sound being on (never on VoiceOver, Reduce Motion or the HUD).
+    static func stageCue(from: MimicStage, to: MimicStage, dice: inout FeelDice) -> [FeelSynthCommand] {
+        if to > from {
+            switch to {
+            case .stirring: return snort(dice: &dice)
+            case .waking: return wakeSting()
+            case .asleep, .biting: return []
+            }
+        }
+        if to < from { return sigh() }
+        return []
+    }
+
+    /// R3 CREAK (the slam, tester 6): a short, sharp wooden crack, as if the chest's plank split under a slammed lid.
+    /// A bright snap, a dry mid-wood crack, a splinter and a low knock, then a smaller second crack. Over in under
+    /// 0.1 s; loud enough to cut through the creak, smaller than the CHOMP. The director plays it when the noise jumps
+    /// by more than `FeelCreakDetector.jump` within `FeelCreakDetector.window` (see there).
+    static func creakAccent(dice: inout FeelDice) -> [FeelSynthCommand] {
+        [
+            // The snap: a split-second of bright noise (the fibre giving way).
+            .noise(FeelNoiseSpec(.highPass, cutoff: 2600, q: 0.8, attack: 0.0004, decay: 0.009, gain: 0.24)),
+            // The crack: a dry wooden ring, pitched a little differently each time.
+            .ring(FeelRingSpec(.wood, fundamental: dice.float(620, 700), partials: 5, decay: 0.035, brightness: 0.62,
+                               gain: 0.26, seed: dice.seed32())),
+            // A splinter just after it.
+            .ring(FeelRingSpec(.wood, fundamental: dice.float(1900, 2200), partials: 3, decay: 0.012, brightness: 0.55,
+                               gain: 0.14, delay: 0.014, seed: dice.seed32())),
+            // The board's body: a short low knock underneath.
+            .tone(FeelToneSpec(start: 210, end: 120, glide: 0.04, duration: 0.09, attack: 0.001, decay: 0.03,
+                               gain: 0.16, harmonics: 4)),
+            // A smaller second crack (wood rarely breaks just once).
+            .noise(FeelNoiseSpec(.bandPass, cutoff: dice.float(1400, 1700), q: 1.4, attack: 0.0004, decay: 0.006,
+                                 gain: 0.1, delay: dice.float(0.045, 0.06))),
+        ]
+    }
+
     /// CHOMP (the bite): a low thump, a wooden crack, the teeth clack, then a burp-y growl. The biggest sound.
     static func chomp(dice: inout FeelDice) -> [FeelSynthCommand] {
         [

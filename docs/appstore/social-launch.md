@@ -2,7 +2,7 @@
 
 *For the founder to post by hand from their own accounts. Tone: warm, sly, a little giggly ("shh"): candlelight, a sleeping monster, a thief on tiptoe. Never suggest slamming, snapping or closing the phone fast, or "breaking your hinge". Never compare with or name other Duo games or *Creaks*.*
 
-**Links to fill in:** `[App Store link]` = `https://apps.apple.com/app/id<Apple ID>` (App Store Connect → App Information → Apple ID; exists once the record is created, live on launch day). `[site]` = `https://pravegm.github.io/hush/`. `[clip]` = the 15 s teaser (§3A).
+**Links to fill in:** `[App Store link]` = `https://apps.apple.com/app/id<Apple ID>` (App Store Connect → App Information → Apple ID; exists once the record is created, live on launch day). `[site]` = `https://pravegm.github.io/hush/`. `[clip]` = the 15-second teaser (§3A). *(Rewritten Tue 27 Oct, Round 3: the app says "Freeze!", the candle, the lever and "bank"; every line below matches the build.)*
 
 ---
 
@@ -13,7 +13,7 @@ Brim posts on Fri 6, Tue 10, Thu 12, Sat 14, Mon 16 Nov, launches **Tue 17 Nov**
 | Date | What | Where |
 |---|---|---|
 | Thu 26 Nov | Teaser (only once the Duo feel check in runbook §4 is a "yes") | X, Bluesky, Mastodon, Threads; r/iPhoneDuo if the rules allow |
-| Sat 28 Nov | Clip: the mimic stirring, the heartbeat, FREEZE, and it settles back to snoring | X, Bluesky, Mastodon, Threads |
+| Sat 28 Nov | Clip: the mimic stirring, the heartbeat, "Freeze!", and it settles back to snoring | X, Bluesky, Mastodon, Threads |
 | Mon 30 Nov | "Out tomorrow": the bite clip (comic CHOMP) with the site link (there's no pre-order, so the App Store link only works from launch morning) | same |
 | **Tue 1 Dec** | **Launch posts** (§2), after you press Release (runbook §6) and the page shows **Get** with the price, then your first Daily Dungeon haul | all, plus r/iPhoneDuo if the rules allow |
 | Wed 2, Fri 4, Sun 6 Dec | Your own Daily Dungeon haul ("beat this"), from the Results screen | X, Bluesky, Mastodon |
@@ -23,12 +23,12 @@ Brim posts on Fri 6, Tue 10, Thu 12, Sat 14, Mon 16 Nov, launches **Tue 17 Nov**
 
 Recount with Node and the real link before posting (X and Mastodon count a link as 23 characters, Bluesky and Threads show it in full). Limits: X 280, Bluesky 300, Mastodon 500, Threads 500. Paste the text inside the quote blocks exactly, and always add the alt text.
 
-### X (attach the 15 s clip)
+### X (attach the 15-second clip)
 > Hush is out.
 >
 > Stand your iPhone Duo like a little laptop. The raised half is a treasure chest lid. Open it slowly, sneak the gold out, ease it shut. Too fast and the mimic wakes.
 >
-> £1.99 / $1.99 · no ads · no IAP · lid slider on every iPhone
+> £1.99 / $1.99 · no ads · no IAP · a lever on every other iPhone
 > [App Store link]
 
 *Alt text:* An iPhone Duo stands on a table like a small laptop. A hand slowly lifts the top half. On the lower screen, candlelight spills into a wooden chest full of gold coins and a red gem; on the upper screen, a big sleepy eye is shut. The hand drags a coin down into a leather bag, then eases the top half back down, and the coins glint and pour into a gold counter.
@@ -36,7 +36,7 @@ Recount with Node and the real link before posting (X and Mastodon count a link 
 ### Bluesky (attach the clip)
 > Hush is out: your iPhone Duo is a treasure chest, and the chest is a sleeping mimic.
 >
-> Open the lid slowly to see the gold. Drag it out gently. Ease the lid shut to keep it. The creak follows your exact speed, so go slow.
+> Open the lid slowly to see the gold. Drag it out gently. Ease the lid shut to bank it. The creak follows your exact speed, so go slow.
 >
 > No ads, no IAP.
 >
@@ -47,7 +47,7 @@ Recount with Node and the real link before posting (X and Mastodon count a link 
 >
 > On iPhone Duo the hinge is a chest lid, and its speed is the whole game: open it slowly to light the loot, drag the gold into your bag, ease the lid shut to bank it. Move too fast and it creaks (in the speaker and the haptics), the mimic wakes, and it bites.
 >
-> The chest is drawn so the half the Duo blurs when you fold is the lid, and the loot and warnings stay sharp. Every other iPhone gets a lid slider.
+> The chest is drawn so the half the Duo blurs when you fold is the lid, and the loot and warnings stay sharp. Bank while it sleeps and the Hush Chain pays more. Every other iPhone gets an on-screen lever.
 >
 > £1.99 / $1.99, no ads, no IAP, no tracking.
 >
@@ -84,7 +84,7 @@ Use the real numbers from your Results screen, never made-up ones. (If the build
 
 ## 3. Video storyboards
 
-### 3A. Social teaser: "Shh" (15 s, vertical 1080 × 1920, 30 fps, sound on)
+### 3A. Social teaser: "Shh" (15 seconds, vertical 1080 × 1920, 30 fps, sound on)
 
 **Shot:** the founder's real iPhone Duo standing in tabletop pose on a wooden table, filmed **from the side and slightly in front**, so the hand, the raised lid and both screens are in frame. Warm, low light (a lamp or a candle out of shot). Phone sound **on** (clip mic near the speaker). Real hands are fine here (not an App Store asset). The lid half is the one the pose card says to lift.
 
@@ -93,13 +93,13 @@ Use the real numbers from your Results screen, never made-up ones. (If the build
 | 0.0–2.0 | Cold open: the Duo standing almost shut. A finger on the top edge. Silence, then a snore | **Shh.** | a snore, drips |
 | 2.0–5.0 | The hand lifts the lid **very slowly**; light spills into the chest, gold glints appear, deeper as it opens | **Open it slowly.** | a faint creak, the tiptoe motif |
 | 5.0–7.5 | A finger drags a coin, then a gem, gently down into the bag | **Take the gold.** | clink, chime, soft bag thud |
-| 7.5–10.5 | The hand reaches for the relic at the back and opens the lid a touch too quickly: the creak, the snoring stops, the meter goes amber, a heartbeat; the hand freezes; "FREEZE"; it settles back to snoring | **Freeze!** | creak, heartbeat, then the snore again |
+| 7.5–10.5 | The hand reaches for the relic at the back and opens the lid a touch too quickly: the creak, the snoring stops, the meter goes amber then red, a heartbeat; "Freeze!" appears and the hand freezes; it settles back to snoring | **Freeze!** | creak, heartbeat, then the snore again |
 | 10.5–13.0 | The lid eased shut: the heavy thunk, coins cascading into the counter | **Ease it shut.** | thunk, cascade, ka-ching |
 | 13.0–15.0 | End card over Home: "Hush" wordmark, "Don't Wake the Mimic", "Out 1 Dec" (launch day: "Out now") | **Hush · out 1 Dec** | one sleepy snore |
 
 Rules: no price in the video (it goes in the post text), no fast or repeated hinge movement, never closed or slammed, no flat phone. Export H.264, ≤ 60 MB (fits X, Bluesky, Mastodon, Threads, TikTok).
 
-**The bite clip (Mon 30 Nov, 6 s):** the same set-up; the lid opens a little too fast, the meter climbs, "FREEZE"... and the hand doesn't stop: CHOMP, the teeth across the fold, the coins fly into its mouth. Text: **Too fast.** then **CHOMP.** The motion stays an ordinary, slightly-too-quick lid speed (a steady open of about 40°/s for a second or two is enough to wake it, `GAME-DESIGN.md` §5; never film a slam to get it).
+**The bite clip (Mon 30 Nov, 6 s):** the same set-up; the lid opens a little too fast, the meter climbs, "Freeze!"... and the hand doesn't stop: CHOMP, the teeth across the fold, the coins fly into its mouth. Text: **Too fast.** then **CHOMP.** The motion stays an ordinary, slightly-too-quick lid speed (a steady open of about 40°/s for a second or two is enough to wake it, `Tuning` lid noise; never film a slam to get it).
 
 ### 3B. App Preview: "Open it slowly" (optional for 1.0; 25 s, portrait 886 × 1920, 30 fps)
 
@@ -112,12 +112,12 @@ Apple's rules: 15–30 s; captures of the app only (**no hands, no people, no de
 | 00.0–03.0 | Cold open: Home, the little mimic peeking out as the lid lifts. **Poster frame 00:01.5** | **Your Duo is a *chest*** |
 | 03.0–07.0 | The lid opening slowly; the light reaching deeper, loot appearing by depth | **Open the lid *slowly*** |
 | 07.0–10.0 | Coins and a gem dragged into the bag | **Drag the gold in *gently*** |
-| 10.0–14.0 | Stirring then Waking: meter amber, red, FREEZE; it settles | **It's waking. *Freeze!*** |
-| 14.0–18.0 | The lid eased shut: the bank, the counter rolling up | **Ease it shut to *keep* it** |
+| 10.0–14.0 | Stirring then Waking: meter amber, red, "Freeze!"; it settles | **It's waking. *Freeze!*** |
+| 14.0–18.0 | The lid eased shut: the bank, the counter rolling up | **Ease it shut to *bank* it** |
 | 18.0–21.0 | A relic found: the golden ray and its name | **Open wide for *relics*** |
 | 21.0–25.0 | Results; a quick cut of a bite (CHOMP) | **Too fast? *CHOMP.*** |
 
-**6.9" version:** the same beats captured on the iPhone 18 Pro Max (lid slider), full-bleed 886 × 1920; change the second caption to **Slide the lid up *slowly***.
+**6.9" version:** the same beats captured on the iPhone 18 Pro Max (the lever), full-bleed 886 × 1920; change the second caption to **Slide the lever up *slowly*** and the fifth to **Slide it down to *bank***.
 
 ---
 

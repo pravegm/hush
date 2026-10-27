@@ -11,6 +11,10 @@
 #              app's "HUSH-T freeze <tag>" line, then 2 s (WAIT_FREEZE=1, the default here).
 #   caption    what the frame should show (for the reviewer; not drawn on the frame).
 #   expect     optional extended regex the app log must contain at capture time (reported, never fatal).
+#   launch     (R3, optional 6th or 7th column) extra launch arguments, split on spaces and passed after
+#              `-hushDemo "<args>"`, e.g. `-UIPreferredContentSizeCategoryName UICTContentSizeCategoryAccessibilityL`
+#              (Large Dynamic Type frames). A column counts as launch arguments only when it starts with `-`, so the
+#              store files' 6th `frame` column (flat / tabletop…) is ignored here.
 # App stdout/stderr per scenario: $OUT/logs/<name>.txt, plus a snapshot taken right after the screenshot:
 # $OUT/logs/<name>.at-capture.txt.
 # Every simulator call has a timeout; a failed launch or screenshot is retried once, then skipped (the run goes on).
@@ -27,6 +31,7 @@
 #  SCENARIO_FILTER regex on the name (default ".").
 #  EXPECT_SIZE     space-separated WxH list (e.g. "1206x2622"): warn when a capture is another size (never fails).
 #  WAIT_FREEZE     1 (default) = freeze-wait as above; 0 = always the fixed wait.
+#  EXTRA_LAUNCH_ARGS  launch arguments added to every scenario (before the scenario's own `launch` column).
 # Writes $OUT/captures.tsv: name <TAB> ok|launch-failed|screenshot-failed <TAB> WxH <TAB> froze|no-freeze|- <TAB>
 # expect-ok|expect-miss|-, and a table to $GITHUB_STEP_SUMMARY when it is set. Always exits 0 (frames are evidence,
 # not gates; build + tests are the gate).
@@ -176,14 +181,23 @@ fails=0
 size_warnings=0
 nofreeze=0
 expect_miss=0
-while IFS='|' read -r -u 3 name args wait caption expect; do
+while IFS='|' read -r -u 3 name args wait caption expect col6 col7; do
   name="${name%$'\r'}"; args="${args%$'\r'}"; wait="${wait%$'\r'}"; caption="${caption%$'\r'}"; expect="${expect%$'\r'}"
+  col6="${col6%$'\r'}"; col7="${col7%$'\r'}"; col7="${col7%%|*}"
   [[ -z "$name" || "$name" == \#* ]] && continue
   [[ "$name" =~ $FILTER ]] || continue
   wait="${wait:-6}"
   wait="${wait%%.*}"
   [[ "$wait" =~ ^[0-9]+$ ]] || wait=6
-  echo "== $name ($args) wait ${wait}s${caption:+ — $caption}"
+  # Extra launch arguments: EXTRA_LAUNCH_ARGS, then a 6th or 7th column that starts with "-" (R3: Dynamic Type).
+  extra="${EXTRA_LAUNCH_ARGS:-}"
+  for c in "$col6" "$col7"; do
+    c="${c#"${c%%[![:space:]]*}"}"
+    [[ "$c" == -* ]] && extra="$extra $c"
+  done
+  launch_extra=()
+  read -r -a launch_extra <<< "$extra"
+  echo "== $name ($args) wait ${wait}s${extra:+ launch:$extra}${caption:+ — $caption}"
   applog="$OUT_ABS/logs/$name.txt"
   rm -f "$OUT_ABS/$name.png"
   : > "$applog"
@@ -192,7 +206,7 @@ while IFS='|' read -r -u 3 name args wait caption expect; do
   for attempt in 1 2; do
     if to 90 xcrun simctl launch --terminate-running-process \
       --stdout="$applog" --stderr="$applog" \
-      "$UDID" "$BUNDLE" -hushDemo "$args" >/dev/null; then
+      "$UDID" "$BUNDLE" -hushDemo "$args" ${launch_extra[@]+"${launch_extra[@]}"} >/dev/null; then
       launched=1; break
     fi
     echo "launch attempt $attempt failed: $name"

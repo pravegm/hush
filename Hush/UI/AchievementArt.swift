@@ -156,7 +156,7 @@ enum BadgePainter {
         // The rim (tier metal) with the chunky outline, rivets, and the velvet inside.
         let outer = Path(ellipseIn: CGRect(x: 120, y: 120, width: 784, height: 784))
         ctx.stroke(outer, with: .color(outline), lineWidth: 26)
-        let rim = earned ? rimColors(tier) : [Color(hushHex: 0x55625F), Color(hushHex: 0x2C3533)]
+        let rim = earned ? rimColors(tier) : [Color(hushHex: 0x8A9693), Color(hushHex: 0x4A5552)]
         ctx.fill(outer, with: .linearGradient(Gradient(colors: rim), startPoint: CGPoint(x: 512, y: 120),
                                               endPoint: CGPoint(x: 512, y: 904)))
         for i in 0..<12 {
@@ -181,6 +181,7 @@ enum BadgePainter {
         case .gold: palette = LootPalette(fill: RGBA(hex: 0xFFC94A), rim: RGBA(hex: 0x8A5A12), glint: RGBA(hex: 0xFFF4CC))
         }
         LootPainter.paint(art, palette: palette, in: &ctx, rect: box, holeColor: Color(hush: ChestArt.palette.velvet),
-                          silhouette: earned ? nil : Color(hushHex: 0x0A1012))
+                          // R3 (juror P2): a locked badge is a readable cream silhouette, not black on grey.
+                          silhouette: earned ? nil : Color(hushHex: 0xF7ECD6, alpha: 0.38))
     }
 }

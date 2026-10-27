@@ -120,15 +120,27 @@ final class FeedbackDirector: FeedbackSink {
     private(set) var glimmering = false
     private var nextGlimmer: CFTimeInterval = -Double.infinity
 
-    /// R2 (REVIEW-1-duo P2-10): the display rate the App should run at: 60 under Low Power Mode or when the thermal
-    /// state is `.serious` or worse, else 120. Kept current from the system notifications; `onPreferredFPSChange` is
-    /// called (main actor) when it changes.
-    private(set) var preferredFPS: Int = 120
+    /// The display-rate **ceiling** (R2, REVIEW-1-duo P2-10; R3, REVIEW-2-duo P2-7): 60 under Low Power Mode or when
+    /// the thermal state is `.fair` or worse, else 120. Kept current from the system notifications;
+    /// `onPreferredFPSChange` is called (main actor) when it changes. In play, ask
+    /// `preferredFPS(lidSpeed:animating:)` every frame instead: it drops to 60 while nothing moves.
+    var preferredFPS: Int { fpsCeiling }
     /// The same, from the shared director (`FeedbackDirector.preferredFPS`).
-    static var preferredFPS: Int { shared.preferredFPS }
-    /// Called on the main actor whenever `preferredFPS` changes.
+    static var preferredFPS: Int { shared.fpsCeiling }
+    /// Called on the main actor whenever the ceiling (`preferredFPS`) changes.
     var onPreferredFPSChange: ((Int) -> Void)?
+    private var fpsCeiling: Int = 120
     private var powerObservers: [NSObjectProtocol] = []
+    /// R3: the play frame-rate rule (`preferredFPS(lidSpeed:animating:)`).
+    private var frameRate = FeelFrameRate()
+
+    /// R3 CREAK: the slam detector (`handle` runs it on every playing frame) and what it has done.
+    private var creakDetector = FeelCreakDetector()
+    /// How many CREAK accents have played (diagnostics and tests).
+    private(set) var creakAccents = 0
+    /// Called on the main actor each time a CREAK accent plays (automatic or `creakAccent()`), so the App can tell the
+    /// Scene to draw the matching "CREAK!" on exactly the same frame if it wants to.
+    var onCreakAccent: (() -> Void)?
 
     init() {
         // Menus play before any game frame: start from an audible, empty bed (a master of 0 mutes one-shots too).
@@ -148,10 +160,25 @@ final class FeedbackDirector: FeedbackSink {
         }
     }
 
-    /// 60 under Low Power Mode or at a thermal state of `.serious` or worse; 120 otherwise. Pure.
+    /// The ceiling: 60 under Low Power Mode or at a thermal state of `.fair` or worse (R3, REVIEW-2-duo P2-7: by
+    /// `.serious` the phone is already hot); 120 otherwise. Pure.
     nonisolated static func fps(lowPower: Bool, thermal: ProcessInfo.ThermalState) -> Int {
-        if lowPower || thermal.rawValue >= ProcessInfo.ThermalState.serious.rawValue { return 60 }
+        if lowPower || thermal.rawValue >= ProcessInfo.ThermalState.fair.rawValue { return 60 }
         return 120
+    }
+
+    /// R3 (REVIEW-2-duo P2-7): the frame rate for this play frame. The ceiling (`preferredFPS`: 120, or 60 under Low
+    /// Power or heat) while the lid moves (`lidSpeed` > 1°/s) or something animates, and for 1 s after; 60 when idle.
+    /// Call it every play frame with the frame's lid speed (°/s, `LidInput.speed`) and whether anything is animating
+    /// (a finger down or an item held, loot flying, a bank/bite/arrival moment, a toast or card moving); publish the
+    /// result only when it changes. Never above the ceiling, so Low Power and heat still win.
+    func preferredFPS(lidSpeed: Double, animating: Bool) -> Int {
+        preferredFPS(lidSpeed: lidSpeed, animating: animating, at: CACurrentMediaTime())
+    }
+
+    /// `preferredFPS(lidSpeed:animating:)` at an explicit time (tests).
+    func preferredFPS(lidSpeed: Double, animating: Bool, at time: TimeInterval) -> Int {
+        frameRate.fps(ceiling: fpsCeiling, lidSpeed: lidSpeed, animating: animating, at: time)
     }
 
     private func refreshFPS() {
@@ -162,8 +189,8 @@ final class FeedbackDirector: FeedbackSink {
         #if DEBUG
         FeelDemoLog.line("HUSH-T thermal \(thermal.rawValue) lowPower \(lowPower ? 1 : 0) fps \(fps)")
         #endif
-        guard fps != self.preferredFPS else { return }
-        self.preferredFPS = fps
+        guard fps != fpsCeiling else { return }
+        fpsCeiling = fps
         onPreferredFPSChange?(fps)
     }
 
@@ -239,6 +266,11 @@ final class FeedbackDirector: FeedbackSink {
             default: break
             }
         }
+        // R3 CREAK (the live path): the noise jumped by > 0.25 within 0.3 s while the lid (or a drag) was loud. A bite
+        // on the same frame has its own crack in the CHOMP, so it stays the one big sound.
+        let slammed = creakDetector.update(noise: telemetry.noise, lidSpeed: telemetry.lidSpeed,
+                                           dragSpeed: telemetry.dragSpeed, playing: telemetry.playing, at: now)
+        if slammed && !biting { playCreakAccent(now: now, noise: telemetry.noise) }
         var choirPlayed = false
         for event in events {
             react(to: event, banking: banking, biting: biting, choirPlayed: &choirPlayed, now: now)
@@ -291,6 +323,38 @@ final class FeedbackDirector: FeedbackSink {
         playHaptic(FeelHapticBook.goldenArrived())
     }
 
+    /// R3 CREAK: a short, sharp wooden crack (sound and haptic), the "too loud!" accent of a slam.
+    ///
+    /// **The live path is automatic:** `handle(_:telemetry:)` detects the slam itself from the telemetry
+    /// (`FeelCreakDetector`: the noise rose by more than 0.25 within 0.3 s while the lid or a drag was loud), so the
+    /// App need not call this. It is here for completeness (a scripted moment, a demo). Calling it as well as the
+    /// automatic path is safe: both share one 0.5 s refractory, so a slam never cracks twice. Returns whether it
+    /// played (false inside the refractory).
+    @discardableResult
+    func creakAccent() -> Bool {
+        let now = CACurrentMediaTime()
+        guard creakDetector.claim(at: now) else { return false }
+        playCreakAccent(now: now, noise: nil)
+        return true
+    }
+
+    private func playCreakAccent(now: CFTimeInterval, noise: Double?) {
+        ensureStarted()
+        lastActive = now
+        refreshIdle(now: now)
+        creakAccents += 1
+        audio.play(FeelSoundBook.creakAccent(dice: &dice))
+        playHaptic(FeelHapticBook.creakAccent)
+        #if DEBUG
+        if let noise, noise.isFinite {
+            FeelDemoLog.line(String(format: "HUSH-T creak accent noise %.2f", noise))
+        } else {
+            FeelDemoLog.line("HUSH-T creak accent manual")
+        }
+        #endif
+        onCreakAccent?()
+    }
+
     /// Fade the continuous layers out (pause, menus). One-shots already ringing play out; the engines idle after
     /// `idleDelay` s unless play resumes.
     func silence() {
@@ -302,6 +366,7 @@ final class FeedbackDirector: FeedbackSink {
         nextBeat = -Double.infinity
         glimmering = false
         lastTorchSlot = nil
+        creakDetector.forgetHistory()
         // Count the quiet from now (a pause right after a game frame still waits the full delay).
         lastActive = now
         lastPlaying = -Double.infinity
@@ -422,20 +487,10 @@ final class FeedbackDirector: FeedbackSink {
         case .oilAdded:
             playHaptic(FeelHapticBook.oil)
         case .stageChanged(let from, let to):
-            if to > from {
-                switch to {
-                case .stirring:
-                    audio.play(FeelSoundBook.snort(dice: &dice))
-                    playHaptic(FeelHapticBook.stirring)
-                case .waking:
-                    audio.play(FeelSoundBook.wakeSting())
-                    playHaptic(FeelHapticBook.waking)
-                case .asleep, .biting:
-                    break // biting: the `bitten` event speaks
-                }
-            } else if to < from {
-                audio.play(FeelSoundBook.sigh())
-            }
+            // Snort, wake sting, sigh (biting: the `bitten` event speaks). The VoiceOver player's stage cue: it plays
+            // whatever the accessibility settings (R3 check), alongside the App's spoken announcement.
+            audio.play(FeelSoundBook.stageCue(from: from, to: to, dice: &dice))
+            if let nudge = FeelHapticBook.stageCue(from: from, to: to) { playHaptic(nudge) }
         case .dreamTwitch:
             break // the Dreamer's fake twitch is lid art only: sound and haptics stay truthful
         case .bitten:
@@ -620,5 +675,120 @@ struct FeelFrozenSpeedGuard {
             return speed
         }
         return time - since >= Self.after ? 0 : speed
+    }
+}
+
+/// R3 CREAK (the slam, tester 6): "the noise jumped by more than `jump` within `window` s", so a slam reads as too
+/// loud even when it doesn't bite. Pure, with explicit times; the director runs it on every `handle`.
+///
+/// - **The rule:** this frame's noise minus the lowest noise seen in the last `window` s (this frame included) is
+///   more than `jump`. That is the Scene's "CREAK!" rule on the same `noise` (snapshot and telemetry carry the same
+///   value), so sound and picture agree.
+/// - **Only real loudness:** the lid speed was over `Tuning.loudSpeed` (30°/s) or a drag over `Tuning.dragQuietSpeed`
+///   at some time in the same window. A scripted jump (the lesson's `nudgeNoise` stir, a demo `noise=` preset) comes
+///   with a still lid and never cracks. (Any jump this big needs about 45°/s of lid anyway.)
+/// - **Only in play:** a non-playing frame forgets the history (pauses, menus, the bank and bite moments).
+/// - **Refractory:** after a crack (automatic or `claim`ed by `creakAccent()`), nothing for `refractory` s, and the
+///   next crack needs a fresh rise of `jump` from the noise at the crack. A long slam cracks at most twice a second.
+struct FeelCreakDetector {
+    /// The rise that counts as a slam (noise, 0…1).
+    static let jump = 0.25
+    /// Within this long (s).
+    static let window = 0.3
+    /// No second crack for this long (s).
+    static let refractory = 0.5
+    /// History kept at most (samples): ≥ 0.3 s of 120 Hz frames with a touch delivery or two per frame.
+    static let capacity = 128
+
+    private var times: [Double] = []
+    private var levels: [Double] = []
+    private var lastLoud = -Double.infinity
+    /// When the last crack played (−∞: never).
+    private(set) var lastFired = -Double.infinity
+
+    init() {
+        times.reserveCapacity(Self.capacity + 1)
+        levels.reserveCapacity(Self.capacity + 1)
+    }
+
+    /// The lid speed (°/s) and drag speed (pt/s) above which the input is loud enough for a crack.
+    static var loudLidSpeed: Double { Tuning.loudSpeed }
+    static var loudDragSpeed: Double { Tuning.dragQuietSpeed }
+
+    /// Feed one frame (several calls for one frame are fine). Returns true when a crack should play now.
+    mutating func update(noise: Double, lidSpeed: Double, dragSpeed: Double, playing: Bool,
+                         at time: Double) -> Bool {
+        guard playing, time.isFinite, noise.isFinite else {
+            forgetHistory()
+            return false
+        }
+        if (lidSpeed.isFinite && lidSpeed > Self.loudLidSpeed) || (dragSpeed.isFinite && dragSpeed > Self.loudDragSpeed) {
+            lastLoud = time
+        }
+        // Keep only the last `window` s.
+        var drop = 0
+        while drop < times.count && times[drop] < time - Self.window { drop += 1 }
+        if drop > 0 {
+            times.removeFirst(drop)
+            levels.removeFirst(drop)
+        }
+        var lowest = noise
+        for level in levels where level < lowest { lowest = level }
+        times.append(time)
+        levels.append(noise)
+        if times.count > Self.capacity {
+            times.removeFirst(times.count - Self.capacity)
+            levels.removeFirst(levels.count - Self.capacity)
+        }
+        guard noise - lowest > Self.jump, time - lastLoud <= Self.window else { return false }
+        return claim(at: time)
+    }
+
+    /// Take the crack at `time` if the refractory allows (true), starting a fresh baseline from the newest noise.
+    mutating func claim(at time: Double) -> Bool {
+        guard time.isFinite else { return false }
+        if lastFired.isFinite && time - lastFired < Self.refractory && time >= lastFired { return false }
+        lastFired = time
+        if let newest = levels.last {
+            times = [time]
+            levels = [newest]
+        }
+        return true
+    }
+
+    /// Forget the noise history and the loud input (keeps the refractory).
+    mutating func forgetHistory() {
+        times.removeAll(keepingCapacity: true)
+        levels.removeAll(keepingCapacity: true)
+        lastLoud = -Double.infinity
+    }
+}
+
+/// R3 (REVIEW-2-duo P2-7): the play frame-rate rule. The ceiling (120, or 60 under Low Power or heat) while the lid
+/// moves faster than `moveSpeed` or something animates, and for `hold` s after (so it never flaps between frames);
+/// `idleFPS` otherwise. Pure, with explicit times.
+struct FeelFrameRate {
+    /// Lid speeds (°/s) above this count as moving.
+    static let moveSpeed = 1.0
+    /// Seconds the fast rate is kept after the last motion or animation.
+    static let hold = 1.0
+    /// The rate while nothing moves.
+    static let idleFPS = 60
+
+    /// The last time anything moved (−∞: never).
+    private(set) var lastBusy = -Double.infinity
+
+    init() {}
+
+    mutating func fps(ceiling: Int, lidSpeed: Double, animating: Bool, at time: Double) -> Int {
+        let cap = max(ceiling, 1)
+        let idle = min(Self.idleFPS, cap)
+        let busy = animating || (lidSpeed.isFinite && lidSpeed > Self.moveSpeed)
+        if busy {
+            if time.isFinite { lastBusy = time }
+            return cap
+        }
+        guard time.isFinite, lastBusy.isFinite else { return idle }
+        return time - lastBusy <= Self.hold ? cap : idle
     }
 }

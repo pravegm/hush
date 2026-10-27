@@ -24,7 +24,11 @@ struct CanvasFit: Equatable {
         sceneSize = l.size
         contentOffsetY = l.contentOffsetY
         let valid = viewSize.width > 0 && viewSize.height > 0 && l.size.width > 0 && l.size.height > 0
-        let s = valid ? max(viewSize.width / l.size.width, viewSize.height / l.size.height) : 1
+        // Aspect-fill in portrait (no bars). R3: a LANDSCAPE view ("Play anyway" on the book-pose card) shows the whole
+        // portrait canvas (aspect-fit, the scene does the same), never a crop.
+        let sx = valid ? viewSize.width / l.size.width : 1
+        let sy = valid ? viewSize.height / l.size.height : 1
+        let s = viewSize.width > viewSize.height ? min(sx, sy) : max(sx, sy)
         scale = s
         rect = CGRect(x: (viewSize.width - l.size.width * s) / 2, y: (viewSize.height - l.size.height * s) / 2,
                       width: l.size.width * s, height: l.size.height * s)
@@ -97,10 +101,17 @@ enum HUDLayout {
                height: ScreenLayout.canvasHeight - ScreenLayout.foldMaxY)
     }
 
-    /// The lid lever's track (no hinge): lid-local x 606, y 40…420 (ChestLayout.slider…), on the canvas.
-    static var leverTrack: CGRect {
-        CGRect(x: ChestLayout.sliderX - 20, y: ScreenLayout.foldMaxY + ChestLayout.sliderMinY, width: 40,
-               height: ChestLayout.sliderMaxY - ChestLayout.sliderMinY)
+    /// The lid lever's track (no fold), on the canvas: the Scene's own rect (R3: the short lever in the lid's right band).
+    static var leverTrack: CGRect { ChestLayout.leverTrack }
+
+    /// R3 (juror P1-6): the lid half's teaching words ("Lift this half", "Lower this half a little") go in the Scene's
+    /// fixed slot ABOVE the brow plate, never over the eye or its lashes.
+    static var lidLabelBand: CGRect { ChestLayout.lidLabelSlot }
+
+    /// R3: the floor's card area (the closing card), between the noise meter and the fold: it never covers the meter.
+    static var cardArea: CGRect {
+        let bottom = meterTop + 8
+        return CGRect(x: 40, y: bottom, width: ScreenLayout.canvasWidth - 80, height: ScreenLayout.foldMinY - 6 - bottom)
     }
 }
 

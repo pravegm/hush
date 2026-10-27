@@ -77,10 +77,24 @@ enum OrientationLock {
         return short / long > 0.62 && short >= 600
     }
 
-    /// `hush.hasHinge` travels in backups, so a saved "this device has a hinge" is only believed on a Duo-shaped screen.
-    nonisolated static func trustsStoredHinge(_ stored: Bool, screen: CGSize) -> Bool {
-        stored && looksLikeDuo(screen)
+    /// R3 (QA-2 P2-5): the Duo's cover display (466 × 678 on the sim: ~0.69 short-to-long, ≥ 440 pt on its short side,
+    /// under the cover size). No other iPhone has that shape.
+    nonisolated static func looksLikeDuoCover(_ size: CGSize) -> Bool {
+        let short = min(size.width, size.height)
+        let long = max(size.width, size.height)
+        guard long > 0 else { return false }
+        let ratio = short / long
+        return ratio > 0.62 && ratio < 0.78 && short >= 440 && long < AppRules.coverMaxSide
     }
+
+    /// `hush.hasHinge` travels in backups, so a saved "this device has a hinge" is only believed on a Duo-shaped screen
+    /// (R3: the cover display counts, so a launch on it no longer forgets the hinge).
+    nonisolated static func trustsStoredHinge(_ stored: Bool, screen: CGSize) -> Bool {
+        stored && (looksLikeDuo(screen) || looksLikeDuoCover(screen))
+    }
+
+    /// R3 (QA-2 P2-4): told when iOS refuses a portrait request (the book-pose card then offers "Play anyway").
+    static var onRefused: (() -> Void)?
 
     /// A hinge just reported: let the windows use the Duo mask from now on.
     static func hingeArrived() {
@@ -103,6 +117,13 @@ enum OrientationLock {
                 window.rootViewController?.setNeedsUpdateOfSupportedInterfaceOrientations()
             }
         }
+        // R3 (REVIEW-2-duo P2-9): the lock can be seen in the log (and in Settings › About's Diagnostics).
+        AppTrace.t("HUSH-T mask \(maskName()) live=\(liveRun ? 1 : 0) iface=\(interfaceIsPortrait() ? "portrait" : "other")")
+    }
+
+    /// "portrait" or "allButUpsideDown" for the main screen now.
+    static func maskName() -> String {
+        mask(screen: screenSize()) == .portrait ? "portrait" : "allButUpsideDown"
     }
 
     /// Asks every window scene for portrait (Brim's Release path; never upside down). Harmless where portrait is all
@@ -126,6 +147,7 @@ enum OrientationLock {
     static func requestFailed(_ reason: String) {
         lastRequest = "refused: \(reason)"
         AppTrace.t("HUSH-T orient request failed: \(reason)")
+        onRefused?()
     }
 
     // MARK: - The root controller's own mask (Brim)
@@ -163,7 +185,7 @@ enum OrientationLock {
         case .portraitUpsideDown: way = "upside down"
         default: way = "unknown"
         }
-        return "Screen: \(way) · portrait ask: \(lastRequest)"
+        return "Screen: \(way) · mask: \(maskName()) · portrait ask: \(lastRequest)"
     }
 
     /// The key window's real safe-area insets.

@@ -206,8 +206,9 @@ extension SceneTextures {
             }
         }
         if st.gilt {
+            // (No filigree in the back-right corner: the pause socket is there.)
             for c in [CGPoint(x: bed.minX + 4, y: bed.minY + 4), CGPoint(x: bed.maxX - 4, y: bed.minY + 4),
-                      CGPoint(x: bed.minX + 4, y: bed.maxY - 4), CGPoint(x: bed.maxX - 4, y: bed.maxY - 4)] {
+                      CGPoint(x: bed.minX + 4, y: bed.maxY - 4)] {
                 filigree(ctx, c, toward: CGPoint(x: bed.midX, y: bed.midY), st.band)
             }
         }
@@ -219,13 +220,44 @@ extension SceneTextures {
         }
         // Studs along the side rims.
         var sy = fr.minY + 46
+        let socketBottom = ChestLayout.pauseCenter.y - ChestLayout.pauseSocketRadius - 6
         while sy < fr.maxY - 16 {
             if !(st.bands && (abs(sy - 217) < 20 || abs(sy - 363) < 20)) && !(st.gems && abs(sy - 280) < 20) {
                 Painter.rivet(ctx, CGPoint(x: 12, y: sy), 3.6, st.stud)
-                Painter.rivet(ctx, CGPoint(x: fr.maxX - 12, y: sy), 3.6, st.stud)
+                if sy < socketBottom { Painter.rivet(ctx, CGPoint(x: fr.maxX - 12, y: sy), 3.6, st.stud) }
             }
             sy += 44
         }
+        drawPauseSocket(ctx, st)
+    }
+
+    /// R3: the pause coin's seat in the back-right corner (in place of that corner's bracket): a square boss plate
+    /// bolted into the corner with a round, recessed socket the App's brass coin sits in (`ChestLayout.pauseArea`).
+    private static func drawPauseSocket(_ ctx: CGContext, _ st: TierStyle) {
+        let c = ChestLayout.pauseCenter
+        let r = ChestLayout.pauseSocketRadius
+        let metal = st.gilt ? st.band : RGBA(hex: 0x5E6873)
+        let plateR = CGRect(x: c.x - r - 2, y: c.y - r - 2, width: 2 * r + 4, height: 2 * r + 4)
+        let plate = Painter.roundRect(plateR, 14)
+        Painter.stroke(ctx, plate, ScenePaint.outline, width: 3.2, 0.9)
+        Painter.gradient(ctx, plate, [ScenePaint.lighter(metal, 0.3), metal, ScenePaint.darker(metal, 0.35)],
+                         [0, 0.5, 1], from: CGPoint(x: plateR.minX, y: plateR.maxY),
+                         to: CGPoint(x: plateR.maxX, y: plateR.minY))
+        for (sx, sy) in [(CGFloat(-1), CGFloat(-1)), (1, -1), (-1, 1), (1, 1)] {
+            Painter.rivet(ctx, CGPoint(x: c.x + sx * (r - 6), y: c.y + sy * (r - 6)), 3.4, st.stud)
+        }
+        let ring = Painter.circle(c, r - 5)
+        Painter.chunky(ctx, ring, ScenePaint.brass, outline: 1.6, light: 0.4, shade: 0.45,
+                       from: CGPoint(x: c.x - r, y: c.y + r), to: CGPoint(x: c.x + r, y: c.y - r))
+        let recess = Painter.circle(c, r - 10)
+        Painter.fill(ctx, recess, RGBA(hex: 0x1A0F08))
+        ctx.saveGState()
+        ctx.addPath(recess)
+        ctx.clip()
+        Painter.linear(ctx, [RGBA(0, 0, 0, 0.75), RGBA(0, 0, 0, 0)], [0, 1], from: CGPoint(x: c.x, y: c.y + r),
+                       to: CGPoint(x: c.x, y: c.y - r * 0.2))
+        ctx.restoreGState()
+        Painter.stroke(ctx, recess, ScenePaint.outline, width: 2, 0.9)
     }
 
     /// Gold-leaf flecks and a sheen over wood (the golden mimic).
@@ -275,6 +307,8 @@ extension SceneTextures {
                                                        (CGPoint(x: fr.minX, y: fr.maxY), 1, -1),
                                                        (CGPoint(x: fr.maxX, y: fr.maxY), -1, -1)]
         for (c, sx, sy) in corners {
+            // R3: the back-right corner holds the pause socket instead (`drawPauseSocket`).
+            if sx < 0 && sy < 0 { continue }
             let t1 = sy > 0 ? rim.minY - fr.minY : fr.maxY - rim.maxY
             let t2 = sx > 0 ? rim.minX - fr.minX : fr.maxX - rim.maxX
             let a = CGRect(x: sx > 0 ? c.x : c.x - arm, y: sy > 0 ? c.y : c.y - t1, width: arm, height: t1)
@@ -629,97 +663,115 @@ extension SceneTextures {
 
     static let tongueSize = CGSize(width: 460, height: 282)
 
-    /// R2: a tongue, tapering from a wide root at the throat to a rounded tip pointing at the bag (~70 % of the
-    /// floor's width at the root).
+    /// R3: a real tongue: a wide root at the throat (~78 % of the texture), the sides drawing in to a rounded POINT
+    /// at the bag end (no blunt dome, no twin lobes).
     static func tonguePath(_ s: CGSize) -> CGPath {
         let p = CGMutablePath()
         let w = s.width, h = s.height
         p.move(to: CGPoint(x: w * 0.11, y: h))
-        p.addCurve(to: CGPoint(x: w * 0.34, y: h * 0.16), control1: CGPoint(x: w * 0.04, y: h * 0.56),
-                   control2: CGPoint(x: w * 0.2, y: h * 0.26))
-        p.addCurve(to: CGPoint(x: w * 0.66, y: h * 0.16), control1: CGPoint(x: w * 0.42, y: h * 0.02),
-                   control2: CGPoint(x: w * 0.58, y: h * 0.02))
-        p.addCurve(to: CGPoint(x: w * 0.89, y: h), control1: CGPoint(x: w * 0.8, y: h * 0.26),
-                   control2: CGPoint(x: w * 0.96, y: h * 0.56))
+        p.addCurve(to: CGPoint(x: w * 0.355, y: h * 0.2), control1: CGPoint(x: w * 0.05, y: h * 0.6),
+                   control2: CGPoint(x: w * 0.2, y: h * 0.33))
+        p.addCurve(to: CGPoint(x: w * 0.5, y: h * 0.018), control1: CGPoint(x: w * 0.43, y: h * 0.12),
+                   control2: CGPoint(x: w * 0.465, y: h * 0.03))
+        p.addCurve(to: CGPoint(x: w * 0.645, y: h * 0.2), control1: CGPoint(x: w * 0.535, y: h * 0.03),
+                   control2: CGPoint(x: w * 0.57, y: h * 0.12))
+        p.addCurve(to: CGPoint(x: w * 0.89, y: h), control1: CGPoint(x: w * 0.8, y: h * 0.33),
+                   control2: CGPoint(x: w * 0.95, y: h * 0.6))
         p.closeSubpath()
         return p
     }
 
-    /// The velvet tongue lying on the bed: root at the top (the throat at the hinge), tip toward the player.
+    /// The tongue's velvet body (shared by the resting and the curled texture): fill, papillae, throat shade.
+    private static func drawTongueBody(_ ctx: CGContext, _ sz: CGSize, base t: RGBA, highlight: Double) {
+        let path = tonguePath(sz)
+        Painter.stroke(ctx, path, ScenePaint.darker(t, 0.6), width: 8, 0.95)
+        ctx.saveGState()
+        ctx.addPath(path)
+        ctx.clip()
+        Painter.radial(ctx, [ScenePaint.lighter(t, 0.12), t, ScenePaint.darker(t, 0.34)], [0, 0.5, 1],
+                       center: CGPoint(x: sz.width * 0.44, y: sz.height * 0.46), radius: sz.width * 0.5,
+                       extend: true)
+        // Velvet stipple (papillae, ~15 %) and a few darker pores: in every state.
+        var rng = SceneRNG(seed: 0x70_9E)
+        for _ in 0..<220 {
+            let p = CGPoint(x: rng.range(10, sz.width - 10), y: rng.range(10, sz.height - 10))
+            Painter.fill(ctx, Painter.circle(p, rng.range(0.9, 2.2)), ScenePaint.lighter(t, 0.42),
+                         Double(rng.range(0.1, 0.2)))
+        }
+        for _ in 0..<70 {
+            let p = CGPoint(x: rng.range(10, sz.width - 10), y: rng.range(10, sz.height - 10))
+            Painter.fill(ctx, Painter.circle(p, rng.range(0.8, 1.6)), ScenePaint.darker(t, 0.35), 0.25)
+        }
+        // One soft, off-centre specular highlight (a single sheen: never two lobes).
+        ctx.saveGState()
+        ctx.translateBy(x: sz.width * 0.4, y: sz.height * 0.52)
+        ctx.scaleBy(x: 1, y: 1.8)
+        Painter.radial(ctx, [RGBA(1, 0.9, 0.93, highlight), RGBA(1, 0.9, 0.93, 0)], [0, 1], center: .zero, radius: 44)
+        ctx.restoreGState()
+        // The throat: the root recedes into the dark at the fold.
+        Painter.linear(ctx, [RGBA(0.05, 0.01, 0.02, 0), RGBA(0.05, 0.01, 0.02, 0.92)], [0, 1],
+                       from: CGPoint(x: 0, y: sz.height * 0.66), to: CGPoint(x: 0, y: sz.height))
+        ctx.restoreGState()
+    }
+
+    /// The velvet tongue lying on the bed: root at the top (the throat at the hinge), tip toward the player. R3: no
+    /// crease in the texture (it is `tongueCrease`, shown only when lit).
     static var tongue: SKTexture {
         let s = tongueSize
-        return make("tongue-r2", width: s.width, height: s.height) { ctx, sz in
-            let t = ChestArt.palette.tongue
+        return make("tongue-r3", width: s.width, height: s.height) { ctx, sz in
+            drawTongueBody(ctx, sz, base: ChestArt.palette.tongue, highlight: 0.32)
+            // A soft rim light along the upper-left edge, inside the outline.
             let path = tonguePath(sz)
-            Painter.stroke(ctx, path, ScenePaint.darker(t, 0.6), width: 8, 0.95)
             ctx.saveGState()
             ctx.addPath(path)
             ctx.clip()
-            Painter.radial(ctx, [ScenePaint.lighter(t, 0.12), t, ScenePaint.darker(t, 0.34)], [0, 0.5, 1],
-                           center: CGPoint(x: sz.width * 0.44, y: sz.height * 0.46), radius: sz.width * 0.5,
-                           extend: true)
-            // Velvet stipple: fine light papillae and a few darker pores.
-            var rng = SceneRNG(seed: 0x70_9E)
-            for _ in 0..<220 {
-                let p = CGPoint(x: rng.range(10, sz.width - 10), y: rng.range(10, sz.height - 10))
-                Painter.fill(ctx, Painter.circle(p, rng.range(0.9, 2.2)), ScenePaint.lighter(t, 0.42),
-                             Double(rng.range(0.12, 0.3)))
-            }
-            for _ in 0..<70 {
-                let p = CGPoint(x: rng.range(10, sz.width - 10), y: rng.range(10, sz.height - 10))
-                Painter.fill(ctx, Painter.circle(p, rng.range(0.8, 1.6)), ScenePaint.darker(t, 0.35), 0.25)
-            }
-            // One soft, off-centre specular highlight.
-            ctx.saveGState()
-            ctx.translateBy(x: sz.width * 0.38, y: sz.height * 0.5)
-            ctx.scaleBy(x: 1, y: 1.7)
-            Painter.radial(ctx, [RGBA(1, 0.9, 0.93, 0.34), RGBA(1, 0.9, 0.93, 0)], [0, 1], center: .zero, radius: 46)
-            ctx.restoreGState()
-            // The top-edge rim light along the upper-left edge.
             var shift = CGAffineTransform(translationX: 4, y: -4)
             if let rim = path.copy(using: &shift) {
-                Painter.stroke(ctx, rim, ScenePaint.lighter(t, 0.5), width: 7, 0.32)
+                Painter.stroke(ctx, rim, ScenePaint.lighter(ChestArt.palette.tongue, 0.5), width: 7, 0.22)
             }
-            // A short crease near the root only, fading toward the tip.
-            for k in 0..<6 {
-                let y0 = sz.height - CGFloat(k) * 14
-                let seg = CGMutablePath()
-                seg.move(to: CGPoint(x: sz.width / 2, y: y0))
-                seg.addLine(to: CGPoint(x: sz.width / 2 - 1, y: y0 - 14))
-                Painter.stroke(ctx, seg, ScenePaint.darker(t, 0.45), width: 6 - CGFloat(k) * 0.6,
-                               0.55 * (1 - Double(k) / 6))
-            }
-            // The throat: the root recedes into the dark at the fold.
-            Painter.linear(ctx, [RGBA(0.05, 0.01, 0.02, 0), RGBA(0.05, 0.01, 0.02, 0.92)], [0, 1],
-                           from: CGPoint(x: 0, y: sz.height * 0.66), to: CGPoint(x: 0, y: sz.height))
             ctx.restoreGState()
         }
     }
 
-    /// The tongue's curl (Waking): rolled-up edges and a lifted tip, over `tongue` (same size).
+    /// The short median groove at the root (a child of the tongue; its alpha follows the light, 0 when dim).
+    static var tongueCrease: SKTexture {
+        make("tongue-crease-r3", width: 16, height: 90) { ctx, s in
+            let t = ChestArt.palette.tongue
+            for k in 0..<6 {
+                let y0 = s.height - CGFloat(k) * 14
+                let seg = CGMutablePath()
+                seg.move(to: CGPoint(x: s.width / 2, y: y0))
+                seg.addLine(to: CGPoint(x: s.width / 2 - 0.5, y: y0 - 14))
+                Painter.stroke(ctx, seg, ScenePaint.darker(t, 0.45), width: 6 - CGFloat(k) * 0.7,
+                               0.6 * (1 - Double(k) / 6))
+            }
+        }
+    }
+
+    /// R3: the tongue tensed (Waking): the SAME filled outline, darker and redder (+20 % saturation, −15 % value),
+    /// the tip curling up (its paler underside shows as a crescent at the point, with a shadow below it). Drawn over
+    /// `tongue` at the curl level, so it never hollows out.
     static var tongueCurl: SKTexture {
         let s = tongueSize
-        return make("tongue-curl-r2", width: s.width, height: s.height) { ctx, sz in
-            let t = ChestArt.palette.tongue
+        return make("tongue-curl-r3", width: s.width, height: s.height) { ctx, sz in
+            let tense = RGBA(hex: 0xB8243E)
+            drawTongueBody(ctx, sz, base: tense, highlight: 0.18)
             let w = sz.width, h = sz.height
-            let left = CGMutablePath()
-            left.move(to: CGPoint(x: w * 0.13, y: h * 0.9))
-            left.addCurve(to: CGPoint(x: w * 0.36, y: h * 0.2), control1: CGPoint(x: w * 0.07, y: h * 0.54),
-                          control2: CGPoint(x: w * 0.22, y: h * 0.28))
-            var mirror = CGAffineTransform(translationX: w, y: 0).scaledBy(x: -1, y: 1)
-            let right = left.copy(using: &mirror) ?? left
-            for side in [left as CGPath, right] {
-                Painter.stroke(ctx, side, ScenePaint.darker(t, 0.55), width: 26, 0.55)
-                Painter.stroke(ctx, side, ScenePaint.lighter(t, 0.22), width: 17, 1)
-                Painter.stroke(ctx, side, ScenePaint.lighter(t, 0.5), width: 4, 0.8)
-            }
-            // The tip lifts: its pale underside shows, with a shadow beneath.
-            Painter.fill(ctx, Painter.oval(CGRect(x: w / 2 - 62, y: 4, width: 124, height: 26)),
-                         RGBA(0.05, 0.01, 0.02), 0.5)
-            let tip = Painter.oval(CGRect(x: w / 2 - 52, y: 14, width: 104, height: 40))
-            Painter.stroke(ctx, tip, ScenePaint.darker(t, 0.6), width: 6, 0.9)
-            Painter.gradient(ctx, tip, [ScenePaint.lighter(t, 0.45), ScenePaint.lighter(t, 0.1)], [0, 1],
-                             from: CGPoint(x: 0, y: 54), to: CGPoint(x: 0, y: 14))
+            ctx.saveGState()
+            ctx.addPath(tonguePath(sz))
+            ctx.clip()
+            // The curled tip: a shadow under it, then the pale underside.
+            let under = CGMutablePath()
+            under.move(to: CGPoint(x: w * 0.4, y: h * 0.13))
+            under.addQuadCurve(to: CGPoint(x: w * 0.6, y: h * 0.13), control: CGPoint(x: w * 0.5, y: h * 0.26))
+            under.addQuadCurve(to: CGPoint(x: w * 0.4, y: h * 0.13), control: CGPoint(x: w * 0.5, y: -h * 0.02))
+            under.closeSubpath()
+            Painter.fill(ctx, Painter.oval(CGRect(x: w * 0.4, y: 0, width: w * 0.2, height: h * 0.09)),
+                         RGBA(0.05, 0.01, 0.02), 0.45)
+            Painter.gradient(ctx, under, [ScenePaint.lighter(tense, 0.42), ScenePaint.lighter(tense, 0.18)], [0, 1],
+                             from: CGPoint(x: 0, y: h * 0.22), to: CGPoint(x: 0, y: h * 0.04))
+            Painter.stroke(ctx, under, ScenePaint.darker(tense, 0.55), width: 3, 0.8)
+            ctx.restoreGState()
         }
     }
 
@@ -864,17 +916,67 @@ extension SceneTextures {
 
     // MARK: The mouth: lip and fangs
 
-    /// R2: the fleshy upper lip along the lid's fold edge (670 × 46): the fangs tuck up behind it while it sleeps.
+    /// R3: the gum's lower edge (lip-local, y up from `lipBottom`): a lip curve, lowest at the centre, rising
+    /// `gumRise` at the corners.
+    static func gumEdge(_ x: CGFloat) -> CGFloat {
+        let u = (x - 335) / 335
+        return ChestLayout.gumRise * min(u * u, 1)
+    }
+
+    /// R3: the upper fangs: 7 across the lid (between its side borders), the 2nd and 6th long canines, one chipped.
+    /// (centre x, half width, length) in lid points.
+    static let fangSpec: [(x: CGFloat, half: CGFloat, len: CGFloat, chipped: Bool)] = {
+        let left: CGFloat = 34, slot: CGFloat = 86
+        let lens: [CGFloat] = [40, 58, 44, 47, 42, 58, 40]
+        return (0..<7).map { i -> (x: CGFloat, half: CGFloat, len: CGFloat, chipped: Bool) in
+            let canine = i == 1 || i == 5
+            let x: CGFloat = left + slot * (CGFloat(i) + 0.5)
+            let half: CGFloat = slot * (canine ? 0.46 : 0.42)
+            return (x: x, half: half, len: lens[i], chipped: i == 4)
+        }
+    }()
+
+    /// One pointed fang with a rounded tip (the `teethRow` curve), root at `rootY`, tip `len` below.
+    static func addFang(_ p: CGMutablePath, x mid: CGFloat, half: CGFloat, rootY: CGFloat, len: CGFloat,
+                        chipped: Bool) {
+        let left = mid - half, right = mid + half
+        p.move(to: CGPoint(x: left, y: rootY + 4))
+        if chipped {
+            let cut = len * 0.8
+            p.addCurve(to: CGPoint(x: mid - half * 0.22, y: rootY - cut), control1: CGPoint(x: left, y: rootY - cut * 0.4),
+                       control2: CGPoint(x: mid - half * 0.5, y: rootY - cut * 0.9))
+            p.addLine(to: CGPoint(x: mid + half * 0.3, y: rootY - cut * 0.86))
+            p.addCurve(to: CGPoint(x: right, y: rootY + 4), control1: CGPoint(x: mid + half * 0.6, y: rootY - cut * 0.7),
+                       control2: CGPoint(x: right, y: rootY - cut * 0.4))
+        } else {
+            p.addCurve(to: CGPoint(x: mid - half * 0.14, y: rootY - len * 0.95),
+                       control1: CGPoint(x: left, y: rootY - len * 0.38),
+                       control2: CGPoint(x: mid - half * 0.3, y: rootY - len * 0.82))
+            p.addQuadCurve(to: CGPoint(x: mid + half * 0.14, y: rootY - len * 0.95),
+                           control: CGPoint(x: mid, y: rootY - len * 1.05))
+            p.addCurve(to: CGPoint(x: right, y: rootY + 4), control1: CGPoint(x: mid + half * 0.3, y: rootY - len * 0.82),
+                       control2: CGPoint(x: right, y: rootY - len * 0.38))
+        }
+        p.closeSubpath()
+    }
+
+    /// R3: the fleshy upper lip along the lid's fold edge (670 × 46). Its lower edge is a lip CURVE (lowest at the
+    /// centre, rising at the corners) with a soft scallop over each fang, never a straight tube.
     static var lip: SKTexture {
-        make("lip-r2", width: 670, height: ChestLayout.lipHeight) { ctx, s in
+        make("lip-r3", width: 670, height: ChestLayout.lipHeight + 4) { ctx, s in
+            // (4 pt of room under the curve for the scallops; the sprite sits 4 pt lower.)
+            func edge(_ x: CGFloat) -> CGFloat { 4 + gumEdge(x) }
             let p = CGMutablePath()
             p.move(to: CGPoint(x: 0, y: s.height))
-            p.addLine(to: CGPoint(x: 0, y: 10))
-            let n = 8
-            let slot = s.width / CGFloat(n)
-            for i in 0..<n {
-                let x0 = CGFloat(i) * slot
-                p.addQuadCurve(to: CGPoint(x: x0 + slot, y: 10), control: CGPoint(x: x0 + slot / 2, y: 2))
+            p.addLine(to: CGPoint(x: 0, y: edge(0)))
+            var xs: [CGFloat] = [0, 34]
+            for k in 1...7 { xs.append(34 + 86 * CGFloat(k)) }
+            xs.append(670)
+            for i in 1..<xs.count {
+                let a = xs[i - 1], b = xs[i]
+                let m = (a + b) / 2
+                let dip: CGFloat = (b - a) > 40 ? 5 : 2
+                p.addQuadCurve(to: CGPoint(x: b, y: edge(b)), control: CGPoint(x: m, y: edge(m) - dip))
             }
             p.addLine(to: CGPoint(x: s.width, y: s.height))
             p.closeSubpath()
@@ -882,21 +984,43 @@ extension SceneTextures {
             Painter.gradient(ctx, p, [ChestArt.fleshDark, ChestArt.flesh, ScenePaint.lighter(ChestArt.flesh, 0.15),
                                       ScenePaint.darker(ChestArt.fleshDark, 0.3)], [0, 0.3, 0.6, 1],
                              from: CGPoint(x: 0, y: 0), to: CGPoint(x: 0, y: s.height))
-            // A wet highlight along the lip.
+            // A wet highlight following the curve.
             let hl = CGMutablePath()
-            hl.move(to: CGPoint(x: 30, y: 18))
-            hl.addLine(to: CGPoint(x: s.width - 30, y: 18))
+            var x: CGFloat = 40
+            hl.move(to: CGPoint(x: x, y: edge(x) + 13))
+            while x < s.width - 40 {
+                x = min(x + 30, s.width - 40)
+                hl.addLine(to: CGPoint(x: x, y: edge(x) + 13))
+            }
             Painter.stroke(ctx, hl, RGBA(1, 0.85, 0.88), width: 2.5, 0.35)
+            // The lip's upper crease.
+            Painter.stroke(ctx, Painter.rect(CGRect(x: 20, y: s.height - 9, width: s.width - 40, height: 0.01)),
+                           ChestArt.fleshDark, width: 2, 0.5)
         }
     }
 
-    /// The upper fangs, roots at the top edge, tips pointing down (670 × 64).
+    /// The upper fangs (670 × 72, anchor at the top). Each root follows the lip curve, so when the sprite's top sits
+    /// at `ChestLayout.lipBottom + gumRise + 6` every root is just behind the lip.
     static var teeth: SKTexture {
-        make("fangs-r2", width: 670, height: 64) { ctx, s in
-            var t = CGAffineTransform(translationX: 0, y: s.height - 2)
-            let row = ChestArt.teethRow(width: s.width, height: ChestLayout.teethLength, count: 9, pointingDown: true)
-            let p = row.copy(using: &t) ?? row
-            drawTeeth(ctx, p, rootY: s.height, tipY: 0, count: 9, width: s.width)
+        make("fangs-r3", width: 670, height: 72) { ctx, s in
+            let p = CGMutablePath()
+            for f in fangSpec {
+                // Texture y of the root: 2 pt above the lip edge at this x, when fully bared.
+                let rootY = s.height - (ChestLayout.gumRise + 6) + gumEdge(f.x) + 2
+                addFang(p, x: f.x, half: f.half, rootY: rootY, len: f.len, chipped: f.chipped)
+            }
+            Painter.stroke(ctx, p, ScenePaint.outline, width: 6, 0.95)
+            Painter.gradient(ctx, p, [RGBA(hex: 0xD9C7A0), ScenePaint.ivory, RGBA(hex: 0xFFFDF4)], [0, 0.55, 1],
+                             from: CGPoint(x: 0, y: s.height), to: CGPoint(x: 0, y: 0))
+            ctx.saveGState()
+            ctx.addPath(p)
+            ctx.clip()
+            for f in fangSpec {
+                let rootY = s.height - (ChestLayout.gumRise + 6) + gumEdge(f.x)
+                Painter.fill(ctx, Painter.oval(CGRect(x: f.x - f.half * 0.55, y: rootY - f.len * 0.75, width: 6,
+                                                      height: f.len * 0.5)), RGBA(1, 1, 1), 0.5)
+            }
+            ctx.restoreGState()
         }
     }
 
@@ -973,9 +1097,18 @@ extension SceneTextures {
 
     /// The noise meter's plate: brass, a recess for "NOISE", the dark segment well, stage notches, and the teeth at
     /// the full end (where it bites).
+    /// R3: the meter plate's shape in white (tint it: the slam's red flash).
+    static var meterFlash: SKTexture {
+        let m = ChestLayout.meterRect
+        return make("meter-flash-r3", width: m.width, height: m.height) { ctx, s in
+            Painter.fill(ctx, Painter.roundRect(CGRect(origin: .zero, size: s).insetBy(dx: 1.5, dy: 1.5), s.height / 2),
+                         RGBA(1, 1, 1))
+        }
+    }
+
     static var meterPlate: SKTexture {
         let m = ChestLayout.meterRect
-        return make("meter-plate-r2", width: m.width, height: m.height) { ctx, s in
+        return make("meter-plate-r3", width: m.width, height: m.height) { ctx, s in
             let body = Painter.roundRect(CGRect(origin: .zero, size: s).insetBy(dx: 1.5, dy: 1.5), s.height / 2)
             Painter.chunky(ctx, body, ScenePaint.brass, outline: 1.5, light: 0.4, shade: 0.4,
                            from: CGPoint(x: 0, y: s.height), to: CGPoint(x: 0, y: 0))
@@ -1124,15 +1257,20 @@ extension SceneTextures {
 
     /// The Hush Chain medallion (a brass disc with two linked rings embossed; the multiplier sits on it).
     static var chainMedallion: SKTexture {
-        make("chain-medallion", width: 64, height: 64) { ctx, s in
+        make("chain-medallion-r3", width: 64, height: 64) { ctx, s in
             let c = CGPoint(x: s.width / 2, y: s.height / 2)
             let d = Painter.circle(c, 28)
             Painter.chunky(ctx, d, ScenePaint.brass, outline: 2.2, light: 0.5, shade: 0.45,
                            from: CGPoint(x: c.x - 28, y: c.y + 28), to: CGPoint(x: c.x + 28, y: c.y - 28))
             Painter.fill(ctx, Painter.circle(c, 21), RGBA(hex: 0x2A1A0C), 0.92)
-            for dx in [CGFloat(-7), 7] {
-                Painter.stroke(ctx, Painter.oval(CGRect(x: c.x + dx - 10, y: c.y - 6, width: 20, height: 12)),
-                               ScenePaint.brassLight, width: 2, 0.28)
+            // R3: the linked rings read at a glance (the number is beside the medallion now, not on it).
+            for (dx, a) in [(CGFloat(-7), CGFloat(0.45)), (7, -0.45)] {
+                let ring = CGMutablePath()
+                ArtPrim.oval(ring, CGRect(x: -11, y: -7, width: 22, height: 14))
+                var t = CGAffineTransform(translationX: c.x + dx, y: c.y).rotated(by: a)
+                let placed = ring.copy(using: &t) ?? ring
+                Painter.stroke(ctx, placed, ScenePaint.outline, width: 6, 0.9)
+                Painter.stroke(ctx, placed, ScenePaint.brassLight, width: 3.2, 1)
             }
             Painter.stroke(ctx, Painter.circle(c, 21), ScenePaint.brassDark, width: 2, 0.9)
         }
@@ -1168,34 +1306,89 @@ extension SceneTextures {
     /// The lid slider's track (no hinge): a dark slot in a brass frame with ticks.
     static var sliderTrack: SKTexture {
         let h = ChestLayout.sliderMaxY - ChestLayout.sliderMinY + 40
-        return make("slider-track", width: 56, height: h) { ctx, s in
-            let frame = Painter.roundRect(CGRect(origin: .zero, size: s).insetBy(dx: 3, dy: 3), 24)
+        let w = ChestLayout.sliderTrackWidth
+        return make("slider-track-r3", width: w, height: h) { ctx, s in
+            // R3: a recessed brass channel in the lid's right edge band (shorter, narrower).
+            let frame = Painter.roundRect(CGRect(origin: .zero, size: s).insetBy(dx: 2.5, dy: 2.5), s.width / 2 - 2.5)
             Painter.chunky(ctx, frame, ScenePaint.brass, outline: 2, light: 0.35, shade: 0.4,
                            from: CGPoint(x: 0, y: 0), to: CGPoint(x: s.width, y: 0))
-            let slot = Painter.roundRect(CGRect(x: s.width / 2 - 7, y: 16, width: 14, height: s.height - 32), 7)
+            let slot = Painter.roundRect(CGRect(x: s.width / 2 - 6, y: 14, width: 12, height: s.height - 28), 6)
             Painter.fill(ctx, slot, RGBA(hex: 0x120A06), 1)
             var y: CGFloat = 30
             while y < s.height - 24 {
-                Painter.stroke(ctx, Painter.rect(CGRect(x: 8, y: y, width: 10, height: 0.01)), ScenePaint.brassDark,
+                Painter.stroke(ctx, Painter.rect(CGRect(x: 5, y: y, width: 5, height: 0.01)), ScenePaint.brassDark,
                                width: 2, 0.9)
-                Painter.stroke(ctx, Painter.rect(CGRect(x: s.width - 18, y: y, width: 10, height: 0.01)),
+                Painter.stroke(ctx, Painter.rect(CGRect(x: s.width - 10, y: y, width: 5, height: 0.01)),
                                ScenePaint.brassDark, width: 2, 0.9)
                 y += 38
             }
         }
     }
 
-    /// The lid slider's knob: a brass lever handle.
+    /// The lid slider's knob: a brass lever handle (R3: compact, inside the right edge band).
     static var sliderKnob: SKTexture {
-        make("slider-knob", width: 96, height: 56) { ctx, s in
-            let bar = Painter.roundRect(CGRect(x: 4, y: 12, width: s.width - 8, height: 32), 16)
+        let k = ChestLayout.sliderKnobSize
+        return make("slider-knob-r3", width: k.width, height: k.height) { ctx, s in
+            let bar = Painter.roundRect(CGRect(x: 3, y: 9, width: s.width - 6, height: s.height - 18), (s.height - 18) / 2)
             Painter.chunky(ctx, bar, ScenePaint.brass, outline: 2.2, light: 0.5, shade: 0.4,
-                           from: CGPoint(x: 0, y: 44), to: CGPoint(x: 0, y: 12))
-            for dx in [CGFloat(-22), -12, 12, 22] {
-                Painter.stroke(ctx, Painter.rect(CGRect(x: s.width / 2 + dx, y: 18, width: 0.01, height: 20)),
-                               ScenePaint.brassDark, width: 2.4, 0.9)
+                           from: CGPoint(x: 0, y: s.height - 9), to: CGPoint(x: 0, y: 9))
+            for dx in [CGFloat(-18), -12, 12, 18] {
+                Painter.stroke(ctx, Painter.rect(CGRect(x: s.width / 2 + dx, y: 15, width: 0.01, height: s.height - 30)),
+                               ScenePaint.brassDark, width: 2.2, 0.9)
             }
-            Painter.rivet(ctx, CGPoint(x: s.width / 2, y: 28), 9, ScenePaint.brassLight)
+            Painter.rivet(ctx, CGPoint(x: s.width / 2, y: s.height / 2), 7, ScenePaint.brassLight)
+        }
+    }
+
+    /// R3: an in-world plate (`ChestArt.drawPlate`) as a texture (the chain tab, the relic card).
+    static func plateTexture(size: CGSize, style: PlateStyle) -> SKTexture {
+        let w = max(size.width.rounded(), 8), h = max(size.height.rounded(), 8)
+        return make("plate-\(style.rawValue)-\(Int(w))x\(Int(h))", width: w, height: h) { ctx, s in
+            ChestArt.drawPlate(ctx, size: s, style: style)
+        }
+    }
+
+    /// R3: the gold-multiplier seal on the name plate's left end (a milled brass coin; brighter for the golden
+    /// mimic).
+    static func plateSeal(golden: Bool) -> SKTexture {
+        let d = ChestLayout.sealRadius * 2 + 6
+        return make("plate-seal-\(golden)", width: d, height: d) { ctx, s in
+            let c = CGPoint(x: s.width / 2, y: s.height / 2)
+            let r = ChestLayout.sealRadius
+            let metal = golden ? RGBA(hex: 0xFFD45A) : ScenePaint.brass
+            // A milled edge.
+            let milled = CGMutablePath()
+            for i in 0..<28 {
+                let a = CGFloat(i) / 28 * 2 * .pi
+                let p = CGPoint(x: c.x + cos(a) * r, y: c.y + sin(a) * r)
+                milled.addEllipse(in: CGRect(x: p.x - 2.6, y: p.y - 2.6, width: 5.2, height: 5.2))
+            }
+            Painter.fill(ctx, milled, ScenePaint.outline, 0.9)
+            let disk = Painter.circle(c, r - 1)
+            Painter.chunky(ctx, disk, metal, outline: 1.8, light: 0.5, shade: 0.45,
+                           from: CGPoint(x: c.x - r, y: c.y + r), to: CGPoint(x: c.x + r, y: c.y - r))
+            Painter.stroke(ctx, Painter.circle(c, r - 6), ScenePaint.brassDark, width: 1.6, 0.8)
+            if golden {
+                Painter.radial(ctx, [RGBA(1, 1, 0.9, 0.55), RGBA(1, 1, 0.9, 0)], [0, 1],
+                               center: CGPoint(x: c.x - r * 0.35, y: c.y + r * 0.35), radius: r * 0.7)
+            }
+        }
+    }
+
+    /// R3: the golden mimic's name plate (bright gold leaf, emerald studs): "GOLDEN" reads before the words do.
+    static var plateGolden: SKTexture {
+        let s = ChestLayout.plateSize
+        return make("plate-golden-r3", width: s.width, height: s.height) { ctx, sz in
+            let body = Painter.roundRect(CGRect(x: 3, y: 3, width: sz.width - 6, height: sz.height - 6), 14)
+            Painter.chunky(ctx, body, RGBA(hex: 0xFFD45A), outline: 2, light: 0.55, shade: 0.3,
+                           from: CGPoint(x: 0, y: sz.height), to: CGPoint(x: 0, y: 0))
+            goldLeaf(ctx, CGRect(x: 6, y: 6, width: sz.width - 12, height: sz.height - 12), seed: 91)
+            Painter.stroke(ctx, Painter.roundRect(CGRect(x: 10, y: 9, width: sz.width - 20, height: sz.height - 18), 9),
+                           RGBA(hex: 0x9A6A10), width: 2.2, 0.85)
+            Painter.stroke(ctx, Painter.rect(CGRect(x: 60, y: sz.height * 0.44, width: sz.width - 120, height: 0.01)),
+                           RGBA(hex: 0x9A6A10), width: 1.4, 0.5)
+            gemStud(ctx, CGPoint(x: 22, y: sz.height / 2), RGBA(hex: 0x2CC67C), size: 7)
+            gemStud(ctx, CGPoint(x: sz.width - 22, y: sz.height / 2), RGBA(hex: 0x2CC67C), size: 7)
         }
     }
 

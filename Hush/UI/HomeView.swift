@@ -31,15 +31,35 @@ struct HomeView: View {
                 HushWordmark(size: c ? 52 : (lid.height > 380 ? 78 : 64))
                 HomePortrait(controller: controller, interactive: !controller.hasHinge)
                     .frame(width: min(lid.width * 0.78, 420), height: max(min(lid.height * 0.56, 300), 80))
-                HomeCaption(lid: controller.homeLid, hinge: controller.hasHinge, compact: c)
+                // R3 (decision 4): the layout's words (a fold: the lid; no fold: the drag on the chest).
+                HomeCaption(lid: controller.homeLid, hinge: info.hasFold, compact: c)
             }
             .frame(width: lid.width, height: lid.height)
             .position(x: lid.midX, y: lid.midY)
 
-            HomeMenu(controller: controller, store: store, compact: c)
+            if info.hasFold {
+                HomeMenu(controller: controller, store: store, compact: c)
+                    .frame(width: min(floor.width - 32, 520))
+                    .frame(height: floor.height, alignment: .center)
+                    .position(x: floor.midX, y: floor.midY)
+            } else {
+                // R3 (UX P2-12): no dead band on a phone: the haul card sits at the top of the floor half, the menu
+                // at the bottom (on a short screen the card folds back into the menu's rank row).
+                ViewThatFits(in: .vertical) {
+                    VStack(spacing: 12) {
+                        HomeHaulCard(store: store, compact: c)
+                        Spacer(minLength: 8)
+                        HomeMenu(controller: controller, store: store, compact: c, showsRank: false)
+                    }
+                    VStack {
+                        Spacer(minLength: 0)
+                        HomeMenu(controller: controller, store: store, compact: c)
+                    }
+                }
                 .frame(width: min(floor.width - 32, 520))
-                .frame(height: floor.height, alignment: info.hasFold ? .center : .bottom)
+                .frame(height: floor.height)
                 .position(x: floor.midX, y: floor.midY)
+            }
 
             if let toast = controller.toast {
                 Text(toast)
@@ -62,7 +82,56 @@ struct HomeView: View {
         if lid.speed > Tuning.loudSpeed { return "Easy! It's a mimic…" }
         if lid.openness > 0.85 { return "It's watching you." }
         if lid.openness > 0.3 { return "Shh… something's peeking." }
-        return hinge ? "Lift the lid… slowly." : "Slide the lid up… slowly."
+        return hinge ? "Lift the lid… slowly." : "Drag its lid up… slowly."
+    }
+}
+
+/// R3 (UX P2-12, brief "Home has no dead space"): the phone's floor half opens with the thief's standing: the best
+/// haul as a big number, the rank and the bar to the next.
+struct HomeHaulCard: View {
+    @ObservedObject var store: ProgressStore
+    let compact: Bool
+
+    var body: some View {
+        let data = store.data
+        VStack(spacing: 8) {
+            HStack(alignment: .center, spacing: 12) {
+                VStack(alignment: .leading, spacing: 2) {
+                    HushOverline(text: data.bestRun > 0 ? "Best haul" : "Your first chest awaits", compact: compact,
+                                 color: HushTheme.gold)
+                    HStack(spacing: 8) {
+                        CoinGlyph(size: compact ? 24 : 30)
+                        Text(data.bestRun > 0 ? data.bestRun.formatted() : "No haul yet")
+                            .font(data.bestRun > 0 ? HushType.number(compact ? 30 : 38) : HushType.headline(compact))
+                            .foregroundStyle(data.bestRun > 0 ? HushTheme.goldLight : HushTheme.mist)
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.7)
+                    }
+                }
+                Spacer(minLength: 8)
+                VStack(alignment: .trailing, spacing: 2) {
+                    Text(ThiefRanks.title(store.rank))
+                        .font(HushType.headline(compact))
+                        .foregroundStyle(HushTheme.parchment)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.7)
+                    Text("Rank \(store.rank + 1)")
+                        .font(HushType.caption(compact))
+                        .foregroundStyle(HushTheme.mist)
+                }
+            }
+            HushProgressBar(value: ProgressRules.rankProgress(lifetime: data.lifetimeGold, rank: store.rank), height: 8)
+            if let next = RankRow.nextLine(rank: store.rank) {
+                Text(next)
+                    .font(HushType.caption(compact))
+                    .foregroundStyle(HushTheme.mist)
+                    .frame(maxWidth: .infinity, alignment: .trailing)
+            }
+        }
+        .hushCard(padding: 14, radius: 20)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Rank \(store.rank + 1), \(ThiefRanks.title(store.rank)). "
+                            + (data.bestRun > 0 ? "Best haul \(data.bestRun) gold." : "No haul yet."))
     }
 }
 
@@ -137,12 +206,22 @@ struct HomeMenu: View {
     @ObservedObject var controller: GameController
     @ObservedObject var store: ProgressStore
     let compact: Bool
+    var showsRank = true
+
+    /// "Codex 9/24" / "Badges 7/12": the same numbers the Codex and Badges pages show (one preset, one source). Pure;
+    /// tested.
+    static func codexLine(_ data: ProgressData) -> String { "Codex \(data.foundRelics.count)/\(RelicCatalog.all.count)" }
+    static func badgesLine(_ data: ProgressData) -> String {
+        "Badges \(data.achievements.count)/\(Achievements.all.count)"
+    }
 
     var body: some View {
         let data = store.data
         let rank = store.rank
         VStack(spacing: compact ? 10 : 14) {
-            RankRow(rank: rank, lifetime: data.lifetimeGold, best: data.bestRun, compact: compact)
+            if showsRank {
+                RankRow(rank: rank, lifetime: data.lifetimeGold, best: data.bestRun, compact: compact)
+            }
             HushButton(kind: .primary, height: compact ? 60 : 70, compact: compact, confirm: true,
                        action: { controller.play() }) {
                 HStack(spacing: 10) {
@@ -176,6 +255,9 @@ struct HomeMenu: View {
                                total: Achievements.all.count)
                 }
                 .accessibilityLabel("Badges, \(data.achievements.count) of \(Achievements.all.count) earned")
+            }
+            // R3 (UX P2-12, testers 4 and 6): every button says what it is (no unlabelled icons).
+            HStack(spacing: 10) {
                 IconTile(systemName: "gearshape.fill", label: "Settings") { controller.show(.settings) }
                 IconTile(systemName: "trophy.fill", label: "Game Center") { controller.showGameCenter() }
             }
@@ -190,7 +272,8 @@ struct HomeMenu: View {
     }
 }
 
-/// "Codex 9/24", or just "9/24" with its icon when that doesn't fit (UX P1-14: never "Codex 9/…").
+/// "Codex 9/24" (R3: the word always shows; the row now holds only Codex and Badges, so it fits; it shrinks before it
+/// ever drops the word).
 struct CountLabel: View {
     let icon: String
     let word: String
@@ -198,21 +281,17 @@ struct CountLabel: View {
     let total: Int
 
     var body: some View {
-        ViewThatFits(in: .horizontal) {
-            HStack(spacing: 6) {
-                Image(systemName: icon)
-                Text("\(word) \(count)/\(total)").fixedSize()
-            }
-            HStack(spacing: 5) {
-                Image(systemName: icon)
-                Text("\(count)/\(total)").fixedSize()
-            }
-            Text("\(count)/\(total)").fixedSize()
+        HStack(spacing: 6) {
+            Image(systemName: icon)
+            Text("\(word) \(count)/\(total)")
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
         }
     }
 }
 
-/// A square icon button the size of its row (Settings, Game Center), with a spoken label.
+/// A labelled button the height of its row (Settings, Game Center): the icon AND its name (R3: testers asked what the
+/// "flask" was).
 struct IconTile: View {
     let systemName: String
     let label: String
@@ -223,15 +302,22 @@ struct IconTile: View {
             FeedbackDirector.shared.uiTap()
             action()
         } label: {
-            Image(systemName: systemName)
-                .font(.system(size: 20, weight: .bold))
-                .foregroundStyle(HushTheme.gold)
-                .frame(width: HushTheme.secondaryHeight, height: HushTheme.secondaryHeight)
-                .background(RoundedRectangle(cornerRadius: HushTheme.buttonRadius, style: .continuous)
-                    .fill(HushTheme.surfaceRaised)
-                    .overlay(RoundedRectangle(cornerRadius: HushTheme.buttonRadius, style: .continuous)
-                        .stroke(HushTheme.stroke, lineWidth: 1)))
-                .contentShape(Rectangle())
+            HStack(spacing: 8) {
+                Image(systemName: systemName)
+                    .font(.system(size: 17, weight: .bold))
+                    .foregroundStyle(HushTheme.gold)
+                Text(label)
+                    .font(HushType.body(false))
+                    .foregroundStyle(HushTheme.parchment)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.7)
+            }
+            .frame(maxWidth: .infinity, minHeight: HushTheme.minTap)
+            .background(RoundedRectangle(cornerRadius: HushTheme.buttonRadius, style: .continuous)
+                .fill(HushTheme.surfaceRaised)
+                .overlay(RoundedRectangle(cornerRadius: HushTheme.buttonRadius, style: .continuous)
+                    .stroke(HushTheme.stroke, lineWidth: 1)))
+            .contentShape(Rectangle())
         }
         .buttonStyle(HushPressStyle())
         .accessibilityLabel(label)

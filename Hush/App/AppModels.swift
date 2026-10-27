@@ -15,12 +15,34 @@ final class HUDState: ObservableObject {
     /// Demo runs only: the most-lit grabbable item (`debug.loot`, CI's turned-drag UI test).
     @Published private(set) var debugLoot: DebugLoot?
 
-    func update(hint: HeistHint?, banner: String?, stage: MimicStage, bagCount: Int, debugLoot: DebugLoot?) {
+    /// R3 (UX P1-9): what VoiceOver reads over the scene's HUD (the scene draws these; SwiftUI only names them).
+    @Published private(set) var spoken = SpokenHUD()
+
+    func update(hint: HeistHint?, banner: String?, stage: MimicStage, bagCount: Int, debugLoot: DebugLoot?,
+                spoken: SpokenHUD? = nil) {
         if self.hint != hint { self.hint = hint }
         if self.banner != banner { self.banner = banner }
         if self.stage != stage { self.stage = stage }
         if self.bagCount != bagCount { self.bagCount = bagCount }
         if self.debugLoot != debugLoot { self.debugLoot = debugLoot }
+        if let spoken, self.spoken != spoken { self.spoken = spoken }
+    }
+}
+
+/// R3: the HUD values VoiceOver reads (whole seconds and gold, so they change at most once a second).
+struct SpokenHUD: Equatable {
+    var bagGold = 0
+    var banked = 0
+    var candleSeconds = 0
+    var stage: MimicStage = .asleep
+
+    init(bagGold: Int = 0, banked: Int = 0, candleSeconds: Int = 0, stage: MimicStage = .asleep) {
+        self.bagGold = bagGold; self.banked = banked; self.candleSeconds = candleSeconds; self.stage = stage
+    }
+
+    init(_ s: HeistSnapshot) {
+        let candle = s.torchRemaining.isFinite ? max(Int(s.torchRemaining.rounded(.up)), 0) : 0
+        self.init(bagGold: s.bagValue, banked: s.banked, candleSeconds: candle, stage: s.stage)
     }
 }
 
@@ -114,6 +136,8 @@ struct ResultSummary: Equatable {
     var againLabel: String
     /// R2: "312 short of your best" (nil on a new best, a first haul or an empty run).
     var nearMiss: String? = nil
+    /// R3: why the run ended ("Your candle burned out.", "The mimic bit you 3 times. Candle out.").
+    var cause: String = ""
 }
 
 /// Demo `lid=`: the lid held at one openness, shut for the first 0.25 s so the chest opens (static frames).

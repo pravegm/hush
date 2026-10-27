@@ -1,6 +1,7 @@
 import CoreGraphics
 import Foundation
 import SwiftUI
+import UIKit
 
 /// Where the app is.
 enum AppRoute: String, Equatable {
@@ -33,8 +34,6 @@ enum AppRules {
     static let maxStep: Double = 1.0 / 30.0
     /// A long side under this is the Duo's cover display.
     static let coverMaxSide: CGFloat = 760
-    /// R2: a pause rests the session for at most this much of a gap (the noise has long settled by then).
-    static let maxRestGap: Double = 30
     /// R2 (P0-2): after any resume the lid makes no noise for this long (`HeistSession.resumeGrace`).
     static let resumeGraceSeconds: Double = 0.5
     /// R2: the closing card says "Hold still…" once the lid is back at or above this (Feel's `canResume` angle).
@@ -45,16 +44,6 @@ enum AppRules {
     static func clampStep(_ dt: Double) -> Double {
         guard dt.isFinite, dt > 0 else { return 0 }
         return min(dt, maxStep)
-    }
-
-    /// R2: wall-clock time the session rests through (a paused frame, or a gap it didn't draw), as `count` rests of
-    /// `step` s each, none longer than a frame step (no allocation). Pure; tested.
-    static func restChunks(_ gap: Double) -> (count: Int, step: Double) {
-        guard gap.isFinite, gap > 0 else { return (0, 0) }
-        if gap <= maxStep { return (1, gap) }
-        let total = min(gap, maxRestGap)
-        let count = Int((total / maxStep).rounded(.up))
-        return (count, total / Double(count))
     }
 
     /// The session is in play (the candle burns, the lid matters): `.ready` or `.looting`.
@@ -74,32 +63,62 @@ enum AppRules {
 
     // MARK: Pose and the fold
 
-    /// `smallCanvasOpen`: the canvas is cover-sized but the hinge has been held well open for a while (a compatibility
-    /// column on the inner display, Duo run 40506125012, not the cover display): then it is played, never left on the
-    /// cover card with nothing stepping.
-    static func pose(canvas: CGSize, hingeSeen: Bool, isShut: Bool, smallCanvasOpen: Bool = false) -> AppPose {
+    /// R3 (founder decision 1): a cover-sized canvas on a Duo is ALWAYS the cover display, a pause (the R2
+    /// "cover-open" fallback is gone: the portrait-mask fix removed the letterboxed column it was for). `playAnyway`:
+    /// the player chose "Play anyway" on the book-pose card (portrait was refused), so landscape is played.
+    static func pose(canvas: CGSize, hingeSeen: Bool, isShut: Bool, playAnyway: Bool = false) -> AppPose {
         let valid = canvas.width > 1 && canvas.height > 1
         guard valid else { return .play }
         let long = max(canvas.width, canvas.height)
         // Shut, iOS moves the app to the cover display (a small canvas). A stale "shut" latch never covers the lit
         // inner display (Swoop Duo R3 P2-7): there the closing card speaks instead.
-        if hingeSeen && long < coverMaxSide && !(smallCanvasOpen && canvas.height >= canvas.width) { return .cover }
+        if hingeSeen && long < coverMaxSide { return .cover }
         _ = isShut
         let duo = hingeSeen || OrientationLock.looksLikeDuo(canvas)
-        if canvas.width > canvas.height && duo { return .standUp }
+        if canvas.width > canvas.height && duo && !playAnyway { return .standUp }
         return .play
     }
 
-    /// A cover-sized canvas counts as "open" (not the cover display) once the hinge has stayed at or above this for
-    /// `smallCanvasOpenSeconds` (the real cover display only stays lit that open for the moment of a reopen).
-    static let smallCanvasOpenAngle: Double = 60
-    static let smallCanvasOpenSeconds: Double = 2.5
+    /// The two kinds of canvas a Duo hands the app: the cover display (small) and the inner display.
+    enum CanvasClass: String, Equatable { case small, inner }
 
-    /// Whether a cover-sized canvas is really the cover display's: not once the hinge has been held open long enough.
-    /// Pure; tested.
-    static func smallCanvasIsOpen(angle: Double?, openSince: Double?, now: Double) -> Bool {
-        guard let a = angle, a.isFinite, a >= smallCanvasOpenAngle, let since = openSince else { return false }
-        return now - since >= smallCanvasOpenSeconds
+    /// Pure; tested. Nil for a degenerate size.
+    static func canvasClass(_ size: CGSize) -> CanvasClass? {
+        guard size.width > 10, size.height > 10 else { return nil }
+        return max(size.width, size.height) < coverMaxSide ? .small : .inner
+    }
+
+    /// R3 (decision 1): any small ↔ inner canvas change during a live hinge run holds the run in the closing pause
+    /// (it resumes only through `canResume`), even when the pose doesn't change. Pure; tested.
+    static func handoverHolds(from old: CanvasClass?, to new: CanvasClass?, liveHingeRun: Bool) -> Bool {
+        guard liveHingeRun, let old, let new else { return false }
+        return old != new
+    }
+
+    /// R3 (decision 1): a live hinge run never resumes on a small canvas. Pure; tested.
+    static func mayResume(canResume: Bool, canvas: CanvasClass?) -> Bool {
+        canResume && canvas != .small
+    }
+
+    /// R3 (QA-2 P2-2): the closing pause only engages while a chest is live. The bank, bite and candle-out moments
+    /// play out whatever the lid is doing, so Results never wait on a closing pause. Pure; tested.
+    static func closingApplies(_ phase: RunPhase) -> Bool { isLive(phase) }
+
+    /// R3 (QA-2 P2-2): a moment (bank, bite, candle out) keeps stepping under a closing or pose pause (never under
+    /// the menu or the background). Pure; tested.
+    static func stepsThroughPause(_ phase: RunPhase, menuOrBackground: Bool) -> Bool {
+        !isLive(phase) && !menuOrBackground
+    }
+
+    /// R3 (REVIEW-2-duo P1-2): the AUTOMATIC portrait asks (card shown, launch, cover → inner) only fire when the
+    /// device isn't held landscape: a Duo held like a book should see the card, not be flipped under the player's
+    /// hands. The lift rule and the card's button always ask. Pure; tested.
+    static func mayAutoAskPortrait(_ device: UIDeviceOrientation) -> Bool {
+        switch device {
+        case .landscapeLeft, .landscapeRight: return false
+        case .portrait, .portraitUpsideDown, .faceUp, .faceDown, .unknown: return true
+        @unknown default: return true
+        }
     }
 
     /// Why the pose is what it is (`HUSH-T pose <pose> reason=<…>`, so CI can see why a card is up). Pure; tested.
@@ -110,9 +129,7 @@ enum AppRules {
         switch pose {
         case .cover: return "cover-sized \(size) angle=\(a)"
         case .standUp: return "landscape \(size) angle=\(a)"
-        case .play:
-            return max(canvas.width, canvas.height) < coverMaxSide ? "small-canvas-open \(size) angle=\(a)"
-                : "portrait \(size)"
+        case .play: return canvas.width > canvas.height ? "play-anyway \(size)" : "portrait \(size)"
         }
     }
 
@@ -265,7 +282,7 @@ enum AppRules {
         }
         if r.gold <= 0 {
             return r.bites > 0 ? "The mimic kept every coin. Gentler next time." :
-                "Nothing banked. Ease the lid shut to keep loot."
+                "Nothing banked. Close the lid to bank your loot."
         }
         if outcome.showsNewBest { return "A new best haul. The mimics are whispering about you." }
         if r.goldenBanked > 0 { return "You robbed a golden mimic. It'll sulk for weeks." }
@@ -282,10 +299,50 @@ enum AppRules {
         guard !newBest, best > 0, gold > 0, gold < best else { return nil }
         return "\((best - gold).formatted()) short of your best"
     }
+
+    /// R3 (tester 6: "why did the run end?"): one line under the title. A run only ends when the candle goes out;
+    /// bites shorten it (10 s each), so they are the cause named when there were any. Pure; tested.
+    static func causeLine(_ r: RunResult) -> String {
+        switch r.bites {
+        case ..<1: return "Your candle burned out."
+        case 1: return "The mimic bit you once. Candle out."
+        default: return "The mimic bit you \(r.bites) times. Candle out."
+        }
+    }
+
+    /// What a Hush Chain of `n` pays (Core's rule: ×(1 + 0.1 · min(n, 5))). Pure; tested.
+    static func chainGold(_ n: Int) -> Double {
+        1 + Tuning.chainStep * Double(min(max(n, 0), Tuning.chainMax))
+    }
+
+    /// "Longest Hush Chain: 3 (gold ×1.3)". Pure; tested.
+    static func chainLine(_ n: Int) -> String {
+        "Longest Hush Chain: \(n) (gold ×\(String(format: "%.1f", chainGold(n))))"
+    }
+}
+
+/// R3 (UX P1-3 / P1-8 / P2-11): one-time teaching callouts in the hint band (≤ 6 words), each shown once ever.
+enum RunTip: String, CaseIterable {
+    case chain, chainBroken, jingle
+
+    var text: String {
+        switch self {
+        case .chain: return "Hush Chain! Sleepy banks pay more"
+        case .chainBroken: return "It stirred. Chain broken."
+        case .jingle: return "Full bags jingle. Bank soon."
+        }
+    }
+
+    /// Shown on every golden chest's arrival (not a once-ever tip).
+    static let golden = "A golden mimic! Double gold."
+    /// The bag-jingle floor that first earns the tip.
+    static let jingleFloor: Double = 0.10
 }
 
 /// Keeps the HUD's one-line hint calm (no flicker): a new hint shows once it has been wanted for `settle` s and the
-/// current one has been up `minShow` s; "Freeze!" and "Slower…" show at once. Pure; tested.
+/// current one has been up `minShow` s; "Freeze!" and "Slower…" show at once. R3 (UX P0-2): "Freeze!" replaces ANY
+/// hint on the very frame it is wanted ("Slower…" included). R3 (QA-2 P2-3): the App clocks it on wall time and clears
+/// it when a pause begins, so nothing freezes on screen through a pause. Pure; tested.
 struct HintGate: Equatable {
     static let settle: Double = 0.15
     static let minShow: Double = 0.7
@@ -308,6 +365,11 @@ struct HintGate: Equatable {
             candidateSince = now
         }
         guard wanted != shown else { return shown }
+        if wanted == .freeze {
+            shown = wanted
+            shownAt = now
+            return shown
+        }
         let urgent = Self.isUrgent(wanted) && !Self.isUrgent(shown)
         let stable = now - candidateSince >= Self.settle
         let longEnough = shown == nil || now - shownAt >= Self.minShow

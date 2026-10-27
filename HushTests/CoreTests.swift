@@ -4,7 +4,8 @@ import Testing
 @testable import Hush
 
 // MARK: - Core rules (Round 1, updated for Round 2: R2 tuning, Hush Chain, golden mimic, relic glimmer, bag jingle,
-// rest / resumeGrace / partialResult, biteCost, chestLog, candleLow / relicDeeper hints)
+// rest / resumeGrace / partialResult, biteCost, chestLog, candleLow / relicDeeper hints; and Round 3: noise frozen
+// across a pause, the resume grace ends on a sustained loud lid)
 
 struct CoreTests {
 
@@ -1400,9 +1401,10 @@ struct CoreTests {
     }
 
     @Test func resumeGraceIgnoresTheLidForAMoment() {
+        // 25 °/s is above the quiet line (noisy in play) but under loudSpeed: the grace forgives it.
         let (s, _) = lootingSession(seed: 181)
         s.resumeGrace(seconds: 0.5)
-        _ = s.step(dt: 0.4, lid: lidAt(0.5, speed: 40))
+        _ = s.step(dt: 0.4, lid: lidAt(0.5, speed: 25))
         #expect(s.snapshot.noise == 0)
         #expect(s.snapshot.hint != HeistHint.slower)
         _ = s.step(dt: 0.3, lid: lidAt(0.5, speed: 40))
@@ -1417,8 +1419,81 @@ struct CoreTests {
         s.resumeGrace(seconds: 1)
         s.resumeGrace(seconds: 0.1)
         let n1: Double = s.snapshot.noise
-        _ = s.step(dt: 0.5, lid: lidAt(0.5, speed: 40))
+        _ = s.step(dt: 0.5, lid: lidAt(0.5, speed: 25))
         #expect(s.snapshot.noise <= n1)
+    }
+
+    /// R3 (QA-2 P2-9): a pause can't buy a silent fling. A short loud blip is still forgiven, but once the lid has
+    /// been above loudSpeed for more than `Tuning.resumeGraceLoudLimit` of the grace, the grace ends.
+    @Test func resumeGraceEndsOnASustainedLoudLid() {
+        #expect(Tuning.resumeGraceLoudLimit == 0.15)
+        // A 0.1 s blip at 120 °/s, then still: forgiven, and the grace runs on.
+        let (b, _) = lootingSession(seed: 181)
+        b.resumeGrace(seconds: 0.5)
+        _ = b.step(dt: 0.1, lid: lidAt(0.5, speed: 120))
+        _ = b.step(dt: 0.2, lid: lidAt(0.5))
+        #expect(b.snapshot.noise == 0)
+        _ = b.step(dt: 0.1, lid: lidAt(0.5, speed: 25))
+        #expect(b.snapshot.noise == 0)
+        // A fling at 40 °/s: free for 0.1 s, then the grace ends and the lid counts (and "Slower…" shows).
+        let (f, _) = lootingSession(seed: 181)
+        f.resumeGrace(seconds: 0.5)
+        _ = f.step(dt: 0.1, lid: lidAt(0.5, speed: 40))
+        #expect(f.snapshot.noise == 0)
+        #expect(f.snapshot.hint != HeistHint.slower)
+        _ = f.step(dt: 0.15, lid: lidAt(0.5, speed: 40))
+        #expect(f.snapshot.noise > 0)
+        #expect(f.snapshot.hint == HeistHint.slower)
+        // Once ended it stays ended: slow motion is heard again before the 0.5 s are up.
+        let n0: Double = f.snapshot.noise
+        _ = f.step(dt: 0.1, lid: lidAt(0.5, speed: 25))
+        #expect(f.snapshot.noise > n0)
+        // A fresh grace starts its loud count from zero.
+        let (g, _) = lootingSession(seed: 181)
+        g.resumeGrace(seconds: 0.5)
+        _ = g.step(dt: 0.1, lid: lidAt(0.5, speed: 40))
+        _ = g.step(dt: 0.5, lid: lidAt(0.5))
+        g.resumeGrace(seconds: 0.5)
+        _ = g.step(dt: 0.1, lid: lidAt(0.5, speed: 40))
+        #expect(g.snapshot.noise == 0)
+    }
+
+    /// R3 (ROUND-3 decision 2): a pause is no stepping, and noise is frozen across it. However long the pause, the
+    /// noise, the stage, the candle and the clock are exactly where they were, and play carries on from there
+    /// exactly as if there had been no pause. Closing the lid is no free way to calm the mimic (REVIEW-2-duo P2-5).
+    @Test func noiseIsFrozenAcrossAPause() {
+        let (s, _) = lootingSession(seed: 171)
+        let (twin, _) = lootingSession(seed: 171)
+        s.nudgeNoise(to: 0.6)
+        twin.nudgeNoise(to: 0.6)
+        _ = s.step(dt: 1.0 / 120.0, lid: lidAt(0.3))
+        _ = twin.step(dt: 1.0 / 120.0, lid: lidAt(0.3))
+        let before: HeistSnapshot = s.snapshot
+        #expect(before.stage == .stirring)
+        #expect(abs(before.noise - 0.6) < 1e-9)
+        // The pause: N seconds (here 30) in which the App neither steps nor rests the session. Nothing moves.
+        let pauseSeconds: Double = 30
+        let after: HeistSnapshot = s.snapshot
+        #expect(after == before)
+        #expect(after.noise == before.noise)
+        #expect(after.stage == .stirring)
+        #expect(after.torchRemaining == before.torchRemaining)
+        #expect(after.time == before.time)
+        // Resume (the App's grace) and carry on with a still lid: identical to the twin that never paused.
+        s.resumeGrace(seconds: 0.5)
+        _ = run(s, seconds: 1, dt: 1.0 / 120.0, lid: lidAt(0.3))
+        _ = run(twin, seconds: 1, dt: 1.0 / 120.0, lid: lidAt(0.3))
+        #expect(s.snapshot == twin.snapshot)
+        // Only that 1 s of play decayed it (0.3 s grace, then ≈ 0.7 s × 0.16/s).
+        #expect(s.snapshot.noise > 0.45)
+        #expect(s.snapshot.stage == .stirring)
+        // What resting through the same pause would have done instead (why the App no longer calls `rest`).
+        let (r, _) = lootingSession(seed: 171)
+        r.nudgeNoise(to: 0.6)
+        _ = r.step(dt: 1.0 / 120.0, lid: lidAt(0.3))
+        r.rest(dt: pauseSeconds)
+        #expect(r.snapshot.noise < Tuning.stirringNoise)
+        #expect(r.snapshot.stage == .asleep)
     }
 
     @Test func chestLogAndPartialResult() {

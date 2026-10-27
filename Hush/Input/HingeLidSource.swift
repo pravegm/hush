@@ -15,8 +15,13 @@ import QuartzCore
 ///   still counts in full.
 ///
 /// R2 resume rule (REVIEW-1-duo P0-2): the closing pause starts under 70° for 0.4 s (`isClosing`), but the run resumes
-/// only on `canResume`: θ ≥ 95° **and** the hinge's real motion (unclamped) under 6°/s, held for 0.3 s. Call `reset()`
-/// at the moment of resume (and on becoming active).
+/// only on `canResume`: θ ≥ 95° (R3: `requiredResumeAngle`, which the App may lower after a cover trip) **and** the
+/// hinge's real motion (unclamped) under 6°/s, held for 0.3 s. Call `reset()` at the moment of resume (and on
+/// becoming active).
+///
+/// R3 (REVIEW-2-duo P1-4): the first report ever is safe on this side. It is a fresh base for both speed meters (no
+/// speed), the predictor and the smoother start on it, and it can't jump the noise. The App still guards the first
+/// sample of a live run (hold the pause, then `reset()`), since the run may have been played on the lever until then.
 ///
 /// Never use the hinge's `status` (it reads `.closed` at ~85° on hardware); everything here is the angle.
 @MainActor
@@ -29,6 +34,31 @@ final class HingeLidSource: LidSource {
     static let resumeSpeed = 6.0
     /// … for this long (s).
     static let resumeHold = 0.3
+    /// R3 (REVIEW-2-duo P1-3): the lowest angle the App may set `requiredResumeAngle` to, and the highest.
+    static let resumeAngleFloor = 90.0
+    static let resumeAngleCeiling = 150.0
+
+    /// R3 (REVIEW-2-duo P1-3): the angle `canResume` needs, 95° (`resumeAngle`) unless the App changes it. After a
+    /// cover-display trip, if the inner display relit below 95°, set it to `coverResumeAngle(relight:)` so the
+    /// player isn't asked to open past the angle they can already see; set it back to `resumeAngle` when the run
+    /// resumes (and for the inner closing card). Clamped to 90…150°; NaN reads as 95. `reset()` leaves it alone.
+    var requiredResumeAngle: Double = 95.0 { // = `resumeAngle` (a literal: a plain default value)
+        didSet { resumeSince = nil }
+    }
+
+    /// `requiredResumeAngle`, sanitised.
+    var effectiveResumeAngle: Double {
+        let a = requiredResumeAngle
+        guard a.isFinite else { return Self.resumeAngle }
+        return FeelMath.clamp(a, Self.resumeAngleFloor, Self.resumeAngleCeiling)
+    }
+
+    /// The resume angle after a cover-display trip whose inner display relit at `relight` degrees (REVIEW-2-duo
+    /// P1-3): `max(90, relight + 3)`, never above the usual 95°. Unknown or NaN: 95°.
+    static func coverResumeAngle(relight: Double?) -> Double {
+        guard let relight, relight.isFinite else { return resumeAngle }
+        return min(resumeAngle, max(resumeAngleFloor, relight + 3))
+    }
 
     private var predictor = HingePredictor()
     private var smoother = OneEuroSmoother(minCutoff: 2.0, beta: 0.12, dCutoff: 1.5)
@@ -164,7 +194,7 @@ final class HingeLidSource: LidSource {
             return
         }
         let still = motionMeter.peekSpeed(at: time) < Self.resumeSpeed
-        if angle >= Self.resumeAngle && still {
+        if angle >= effectiveResumeAngle && still {
             if resumeSince == nil { resumeSince = time }
         } else {
             resumeSince = nil

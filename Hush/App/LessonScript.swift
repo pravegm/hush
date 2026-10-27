@@ -45,6 +45,9 @@ struct LessonDisplay: Equatable {
     var usesSlider: Bool
     /// R2: the open step points at the noise meter ("Watch the noise").
     var pointsAtMeter: Bool = false
+    /// R3 (UX P0-1): the lid marker's cue in the pose step, from the SAME angle branch as the line (nil: no lid marker,
+    /// e.g. the lever on a phone).
+    var liftCue: LessonScript.LiftCue? = nil
 }
 
 /// The First Chest lesson's script (GAME-DESIGN §8): one sentence per step, passed by doing. Pure; tested.
@@ -236,20 +239,60 @@ struct LessonScript: Equatable {
         }
     }
 
-    /// The card's one line (GAME-DESIGN §8), in the slider's words without a hinge. R2: "candle", the lever by name,
-    /// and the open step points at the noise meter (UX P0-2).
+    /// R3 (UX P0-1): which way the pose step's lid marker points. The marker and the line come from this one branch,
+    /// so they can never disagree (R2 said "Close it a little" under a "↑ Lift this half" marker).
+    enum LiftCue: Equatable {
+        /// Flat (≥ 168°) or no angle yet: "↑ Lift this half".
+        case lift
+        /// Open past the window (> 112°): "↓ Lower this half a little".
+        case lower
+        /// Under the window (< 90°): "↑ Lift this half".
+        case liftMore
+        /// In the 90…112° window: "Hold it there…" (a tick).
+        case hold
+
+        /// The marker's words on the lid. Pure; tested.
+        var label: String {
+            switch self {
+            case .lift, .liftMore: return "Lift this half"
+            case .lower: return "Lower this half a little"
+            case .hold: return "Hold it there…"
+            }
+        }
+
+        /// The arrow: up, down, or none (a tick). Pure; tested.
+        var pointsUp: Bool? {
+            switch self {
+            case .lift, .liftMore: return true
+            case .lower: return false
+            case .hold: return nil
+            }
+        }
+    }
+
+    /// Pure; tested.
+    static func liftCue(angle: Double?) -> LiftCue {
+        guard let a = angle, a.isFinite else { return .lift }
+        if a >= 168 { return .lift }
+        if a > poseMax { return .lower }
+        if a < poseMin { return .liftMore }
+        return .hold
+    }
+
+    /// The card's one line (GAME-DESIGN §8). R3 (decision 4): `slider` is the LAYOUT's words (no fold: the lever;
+    /// a fold: the lid), never the input's. R3 (decision 3): one verb, "bank".
     func line(slider: Bool, angle: Double?, hint: HeistHint?) -> String {
         if let praiseLine { return praiseLine }
         if isSlower { return "Slower… it's grumbling." }
         switch step {
         case .pose:
             if slider { return "Slide the lever up… slowly." }
-            if let a = angle {
-                if a >= 168 { return "Stand it up: lift this half." }
-                if a > Self.poseMax { return "Close it a little, nearly upright…" }
-                if a < Self.poseMin { return "Lift this half a little more…" }
+            switch Self.liftCue(angle: angle) {
+            case .lift: return "Stand your Duo like a little laptop."
+            case .lower: return "Close the lid a little, nearly upright…"
+            case .liftMore: return "Lift it a little more…"
+            case .hold: return "Hold it there…"
             }
-            return "Stand your Duo like a little laptop. Lift this half."
         case .open:
             if hint == .easeLidDown {
                 return slider ? "Slide the lever all the way down first." : "Ease the lid down first."
@@ -261,7 +304,7 @@ struct LessonScript: Equatable {
             if !stirred { return "Shh… did you hear that?" }
             return movedDuringFreeze ? "Freeze! Not a twitch." : "It's stirring. Freeze!"
         case .bank:
-            return slider ? "Slide the lever down to keep it." : "Ease the lid shut to keep it."
+            return slider ? "Slide the lever down to bank it." : "Ease the lid shut to bank it."
         case .done:
             return "Candle out = run over"
         }
@@ -269,10 +312,12 @@ struct LessonScript: Equatable {
 
     func display(slider: Bool, angle: Double?, hint: HeistHint?) -> LessonDisplay {
         let warning = praiseLine == nil && (isSlower || (step == .freeze && stirred))
+        let marks = step == .pose && praiseLine == nil
         return LessonDisplay(step: step.rawValue, line: line(slider: slider, angle: angle, hint: hint),
                              praise: praiseLine != nil, warning: warning, canSkip: canSkip,
-                             marksLid: step == .pose && praiseLine == nil, isFinal: step == .done && praiseLine == nil,
+                             marksLid: marks, isFinal: step == .done && praiseLine == nil,
                              usesSlider: slider,
-                             pointsAtMeter: praiseLine == nil && (step == .open || (step == .freeze && stirred)))
+                             pointsAtMeter: praiseLine == nil && (step == .open || (step == .freeze && stirred)),
+                             liftCue: marks && !slider && !isSlower ? Self.liftCue(angle: angle) : nil)
     }
 }

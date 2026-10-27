@@ -235,6 +235,22 @@ enum FeelHapticBook {
         return FeelHapticCue(notes: notes)
     }
 
+    /// The stage nudge for a stage change: a soft nudge up to Stirring, a firm double up to Waking; nothing for a step
+    /// down, a bite (the `bite` cue) or no change.
+    static func stageCue(from: MimicStage, to: MimicStage) -> FeelHapticCue? {
+        guard to > from else { return nil }
+        switch to {
+        case .stirring: return stirring
+        case .waking: return waking
+        case .asleep, .biting: return nil
+        }
+    }
+
+    /// R3 CREAK (the slam): a hard, keen crack you feel in the lid, then a smaller splinter tick. Sharper and shorter
+    /// than the bite (which stays the strongest cue), with the sound's own second crack.
+    static let creakAccent = FeelHapticCue(notes: [.tap(0.9, 1.0), .tap(0.45, 0.85, at: 0.014),
+                                                   .tap(0.3, 0.9, at: 0.05)])
+
     /// The candle clock: the faintest tick from 15 s, a firmer, keener one twice a second in the last 5.
     static func candleTick(urgent: Bool) -> FeelHapticCue {
         let note: FeelHapticNote = urgent ? FeelHapticNote.tap(0.32, 0.9) : FeelHapticNote.tap(0.14, 0.8)

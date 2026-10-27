@@ -24,6 +24,9 @@ final class SceneFloorHUD {
     private let unlitColor: UIColor
     private let noiseLabel: SceneLabel
     private let floorTick: SKSpriteNode
+    /// R3: the red flash over the meter on a slam ("CREAK!").
+    private let meterFlash: SKSpriteNode
+    private var creakAge: Double = 10
 
     // Candle.
     private let track: SKSpriteNode
@@ -46,6 +49,11 @@ final class SceneFloorHUD {
     private let valueHolder: SKNode
     private let valueLabel: SceneLabel
     private let bagTag: SceneLabel
+    /// R3 (decision 3): "not safe yet" under the IN BAG number while there is loot in it.
+    private let bagSub: SceneLabel
+    /// The App may retire the sub-label after the first runs.
+    var showsBagSublabel = true
+    private var bagSubWarm = false
     private var shownRingStep = -1
     private var lastBagValue = 0
     private var shownBagValue = -1
@@ -80,6 +88,7 @@ final class SceneFloorHUD {
     private let medal: SKSpriteNode
     private let chainValue: SceneLabel
     private let chainCaption: SceneLabel
+    private let chainTab: SKSpriteNode
     private let crack: SKSpriteNode
     private var chainPopAge: Double = 10
     private var crackAge: Double = 10
@@ -88,6 +97,11 @@ final class SceneFloorHUD {
     /// Whether the chain badge is showing (tests).
     var chainShowing: Bool { !chainRoot.isHidden && chainRoot.alpha > 0.05 }
     var chainCracking: Bool { crackAge < 0.8 }
+    /// The chain tab's words now ("GOLD ×1.2"; tests).
+    var chainValueText: String { chainValue.text }
+    /// The meter's red slam flash now (0 … 1; tests).
+    var meterFlashLevel: CGFloat { meterFlash.isHidden ? 0 : meterFlash.alpha }
+    var bagSublabelShowing: Bool { !bagSub.node.isHidden }
 
     /// The meter's shake offset now (tests).
     private(set) var meterShake: CGPoint = .zero
@@ -137,6 +151,13 @@ final class SceneFloorHUD {
         tick.zPosition = 3
         tick.isHidden = true
         meterN.addChild(tick)
+        let flashN = SKSpriteNode(texture: SceneTextures.meterFlash, size: m.size)
+        flashN.color = ScenePaint.ui(pal.danger)
+        flashN.colorBlendFactor = 1
+        flashN.alpha = 0
+        flashN.isHidden = true
+        flashN.zPosition = 4
+        meterN.addChild(flashN)
 
         // The candle.
         let tr = ChestLayout.torchRect
@@ -145,7 +166,7 @@ final class SceneFloorHUD {
         trackN.colorBlendFactor = 0
         trackN.color = ScenePaint.ui(pal.danger)
         trackN.zPosition = 0
-        let dishN = SKSpriteNode(texture: SceneTextures.candleDish, size: CGSize(width: 44, height: 22))
+        let dishN = SKSpriteNode(texture: SceneTextures.candleDish, size: CGSize(width: tr.width, height: 20))
         dishN.position = CGPoint(x: ChestLayout.candleX, y: ChestLayout.candleBaseY - 4)
         dishN.zPosition = 2
         let waxN = SKSpriteNode(texture: SceneTextures.wax, size: CGSize(width: 24, height: ChestLayout.candleMaxHeight))
@@ -211,6 +232,12 @@ final class SceneFloorHUD {
         bagT.set("IN BAG")
         bagT.node.position = CGPoint(x: ChestLayout.bagValueLeft + 2, y: ChestLayout.plateLabelY)
         bagT.node.zPosition = 2
+        let bagS = SceneLabel(size: 12, color: ScenePaint.ui(pal.text, alpha: 0.72), outline: nil, align: .left,
+                              minimumSize: 12, kern: 0.8)
+        bagS.set("not safe yet")
+        bagS.node.position = CGPoint(x: ChestLayout.bagValueLeft + 2, y: ChestLayout.bagSublabelY)
+        bagS.node.zPosition = 2
+        bagS.node.isHidden = true
 
         // The pouch.
         let pr = ChestLayout.pouchRect
@@ -242,32 +269,39 @@ final class SceneFloorHUD {
         bankT.node.position = CGPoint(x: ChestLayout.counterRight - 2, y: ChestLayout.plateLabelY)
         bankT.node.zPosition = 2
 
-        // The Hush Chain.
+        // The Hush Chain (R3: a leather tab on the front rim, inside the frame, beside the meter).
+        let chr = ChestLayout.chainRect
         let chainN = SKNode()
-        chainN.position = ChestLayout.chainCenter
+        chainN.position = CGPoint(x: chr.midX, y: chr.midY)
         chainN.zPosition = 3
         chainN.isHidden = true
         chainN.alpha = 0
-        let medalN = SKSpriteNode(texture: SceneTextures.chainMedallion, size: CGSize(width: 64, height: 64))
+        let tabN = SKSpriteNode(texture: SceneTextures.plateTexture(size: chr.size, style: .leather), size: chr.size)
+        tabN.zPosition = 0
+        chainN.addChild(tabN)
+        let medalSide = ChestLayout.chainRadius * 2 + 4
+        let medalN = SKSpriteNode(texture: SceneTextures.chainMedallion, size: CGSize(width: medalSide, height: medalSide))
+        medalN.position = CGPoint(x: ChestLayout.chainCenter.x - chr.midX, y: ChestLayout.chainCenter.y - chr.midY)
+        medalN.zPosition = 1
         chainN.addChild(medalN)
-        let cv = SceneLabel(size: 20, color: ScenePaint.ui(pal.text))
-        cv.node.position = CGPoint(x: 0, y: 0)
-        cv.node.zPosition = 1
-        cv.maxWidth = 40
-        chainN.addChild(cv.node)
-        let cap = SceneLabel(size: 14, color: ScenePaint.ui(ScenePaint.meterGreen), minimumSize: 14, strokeWidth: -4,
-                             kern: 1.4)
-        cap.set("CHAIN")
-        cap.node.position = CGPoint(x: 0, y: ChestLayout.chainCaptionY - ChestLayout.chainCenter.y)
+        let cap = SceneLabel(size: 12, color: ScenePaint.ui(pal.gold), outline: nil, minimumSize: 12, kern: 0.6)
+        cap.set("HUSH CHAIN")
+        cap.node.position = CGPoint(x: ChestLayout.chainTextX - chr.midX, y: ChestLayout.chainCaptionY - chr.midY)
         cap.node.zPosition = 1
         chainN.addChild(cap.node)
-        let crackN = SKSpriteNode(texture: SceneTextures.chainCrack, size: CGSize(width: 64, height: 64))
+        let cv = SceneLabel(size: 16, color: ScenePaint.ui(pal.text), minimumSize: 13, strokeWidth: -3)
+        cv.maxWidth = 80
+        cv.node.position = CGPoint(x: ChestLayout.chainTextX - chr.midX, y: ChestLayout.chainValueY - chr.midY)
+        cv.node.zPosition = 1
+        chainN.addChild(cv.node)
+        let crackN = SKSpriteNode(texture: SceneTextures.chainCrack, size: CGSize(width: medalSide, height: medalSide))
+        crackN.position = medalN.position
         crackN.zPosition = 2
         crackN.isHidden = true
         chainN.addChild(crackN)
 
         let rootN = SKNode()
-        let all: [SKNode] = [trackN, dishN, waxN, cdN, claspN, trackRing, ringN, ringGlowN, valueH, bagT.node, pGlow,
+        let all: [SKNode] = [trackN, dishN, waxN, cdN, claspN, trackRing, ringN, ringGlowN, valueH, bagT.node, bagS.node, pGlow,
                              pouchN, coinN, counterH, bankT.node, chainN, flameN]
         for node in all { rootN.addChild(node) }
 
@@ -278,6 +312,7 @@ final class SceneFloorHUD {
         unlitColor = unlit
         noiseLabel = noiseL
         floorTick = tick
+        meterFlash = flashN
         track = trackN
         dish = dishN
         wax = waxN
@@ -292,6 +327,7 @@ final class SceneFloorHUD {
         valueHolder = valueH
         valueLabel = valueL
         bagTag = bagT
+        bagSub = bagS
         pouchFront = pouchN
         pouchGlow = pGlow
         coin = coinN
@@ -302,6 +338,7 @@ final class SceneFloorHUD {
         medal = medalN
         chainValue = cv
         chainCaption = cap
+        chainTab = tabN
         crack = crackN
     }
 
@@ -327,6 +364,9 @@ final class SceneFloorHUD {
 
     func chainBroken() { crackAge = 0 }
 
+    /// R3: a slam ("CREAK!"): the meter flashes red and jolts.
+    func creak() { creakAge = 0 }
+
     /// Jump straight to a value (a new session).
     func snap(banked: Int) {
         rolling = false
@@ -335,6 +375,7 @@ final class SceneFloorHUD {
         counterLabel.set(SceneNumber.gold(banked))
         crackAge = 10
         chainPopAge = 10
+        creakAge = 10
     }
 
     /// Where the candle flame sits now (for smoke, "+6s" and "−10s").
@@ -378,11 +419,20 @@ final class SceneFloorHUD {
             let m = ChestLayout.meterRect
             floorTick.position = CGPoint(x: well.minX + well.width * CGFloat(nf) - m.midX, y: well.midY - m.midY)
         }
-        if noise > 0.85 && !reduceMotion {
-            let k = CGFloat((noise - 0.85) / 0.15) * 3
-            meterShake = CGPoint(x: CGFloat(sin(time * 61)) * k, y: CGFloat(sin(time * 47 + 1)) * k * 0.6)
+        creakAge += dt
+        var shakeK: CGFloat = noise > 0.85 ? CGFloat((noise - 0.85) / 0.15) * 3 : 0
+        if creakAge < 0.45 { shakeK = max(shakeK, CGFloat(7 * (1 - creakAge / 0.45))) }
+        if shakeK > 0 && !reduceMotion {
+            meterShake = CGPoint(x: CGFloat(sin(time * 61)) * shakeK, y: CGFloat(sin(time * 47 + 1)) * shakeK * 0.6)
         } else {
             meterShake = .zero
+        }
+        // The slam's red flash on the meter (shown under Reduce Motion too: it is a colour, not a movement).
+        if creakAge < 0.55 {
+            meterFlash.isHidden = false
+            meterFlash.alpha = CGFloat(0.7 * (1 - creakAge / 0.55))
+        } else {
+            meterFlash.isHidden = true
         }
         let m = ChestLayout.meterRect
         meterRoot.position = CGPoint(x: m.midX + meterShake.x, y: m.midY + meterShake.y)
@@ -463,6 +513,11 @@ final class SceneFloorHUD {
             bagTag.setColor(warm ? ScenePaint.ui(pal.amber) : ScenePaint.ui(pal.text, alpha: 0.82))
         }
         bagTag.node.alpha = warm && !reduceMotion ? CGFloat(0.7 + 0.3 * sin(time * 8)) : 1
+        bagSub.node.isHidden = !(showsBagSublabel && bag > 0)
+        if warm != bagSubWarm {
+            bagSubWarm = warm
+            bagSub.setColor(warm ? ScenePaint.ui(pal.amber) : ScenePaint.ui(pal.text, alpha: 0.72))
+        }
         ringTrack.alpha = bag > 0 ? 1 : 0.35
         let hold = min(max(s.shutHold.isFinite ? s.shutHold : 0, 0), 1)
         let step = Int((hold * 64).rounded())
@@ -521,7 +576,7 @@ final class SceneFloorHUD {
             let tenths = Int((s.chainMultiplier * 10).rounded())
             if tenths != shownChainTenths {
                 shownChainTenths = tenths
-                chainValue.set("×\(tenths / 10).\(tenths % 10)")
+                chainValue.set("GOLD ×\(tenths / 10).\(tenths % 10)")
             }
         }
         chainPopAge += dt
@@ -542,10 +597,11 @@ final class SceneFloorHUD {
         }
         chainRoot.alpha = alpha
         chainRoot.isHidden = alpha < 0.01
-        chainRoot.position = CGPoint(x: ChestLayout.chainCenter.x + shakeX, y: ChestLayout.chainCenter.y)
-        let popK: CGFloat = chainPopAge < 0.35 ? 1 + 0.35 * CGFloat(sin(chainPopAge / 0.35 * Double.pi)) : 1
+        let cr = ChestLayout.chainRect
+        chainRoot.position = CGPoint(x: cr.midX + shakeX, y: cr.midY)
+        let popK: CGFloat = chainPopAge < 0.35 ? 1 + 0.3 * CGFloat(sin(chainPopAge / 0.35 * Double.pi)) : 1
         medal.setScale(popK)
-        chainValue.node.setScale(popK)
+        chainTab.setScale(1 + (popK - 1) * 0.25)
         _ = chainCaption
         _ = noiseLabel
     }

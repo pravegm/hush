@@ -37,6 +37,36 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Store copy says candle, not torch (warning only)
+        # R3 (QA-2 P1-2, ROUND-3 "Launch lead"): the game's light is a candle. Any "torch" left in the store, site or
+        # App Store Connect text is a warning annotated at its line, never a failure. Whole words only, any case, so
+        # code names such as the `torchLow` freeze tag don't count. Runs first, so a failed build still reports it.
+        # (docs-only pushes don't trigger this workflow; run it by hand, or it runs on the next code push.)
+        if: always()
+        continue-on-error: true
+        run: |
+          set +e
+          shopt -s nullglob
+          files=(docs/appstore/*.md docs/*.html docs/appstore/asc-metadata.json)
+          if (( ${#files[@]} == 0 )); then echo "no store docs found"; exit 0; fi
+          hits=$(grep -n -i -w -E "torch(es)?" "${files[@]}" 2>/dev/null)
+          if [ -z "$hits" ]; then
+            echo "No \"torch\" in ${#files[@]} store/site files."
+            echo "Store copy: no \"torch\" in ${#files[@]} files." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          n=$(printf '%s\n' "$hits" | wc -l | tr -d ' ')
+          printf '%s\n' "$hits" | head -50 | while IFS=: read -r f l text; do
+            echo "::warning file=$f,line=$l::\"torch\" in store copy (the app says candle): $(printf '%s' "$text" | cut -c1-160)"
+          done
+          {
+            echo "### Store copy: $n line(s) still say \"torch\" (the app says candle)"
+            echo '```'
+            printf '%s\n' "$hits" | cut -c1-200 | head -50
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit 0
+
       - name: Select Xcode 27.1
         run: |
           sudo xcode-select -s /Applications/Xcode_27.1.app

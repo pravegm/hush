@@ -362,6 +362,25 @@ struct DemoModeTests {
         #expect(DemoMode.freezeDelay(.bite) < 0.5)
     }
 
+    /// R3: `pose=book` holds the book card (CI's POSE-BOOK frame); `freezeOn=creak` and `freezeDelay=` (CI R3 asks).
+    @Test func r3Keys() {
+        let book = DemoMode.parse("pose=book")
+        #expect(book.poseBook)
+        #expect(book.effectiveScreen == .pose)
+        #expect(!DemoMode.parse("pose=other").poseBook)
+        #expect(DemoMode.parse("screen=home;pose=book").effectiveScreen == .home)
+        let creak = DemoMode.parse("freezeOn=creak;freezeDelay=1.5")
+        #expect(creak.freezeOn == .creak && DemoMode.Freeze.creak.isEvent)
+        #expect(creak.holdDelay(.creak) == 1.5)
+        #expect(DemoMode.parse("freezeDelay=99").eventHold == 10)
+        #expect(DemoMode.parse("").holdDelay(.relic) == DemoMode.relicFreezeDelay)
+        #expect(DemoMode.parse("").holdDelay(.bank, lesson: true) < DemoMode.bankFreezeDelay)
+        #expect(DemoMode.parse("").holdDelay(.bank) == DemoMode.bankFreezeDelay)
+        let s = HeistSnapshot(phase: .looting)
+        #expect(GameController.matches(.creak, s, events: [], creak: true))
+        #expect(!GameController.matches(.creak, s, events: []))
+    }
+
     @Test func goldenSeedMakesChestThreeGolden() {
         let s = DemoMode.goldenSeed(from: 7)
         #expect(s >= 7)
@@ -399,6 +418,73 @@ struct DemoPresetTests {
         #expect(DemoPresets.mid.best < DemoPresets.late.best)
         #expect(DemoPresets.mid.relics < DemoPresets.late.relics)
         #expect(DemoPresets.progress(.fresh, today: 300) == ProgressData())
+    }
+
+    /// R3 (testers 5/6: "Codex 9/24" on Home vs "22 of 24" on the Codex). The source was CI shooting the Duo's Codex
+    /// with `progress=late` and Home with `mid` (ci/duo.sh). One preset renders the same numbers on Home, the Codex
+    /// and Results; a recorded run moves all three together.
+    @Test func onePresetAgreesAcrossHomeCodexAndResults() throws {
+        let today = 300
+        let store = ProgressStore(inMemory: DemoPresets.progress(.mid, today: today))
+        let start = store.data
+        let total = RelicCatalog.all.count
+        #expect(HomeMenu.codexLine(start) == "Codex \(DemoPresets.mid.relics)/\(total)")
+        #expect(CodexView.subtitle(found: start.foundRelics.count, total: total)
+                .hasPrefix("\(DemoPresets.mid.relics) of \(total)"))
+        #expect(RankRow.bestLine(start.bestRun) == "Best \(DemoPresets.mid.best.formatted())")
+        // `screen=results;progress=mid;pilot=casual;seed=7`: the same run, recorded into the same store.
+        let session = HeistSession(mode: .run, seed: 7, bestRun: store.best(for: .run), foundRelics: start.foundRelics,
+                                   options: SessionOptions.`for`(.run))
+        DemoRunner.playToEnd(session, skill: .casual, seed: 7)
+        let result = try #require(session.result)
+        let outcome = store.record(result, today: today)
+        #expect(outcome.previousBest == DemoPresets.mid.best)
+        #expect(outcome.best == store.data.bestRun)
+        let after = store.data
+        #expect(HomeMenu.codexLine(after) == "Codex \(DemoPresets.mid.relics + outcome.newRelics.count)/\(total)")
+        #expect(CodexView.subtitle(found: after.foundRelics.count, total: total)
+                .hasPrefix("\(after.foundRelics.count) of \(total)"))
+        #expect(HomeMenu.badgesLine(after)
+                == "Badges \(start.achievements.count + outcome.newAchievements.count)/\(Achievements.all.count)")
+        #expect(RankRow.bestLine(after.bestRun) == "Best \(outcome.best.formatted())")
+    }
+}
+
+/// R3: the one-time tips, the abandoned-run counter, the diagnostics gate.
+@MainActor
+struct R3ProgressTests {
+    @Test func tipsShowOnceAndPersist() throws {
+        let store = ProgressStore(inMemory: ProgressData())
+        #expect(store.markTip(RunTip.chain.rawValue))
+        #expect(!store.markTip(RunTip.chain.rawValue))
+        #expect(store.data.seenTips == [RunTip.chain.rawValue])
+        let raw = try #require(ProgressStore.encode(store.data))
+        #expect(ProgressStore.decode(raw)?.seenTips == [RunTip.chain.rawValue])
+        // An R2 save (no `seenTips`) decodes with none seen.
+        #expect(ProgressStore.decode(Data(#"{"version": 2, "runs": 3}"#.utf8))?.seenTips.isEmpty == true)
+    }
+
+    /// QA-2 P2-14: five quick Restarts with nothing banked never retire the teaching hints.
+    @Test func emptyAbandonsDontCountAsRuns() {
+        var d = ProgressData()
+        for _ in 0..<5 { _ = abandon(makeRun(gold: 0, banked: 0, hushed: 0, bites: 1), &d) }
+        #expect(d.runs == 0)
+        #expect(AppRules.showsHint(.dragToBag, runs: d.runs))
+        _ = abandon(makeRun(gold: 300, banked: 1), &d)
+        #expect(d.runs == 1)
+    }
+
+    @Test func diagnosticsNeedDebugOrTheGesture() throws {
+        let suite = "hush.tests.diag.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        #if DEBUG
+        #expect(BuildChannel.showsDiagnostics(defaults: defaults))
+        #else
+        #expect(!BuildChannel.showsDiagnostics(defaults: defaults))
+        BuildChannel.toggleDiagnostics(defaults: defaults)
+        #expect(BuildChannel.showsDiagnostics(defaults: defaults))
+        #endif
     }
 }
 
@@ -497,20 +583,84 @@ struct TurnedRoundTests {
         }
     }
 
-    /// Duo run 40506125012: a cover-sized portrait canvas with the hinge held open is a compatibility column on the
-    /// inner display, not the cover display: it is played (it never sits on the cover card with nothing stepping).
-    @Test func smallCanvasWithTheHingeOpenIsPlayed() {
-        let column = CGSize(width: 469, height: 669)
-        #expect(AppRules.pose(canvas: column, hingeSeen: true, isShut: false) == .cover)
-        #expect(AppRules.pose(canvas: column, hingeSeen: true, isShut: false, smallCanvasOpen: true) == .play)
-        // A landscape small canvas is never treated as play by this rule.
-        #expect(AppRules.pose(canvas: CGSize(width: 669, height: 469), hingeSeen: true, isShut: false,
-                              smallCanvasOpen: true) == .cover)
-        #expect(!AppRules.smallCanvasIsOpen(angle: 104, openSince: 0, now: 1))
-        #expect(AppRules.smallCanvasIsOpen(angle: 104, openSince: 0, now: AppRules.smallCanvasOpenSeconds + 0.1))
-        #expect(!AppRules.smallCanvasIsOpen(angle: 20, openSince: 0, now: 10))
-        #expect(!AppRules.smallCanvasIsOpen(angle: nil, openSince: 0, now: 10))
-        #expect(!AppRules.smallCanvasIsOpen(angle: 104, openSince: nil, now: 10))
+    /// R3 (founder decision 1): the "cover-open" fallback is gone. A cover-sized canvas on a Duo is always the cover
+    /// display (a pause), whatever the hinge says; "Play anyway" plays a landscape book pose.
+    @Test func aSmallCanvasIsAlwaysTheCover() {
+        for small in [CGSize(width: 466, height: 678), CGSize(width: 469, height: 669), CGSize(width: 669, height: 469)] {
+            #expect(AppRules.pose(canvas: small, hingeSeen: true, isShut: false) == .cover)
+            #expect(AppRules.pose(canvas: small, hingeSeen: true, isShut: false, playAnyway: true) == .cover)
+        }
+        let book = CGSize(width: 951, height: 669)
+        #expect(AppRules.pose(canvas: book, hingeSeen: true, isShut: false, playAnyway: true) == .play)
+        #expect(AppRules.canvasClass(CGSize(width: 466, height: 678)) == .small)
+        #expect(AppRules.canvasClass(CGSize(width: 669, height: 951)) == .inner)
+        #expect(AppRules.canvasClass(.zero) == nil)
+    }
+
+    /// R3 (decision 1): any small ↔ inner change during a live hinge run holds the closing pause, and the run resumes
+    /// only through `canResume` on the inner display, never on the small canvas.
+    @Test func aHandoverHoldsUntilStillOnTheInnerDisplay() {
+        #expect(AppRules.handoverHolds(from: .inner, to: .small, liveHingeRun: true))
+        #expect(AppRules.handoverHolds(from: .small, to: .inner, liveHingeRun: true))
+        #expect(!AppRules.handoverHolds(from: .inner, to: .inner, liveHingeRun: true))
+        #expect(!AppRules.handoverHolds(from: .inner, to: .small, liveHingeRun: false))
+        #expect(!AppRules.handoverHolds(from: nil, to: .small, liveHingeRun: true))
+        #expect(!AppRules.mayResume(canResume: true, canvas: .small))
+        #expect(AppRules.mayResume(canResume: true, canvas: .inner))
+        #expect(!AppRules.mayResume(canResume: false, canvas: .inner))
+
+        // The sequence: playing on the inner display → iOS hands over to the cover (hold) → the hinge is open and
+        // still while the canvas is still small (no resume) → the inner display relights (still held) → still there.
+        var p = ClosingPause()
+        var canvas: AppRules.CanvasClass = .inner
+        #expect(p.update(angle: 130, gateClosing: false, isShut: false,
+                         canResume: AppRules.mayResume(canResume: true, canvas: canvas), now: 0) == nil)
+        if AppRules.handoverHolds(from: canvas, to: .small, liveHingeRun: true) { p.hold() }
+        canvas = .small
+        #expect(p.paused)
+        for i in 1...20 {
+            let change = p.update(angle: 120, gateClosing: false, isShut: false,
+                                  canResume: AppRules.mayResume(canResume: true, canvas: canvas), now: Double(i) * 0.1)
+            #expect(change == nil)
+        }
+        #expect(p.paused)
+        if AppRules.handoverHolds(from: canvas, to: .inner, liveHingeRun: true) { p.hold() }
+        canvas = .inner
+        // The reopening hand is still moving: held.
+        #expect(p.update(angle: 125, gateClosing: false, isShut: false,
+                         canResume: AppRules.mayResume(canResume: false, canvas: canvas), now: 2.1) == nil)
+        #expect(p.paused)
+        // Open and still on the inner display: resumes.
+        #expect(p.update(angle: 125, gateClosing: false, isShut: false,
+                         canResume: AppRules.mayResume(canResume: true, canvas: canvas), now: 2.5) == .resumed)
+    }
+
+    /// R3 (REVIEW-2-duo P1-2): the automatic portrait asks never fire while the Duo is held landscape like a book.
+    @Test func autoPortraitAskWaitsForTheBookToClose() {
+        #expect(!AppRules.mayAutoAskPortrait(.landscapeLeft))
+        #expect(!AppRules.mayAutoAskPortrait(.landscapeRight))
+        for o in [UIDeviceOrientation.portrait, .faceUp, .faceDown, .unknown, .portraitUpsideDown] {
+            #expect(AppRules.mayAutoAskPortrait(o))
+        }
+    }
+
+    /// R3 (QA-2 P2-5): the cover display's shape keeps the stored hinge; no other iPhone shape does.
+    @Test func theCoverDisplayTrustsTheStoredHinge() {
+        #expect(OrientationLock.looksLikeDuoCover(CGSize(width: 466, height: 678)))
+        #expect(OrientationLock.trustsStoredHinge(true, screen: CGSize(width: 466, height: 678)))
+        #expect(!OrientationLock.looksLikeDuoCover(CGSize(width: 402, height: 874)))
+        #expect(!OrientationLock.looksLikeDuoCover(CGSize(width: 375, height: 667)))
+        #expect(!OrientationLock.trustsStoredHinge(false, screen: CGSize(width: 466, height: 678)))
+    }
+
+    /// R3 (UX P1-6, QA-2 P2-4): the pose card's words and its way out.
+    @Test func poseCardCopyAndWayOut() {
+        #expect(StandUpCard.title == "Turn it sideways. Lift the glowing half.")
+        #expect(!StandUpCard.title.contains("round"))
+        #expect(StandUpCard.wayOut == "Play anyway")
+        #expect(!StandUpCard.showsWayOut(refused: false, waited: false))
+        #expect(StandUpCard.showsWayOut(refused: true, waited: false))
+        #expect(StandUpCard.showsWayOut(refused: false, waited: true))
     }
 
     @Test func poseReasonsSayWhy() {
@@ -520,8 +670,8 @@ struct TurnedRoundTests {
                 == "landscape 951x669 angle=-")
         #expect(AppRules.poseReason(.play, canvas: CGSize(width: 669, height: 951), forced: false, angle: 120)
                 == "portrait 669x951")
-        #expect(AppRules.poseReason(.play, canvas: CGSize(width: 469, height: 669), forced: false, angle: 104)
-                .hasPrefix("small-canvas-open"))
+        #expect(AppRules.poseReason(.play, canvas: CGSize(width: 951, height: 669), forced: false, angle: 104)
+                .hasPrefix("play-anyway"))
         #expect(AppRules.poseReason(.standUp, canvas: CGSize(width: 669, height: 951), forced: true, angle: nil)
                 .hasPrefix("forced"))
     }
@@ -588,36 +738,59 @@ struct PauseRuleTests {
         #expect(!p.paused)
     }
 
-    @Test func restChunksCoverTheGap() {
-        #expect(AppRules.restChunks(0).count == 0)
-        #expect(AppRules.restChunks(.nan).count == 0)
-        let one = AppRules.restChunks(1.0 / 120.0)
-        #expect(one.count == 1)
-        #expect(abs(one.step - 1.0 / 120.0) < 1e-12)
-        let long = AppRules.restChunks(10)
-        #expect(long.step <= AppRules.maxStep + 1e-12)
-        #expect(abs(Double(long.count) * long.step - 10) < 1e-9)
-        let capped = AppRules.restChunks(3_600)
-        #expect(abs(Double(capped.count) * capped.step - AppRules.maxRestGap) < 1e-9)
+    /// R3 (founder decision 2): noise is FROZEN while paused (no rest, no step), the candle doesn't burn, and the first
+    /// step back is frame-sized however long the pause was (Core R3). Drives the real controller's frame loop.
+    @Test func noiseIsUnchangedAcrossAPause() {
+        var data = ProgressData()
+        data.lessonDone = true
+        let controller = GameController(store: ProgressStore(inMemory: data), settings: SettingsStore(defaults: nil))
+        controller.play()
+        #expect(controller.input == .slider)
+        let frame = 1.0 / 60.0
+        var t = 1_000.0
+        // Shut for a beat (the chest opens from the shut zone), then a fast slide: a loud lid makes noise.
+        controller.sliderTouch(began: true, ended: false, fraction: 0, time: t)
+        for _ in 0..<30 {
+            t += frame
+            _ = controller.advance(dt: frame, now: t)
+        }
+        for i in 1...12 {
+            t += frame
+            controller.sliderTouch(began: false, ended: false, fraction: Double(i) / 12 * 0.7, time: t)
+            _ = controller.advance(dt: frame, now: t)
+        }
+        controller.openMenu()
+        t += frame
+        let before = controller.advance(dt: frame, now: t).0
+        var after = before
+        // 30 s of wall time paused, frames still drawing (and a 5 s gap the scene didn't draw).
+        for i in 0..<300 {
+            t += i == 150 ? 5 : 0.1
+            after = controller.advance(dt: frame, now: t).0
+        }
+        #expect(after.noise == before.noise)
+        #expect(after.stage == before.stage)
+        #expect(after.torchRemaining == before.torchRemaining)
+        #expect(after.time == before.time)
+        // Back: the first step is a frame, never the pause (a 30 s dt would burn 30 s of candle).
+        controller.resume()
+        t += 30
+        let back = controller.advance(dt: 30, now: t).0
+        #expect(before.torchRemaining - back.torchRemaining <= AppRules.maxStep * 3)
+        #expect(back.time - before.time <= AppRules.maxStep + 1e-9)
     }
 
-    /// While paused the session rests: the mimic settles, the candle doesn't burn, nothing bites.
-    @Test func pauseRestSettlesWithoutTheCandle() {
-        let session = HeistSession(mode: .run, seed: 7, bestRun: 0, foundRelics: [], options: SessionOptions())
-        _ = session.step(dt: 1.0 / 60.0, lid: LidInput())
-        session.nudgeNoise(to: 0.7)
-        let before = session.snapshot
-        var events: [HeistEvent] = []
-        let (count, step) = AppRules.restChunks(6)
-        for _ in 0..<count { events += session.rest(dt: step) }
-        let after = session.snapshot
-        #expect(after.noise < before.noise)
-        #expect(after.torchRemaining == before.torchRemaining)
-        #expect(after.bites == 0)
-        for e in events {
-            if case .stageChanged = e { continue }
-            Issue.record("rest gave a non-stage event: \(e)")
-        }
+    /// R3 (QA-2 P2-2): the closing pause only engages while a chest is live; the bank, bite and candle-out moments
+    /// step through a closing or pose pause (never through the menu or the background), so Results always arrive.
+    @Test func momentsNeverWaitOnTheLid() {
+        #expect(AppRules.closingApplies(.ready))
+        #expect(AppRules.closingApplies(.looting))
+        #expect(!AppRules.closingApplies(.banked(elapsed: 0.2)))
+        #expect(!AppRules.closingApplies(.torchOut(elapsed: 0)))
+        #expect(AppRules.stepsThroughPause(.torchOut(elapsed: 0.5), menuOrBackground: false))
+        #expect(AppRules.stepsThroughPause(.bitten(elapsed: 0.5), menuOrBackground: false))
+        #expect(!AppRules.stepsThroughPause(.torchOut(elapsed: 0.5), menuOrBackground: true))
+        #expect(!AppRules.stepsThroughPause(.looting, menuOrBackground: false))
     }
 
     /// Telemetry while paused is a still lid (QA-1 P1-1: no creak hangs on through the closing card).
@@ -634,6 +807,8 @@ struct PauseRuleTests {
         #expect(ClosingCard.title(lifted: true) == "Hold still…")
         #expect(ClosingCard.detail(lifted: false).contains("candle"))
         #expect(CoverCard.detail(midRun: true).contains("hold still"))
+        // R3 (P1-4): before the first hinge report.
+        #expect(ClosingCard.title(lifted: false, awaitingHinge: true) == "Move the lid a little")
     }
 }
 
@@ -671,7 +846,50 @@ struct LessonTests {
         _ = s.update(LessonScript.Input(time: 0, angle: 118))
         _ = s.update(LessonScript.Input(time: 1.0, angle: 118))
         #expect(!s.isPraising)
-        #expect(s.line(slider: false, angle: 118, hint: nil).hasPrefix("Close it"))
+        #expect(s.line(slider: false, angle: 118, hint: nil).hasPrefix("Close the lid"))
+    }
+
+    /// R3 (UX P0-1): the lid marker's arrow and the card's line come from one angle branch and never disagree.
+    @Test func liftMarkerAndLineAgree() {
+        let s = LessonScript()
+        var angles: [Double?] = [nil, Double.nan]
+        angles += stride(from: 0.0, through: 180.0, by: 0.5).map { Optional($0) }
+        for angle in angles {
+            let d = s.display(slider: false, angle: angle, hint: nil)
+            guard let cue = d.liftCue else {
+                Issue.record("no lid cue at \(String(describing: angle))")
+                continue
+            }
+            #expect(cue == LessonScript.liftCue(angle: angle))
+            switch cue {
+            case .lower:
+                #expect(cue.pointsUp == false)
+                #expect(cue.label == "Lower this half a little")
+                #expect(d.line.hasPrefix("Close the lid"))
+            case .hold:
+                #expect(cue.pointsUp == nil)
+                #expect(cue.label == "Hold it there…")
+                #expect(d.line == "Hold it there…")
+            case .lift, .liftMore:
+                #expect(cue.pointsUp == true)
+                #expect(cue.label == "Lift this half")
+                #expect(!d.line.hasPrefix("Close"))
+            }
+        }
+        #expect(LessonScript.liftCue(angle: 140) == .lower)
+        #expect(LessonScript.liftCue(angle: 100) == .hold)
+        #expect(LessonScript.liftCue(angle: 70) == .liftMore)
+        #expect(LessonScript.liftCue(angle: 175) == .lift)
+        #expect(LessonScript.liftCue(angle: nil) == .lift)
+        // The lever (no fold) has no lid marker.
+        #expect(s.display(slider: true, angle: nil, hint: nil).liftCue == nil)
+    }
+
+    /// R3 (decision 3): one verb, "bank".
+    @Test func theBankStepSaysBank() {
+        let s = LessonScript(start: .bank)
+        #expect(s.line(slider: true, angle: nil, hint: nil) == "Slide the lever down to bank it.")
+        #expect(s.line(slider: false, angle: nil, hint: nil) == "Ease the lid shut to bank it.")
     }
 
     @Test func sliderPoseAndWords() {
@@ -797,16 +1015,56 @@ struct CopyTests {
             let banner = GameController.startBanner(mode) ?? ""
             #expect(HushCopy.wordCount(banner) <= 6)
         }
-        for row in HushCopy.stakes { #expect(HushCopy.wordCount(row.text) <= 6) }
-        #expect(HushCopy.stakes.map(\.text) == ["Candle out = run over", "Too loud? It bites your bag",
-                                               "Shut the lid to bank it"])
+        for slider in [true, false] {
+            for row in HushCopy.stakes(slider: slider) { #expect(HushCopy.wordCount(row.text) <= 6) }
+        }
+        #expect(HushCopy.stakes(slider: false).map(\.text) == ["Candle out = run over", "Too loud? It bites your bag",
+                                                              "Ease the lid shut to bank"])
+        #expect(HushCopy.stakes(slider: true).last?.text == "Slide the lever down to bank")
+        for tip in RunTip.allCases { #expect(HushCopy.wordCount(tip.text) <= 6) }
+        #expect(HushCopy.wordCount(RunTip.golden) <= 6)
+        #expect(RunTip.chain.text == "Hush Chain! Sleepy banks pay more")
+        #expect(RunTip.chainBroken.text == "It stirred. Chain broken.")
+        #expect(RunTip.golden == "A golden mimic! Double gold.")
+    }
+
+    /// R3 (decision 3): one verb, "bank", in the lid's words on a fold and the lever's without.
+    @Test func oneVerbBank() {
+        #expect(HushCopy.hint(.shutToBank, slider: false) == "Ease the lid shut to bank")
+        #expect(HushCopy.hint(.shutToBank, slider: true) == "Slide the lever down to bank")
+        var lines = HushCopy.allHints.flatMap { [HushCopy.hint($0, slider: false), HushCopy.hint($0, slider: true)] }
+        lines += HushCopy.stakes(slider: true).map(\.text) + HushCopy.stakes(slider: false).map(\.text)
+        for step in LessonScript.Step.allCases {
+            lines.append(LessonScript(start: step).line(slider: false, angle: nil, hint: nil))
+            lines.append(LessonScript(start: step).line(slider: true, angle: nil, hint: nil))
+        }
+        for line in lines { #expect(!line.lowercased().contains("keep it")) }
+        // A fold's words never mention the lever.
+        for hint in HushCopy.allHints { #expect(!HushCopy.hint(hint, slider: false).lowercased().contains("lever")) }
+        for step in LessonScript.Step.allCases {
+            #expect(!LessonScript(start: step).line(slider: false, angle: 100, hint: nil).lowercased().contains("lever"))
+        }
+    }
+
+    /// R3 (UX P1-9): VoiceOver hears the stages, the bites and the banks.
+    @Test func announcements() {
+        #expect(HushCopy.announcement(.stageChanged(from: .asleep, to: .stirring)) == "It's stirring.")
+        #expect(HushCopy.announcement(.stageChanged(from: .stirring, to: .waking)) == "It's waking. Freeze!")
+        #expect(HushCopy.announcement(.stageChanged(from: .waking, to: .stirring)) == nil)
+        #expect(HushCopy.announcement(.bitten(lostValue: 179)) == "Chomp! Lost 179 gold.")
+        #expect(HushCopy.announcement(.banked(value: 975, items: 3, hushed: false)) == "Banked 975 gold.")
+        #expect(HushCopy.announcement(.lidCracked) == nil)
+        let spoken = SpokenHUD(HeistSnapshot(stage: .waking, torchRemaining: 41.2, bagValue: 179, banked: 1_118))
+        #expect(spoken.candleSeconds == 42 && spoken.banked == 1_118 && spoken.bagGold == 179)
+        #expect(HushCopy.stageWord(.waking) == "it's waking")
     }
 
     /// "Candle" everywhere the player reads it.
     @Test func itIsACandle() {
         var lines: [String] = HushCopy.allHints.flatMap { [HushCopy.hint($0, slider: false), HushCopy.hint($0, slider: true)] }
         lines += [GameController.startBanner(.run) ?? "", ClosingCard.detail(lifted: false), CoverCard.detail(midRun: true)]
-        lines += HushCopy.stakes.map(\.text)
+        lines += HushCopy.stakes(slider: false).map(\.text) + HushCopy.stakes(slider: true).map(\.text)
+        lines += RunTip.allCases.map(\.text) + [RunTip.golden, AppRules.causeLine(makeRun(bites: 0))]
         for step in LessonScript.Step.allCases {
             let s = LessonScript(start: step)
             lines.append(s.line(slider: false, angle: nil, hint: nil))
@@ -849,6 +1107,22 @@ struct CopyTests {
         #expect(g.update(nil, now: 1.0) == nil)
     }
 
+    /// R3 (UX P0-2): "Freeze!" replaces ANY hint on the very frame it is wanted, "Slower…" included.
+    @Test func freezeReplacesSlowerOnTheSameFrame() {
+        var g = HintGate()
+        _ = g.update(.slower, now: 0)
+        #expect(g.shown == .slower)
+        #expect(g.update(.freeze, now: 0.01) == .freeze)
+        var h = HintGate()
+        _ = h.update(.dragToBag, now: 0)
+        _ = h.update(.dragToBag, now: 0.2)
+        #expect(h.shown == .dragToBag)
+        #expect(h.update(.freeze, now: 0.21) == .freeze)
+        // On wall time it settles even while nothing steps (QA-2 P2-3): a cleared gate shows nothing.
+        h.clear()
+        #expect(h.update(nil, now: 5) == nil)
+    }
+
     @Test func storyNamesTheMoment() {
         let relicRun = makeRun(relics: [RelicID("relic01")])
         let story = AppRules.story(relicRun, outcome: RecordOutcome(), relicName: { _ in "The Moth-Eaten Crown" })
@@ -873,7 +1147,7 @@ struct CopyTests {
 
     @Test func homeCaptionTeaches() {
         #expect(HomeView.caption(HomeLid(openness: 0, speed: 0), hinge: true) == "Lift the lid… slowly.")
-        #expect(HomeView.caption(HomeLid(openness: 0, speed: 0), hinge: false).hasPrefix("Slide"))
+        #expect(HomeView.caption(HomeLid(openness: 0, speed: 0), hinge: false).hasPrefix("Drag"))
         #expect(HomeView.caption(HomeLid(openness: 0.5, speed: 0), hinge: true).contains("peeking"))
         #expect(HomeView.caption(HomeLid(openness: 0.5, speed: 80), hinge: true).contains("mimic"))
     }
@@ -890,7 +1164,7 @@ struct CopyTests {
 
     @Test func settingsCopy() {
         #expect(SettingsView.turnTitle == "Turn the chest round")
-        #expect(SettingsView.turnDetail == "Keeps the loot on the half that stays sharp when you fold")
+        #expect(!SettingsView.turnDetail.contains("sharp"))
         #expect(SettingsView.silentTitle == "Play sound on silent")
         #expect(CodexView.subtitle(found: 9, total: 24).hasPrefix("9 of 24"))
     }
@@ -902,6 +1176,51 @@ struct CopyTests {
         let log = [ChestOutcome(tier: .wooden, golden: false, value: 120, hushed: true, bitten: false),
                    ChestOutcome(tier: .iron, golden: true, value: 0, hushed: false, bitten: true)]
         #expect(ChestStrip.spoken(log) == "2 chests: 1 banked, 1 hushed, 1 bitten")
+    }
+
+    /// R3 (UX P1-4): the strip is capped at two rows plus "+N more", explains itself, and the run says why it ended.
+    @Test func resultsRestructure() {
+        let nine = ChestStrip.visible(count: 9, perRow: 6)
+        #expect(nine.shown == 9 && nine.more == 0)
+        let twelve = ChestStrip.visible(count: 12, perRow: 6)
+        #expect(twelve.shown == 12 && twelve.more == 0)
+        let fifteen = ChestStrip.visible(count: 15, perRow: 6)
+        #expect(fifteen.shown == 11 && fifteen.more == 4)
+        let per = ChestStrip.perRow(width: 370, side: ChestStrip.side(compact: false))
+        #expect(per >= 3 && per <= 7)
+        let wide = ChestStrip.perRow(width: 560, side: ChestStrip.side(compact: false))
+        #expect(wide > per)
+        let hushed = ChestOutcome(tier: .wooden, golden: false, value: 120, hushed: true, bitten: false)
+        let bit = ChestOutcome(tier: .iron, golden: false, value: 0, hushed: false, bitten: true)
+        let gold = ChestOutcome(tier: .gilded, golden: true, value: 0, hushed: false, bitten: false)
+        #expect(ChestStrip.legend([hushed]) == "💤 = banked while it slept")
+        #expect(ChestStrip.legend([hushed, bit, gold])?.contains("golden") == true)
+        #expect(ChestStrip.legend([ChestOutcome(tier: .wooden, golden: false, value: 50, hushed: false,
+                                                bitten: false)]) == nil)
+        #expect(ChestChip.caption(gold, isLast: true) == "out")
+        #expect(ChestChip.caption(bit, isLast: true) == "bit")
+        #expect(ChestChip.caption(hushed, isLast: false) == "+120")
+        #expect(AppRules.causeLine(makeRun(bites: 0)) == "Your candle burned out.")
+        #expect(AppRules.causeLine(makeRun(bites: 1)).contains("once"))
+        #expect(AppRules.causeLine(makeRun(bites: 3)).contains("3 times"))
+        #expect(AppRules.chainLine(3) == "Longest Hush Chain: 3 (gold ×1.3)")
+        #expect(abs(AppRules.chainGold(9) - (1 + Tuning.chainStep * Double(Tuning.chainMax))) < 1e-9)
+        // The scroll fade shows only while there's more below.
+        #expect(!FadingScroll<EmptyView>.state(contentHeight: 300, viewHeight: 400, offset: 0).overflows)
+        let long = FadingScroll<EmptyView>.state(contentHeight: 900, viewHeight: 400, offset: 0)
+        #expect(long.overflows && !long.atEnd)
+        #expect(FadingScroll<EmptyView>.state(contentHeight: 900, viewHeight: 400, offset: 500).atEnd)
+    }
+
+    /// R3 (UX P1-4): the first ever haul says "First haul!", never "Best 3,849".
+    @Test func firstHaulIsCelebrated() {
+        var d = ProgressData()
+        let first = record(makeRun(gold: 3_849), &d)
+        #expect(first.isFirstHaul && !first.showsNewBest)
+        let second = record(makeRun(gold: 4_000), &d)
+        #expect(!second.isFirstHaul && second.showsNewBest)
+        var e = ProgressData()
+        #expect(!record(makeRun(gold: 0, banked: 0), &e).isFirstHaul)
     }
 
     @Test func badgesAreAllDifferent() {
@@ -1064,6 +1383,23 @@ struct LayoutTests {
             #expect(c.y - side / 2 >= insets.top + AppCanvas.pauseInset - 0.001)
             #expect(c.y + side / 2 <= size.height - insets.bottom - AppCanvas.pauseInset + 0.001)
         }
+    }
+
+    /// R3 ("Play anyway"): a landscape view shows the whole portrait canvas (aspect-fit), never a crop.
+    @Test func landscapeFitsTheWholeCanvas() {
+        let view = CGSize(width: 951, height: 669)
+        let fit = CanvasFit(viewSize: view)
+        let canvas = fit.canvasRect
+        #expect(canvas.minX >= -0.5 && canvas.minY >= -0.5)
+        #expect(canvas.maxX <= view.width + 0.5 && canvas.maxY <= view.height + 0.5)
+    }
+
+    /// R3: the lid's teaching words sit in the lid half above the brow; the closing card never covers the meter.
+    @Test func r3HUDSlots() {
+        #expect(HUDLayout.lid.contains(HUDLayout.lidLabelBand))
+        #expect(HUDLayout.cardArea.minY >= ChestLayout.meterRect.maxY)
+        #expect(HUDLayout.cardArea.maxY <= ScreenLayout.foldMinY)
+        #expect(HUDLayout.cardArea.height > 200)
     }
 
     @Test func homeHalvesClearTheFold() {

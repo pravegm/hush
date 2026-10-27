@@ -5,16 +5,23 @@ import UIKit
 /// over the interior and the warm wash that spreads from the opening (the fold) as the lid rises. R2: below the floor
 /// (on screens taller than the canvas) the chest's front wall with a big brass lock, then the tabletop.
 ///
-/// `chestRoot` slides as a whole (arrival, the hop after a bite, the exit after a bank) and carries the front wall;
-/// the satchel and the tabletop stay.
+/// R3 (juror P0-1): the chest NEVER leaves. `chestRoot` (walls, bed, tongue, front wall, lock) only hops a few
+/// points (the arrival bump, the bite's hops) and always stays at full alpha. Between chests only the interior goes
+/// dark (`SceneMoments`' shutter over `ChestLayout.rimInner`), and a new dress cross-fades over the old one.
 @MainActor
 final class SceneFloor {
     let root: SKNode
     let chestRoot: SKNode
     private let satchel: SKSpriteNode
     private let frame: SKSpriteNode
+    private let frameOld: SKSpriteNode
+    private let wallOld: SKSpriteNode
     private let tongue: SKSpriteNode
     private let curl: SKSpriteNode
+    private let crease: SKSpriteNode
+    private let sparkles: [SKSpriteNode]
+    private var sparkPhase: [Double] = [1, 1, 1]
+    private var fadeAge: Double = 10
     private let darkness: SKSpriteNode
     private let frontDark: SKSpriteNode
     private let wash: SKSpriteNode
@@ -47,6 +54,11 @@ final class SceneFloor {
         let frameNode = SKSpriteNode(texture: SceneTextures.chestFrame(.tier(.wooden)), size: fr.size)
         frameNode.position = CGPoint(x: fr.midX, y: fr.midY)
         frameNode.zPosition = 0
+        // The outgoing dress, fading out over the new one when a chest of another tier arrives.
+        let frameOldNode = SKSpriteNode(texture: SceneTextures.chestFrame(.tier(.wooden)), size: fr.size)
+        frameOldNode.position = frameNode.position
+        frameOldNode.zPosition = 0.05
+        frameOldNode.isHidden = true
         let ts = SceneTextures.tongueSize
         let tongueNode = SKSpriteNode(texture: SceneTextures.tongue, size: ts)
         tongueNode.anchorPoint = CGPoint(x: 0.5, y: 1)
@@ -60,6 +72,24 @@ final class SceneFloor {
         curlNode.alpha = 0
         curlNode.position = .zero
         tongueNode.addChild(curlNode)
+        let creaseNode = SKSpriteNode(texture: SceneTextures.tongueCrease, size: CGSize(width: 16, height: 90))
+        creaseNode.anchorPoint = CGPoint(x: 0.5, y: 1)
+        creaseNode.position = CGPoint(x: 0, y: -4)
+        creaseNode.zPosition = 0.6
+        creaseNode.alpha = 0
+        tongueNode.addChild(creaseNode)
+        // The golden mimic: twinkles on the frame's rims (the floor reads "golden" too, not only the lid).
+        var sp: [SKSpriteNode] = []
+        for _ in 0..<3 {
+            let s = SKSpriteNode(texture: SceneTextures.sparkle, size: CGSize(width: 34, height: 34))
+            s.blendMode = .add
+            s.color = UIColor(red: 1, green: 0.95, blue: 0.7, alpha: 1)
+            s.colorBlendFactor = 1
+            s.alpha = 0
+            s.isHidden = true
+            s.zPosition = 4.8
+            sp.append(s)
+        }
 
         let cover = ChestLayout.rimInner
         let dark = SKSpriteNode(color: ScenePaint.ui(pal.dungeonDeep), size: cover.size)
@@ -103,6 +133,12 @@ final class SceneFloor {
         wallNode.position = CGPoint(x: 0, y: ChestLayout.frontWallTop)
         wallNode.zPosition = -1
         wallNode.isHidden = true
+        let wallOldNode = SKSpriteNode(texture: SceneTextures.frontWall(.tier(.wooden)),
+                                       size: CGSize(width: ChestLayout.canvas.width, height: wallH))
+        wallOldNode.anchorPoint = CGPoint(x: 0, y: 1)
+        wallOldNode.position = wallNode.position
+        wallOldNode.zPosition = -0.9
+        wallOldNode.isHidden = true
         let lockNode = SKSpriteNode(texture: SceneTextures.bigLock, size: CGSize(width: 150, height: 170))
         lockNode.zPosition = -0.5
         lockNode.isHidden = true
@@ -116,15 +152,23 @@ final class SceneFloor {
         let chest = SKNode()
         chest.zPosition = 2
         rootNode.addChild(chest)
-        for n in [wallNode, lockNode, frameNode, tongueNode, dark, front, washNode, gloomNode] { chest.addChild(n) }
+        for n in [wallNode, wallOldNode, lockNode, frameNode, frameOldNode, tongueNode, dark, front, washNode,
+                  gloomNode] {
+            chest.addChild(n)
+        }
+        for s in sp { chest.addChild(s) }
         rootNode.addChild(satchelNode)
         rootNode.addChild(tableNode)
 
         root = rootNode
         chestRoot = chest
         frame = frameNode
+        frameOld = frameOldNode
+        wallOld = wallOldNode
         tongue = tongueNode
         curl = curlNode
+        crease = creaseNode
+        sparkles = sp
         darkness = dark
         frontDark = front
         wash = washNode
@@ -151,21 +195,39 @@ final class SceneFloor {
         table.position = CGPoint(x: 0, y: -wallH)
     }
 
-    func setDress(_ d: ChestDress, tier t: ChestTier) {
+    /// A new dress. `animated` (a chest arriving): the old dress stays on top and fades out over 0.45 s, so the
+    /// frame, front wall and lock are never missing for a frame.
+    func setDress(_ d: ChestDress, tier t: ChestTier, animated: Bool = false) {
         tier = t
         guard d != dress else { return }
+        if animated {
+            frameOld.texture = frame.texture
+            wallOld.texture = wall.texture
+            fadeAge = 0
+        }
         dress = d
         frame.texture = SceneTextures.chestFrame(d)
         wall.texture = SceneTextures.frontWall(d)
     }
 
-    func setTier(_ t: ChestTier) { setDress(.tier(t), tier: t) }
+    func setTier(_ t: ChestTier, animated: Bool = false) { setDress(.tier(t), tier: t, animated: animated) }
 
     func reset() {
         chestRoot.position = .zero
         twitchAge = 10
         curlLevel = 0
         redness = 0
+        fadeAge = 10
+        frameOld.isHidden = true
+        wallOld.isHidden = true
+    }
+
+    /// R3: the chest's frame, front wall and lock are drawn at full alpha and in place (tests: every tier, every
+    /// moment, including between chests).
+    var shellIsWhole: Bool {
+        let wallOK = bottomExtension < 1 || (!wall.isHidden && wall.alpha > 0.999)
+        return !frame.isHidden && frame.alpha > 0.999 && chestRoot.alpha > 0.999 && !chestRoot.isHidden
+            && abs(chestRoot.position.y) <= 10 && wallOK
     }
 
     /// The interior's darkness for an openness: a uniform dark (lightest when wide) plus a front-heavy ramp.
@@ -262,5 +324,41 @@ final class SceneFloor {
         let redTarget = max(0, (noise - 0.3) / 0.7) * 0.5
         redness += (redTarget - redness) * k
         tongue.colorBlendFactor = redness
+        // R3: the groove only shows when the tongue is lit (it read as a seam on a dome in the dark) and relaxed.
+        let lit = CGFloat(min(max((o - 0.35) / 0.35, 0), 1))
+        crease.alpha = 0.85 * lit * (1 - curlLevel)
+        creaseAlpha = crease.alpha
+
+        // A new dress fades in under the old one.
+        fadeAge += dt
+        let fading = fadeAge < 0.45
+        frameOld.isHidden = !fading
+        wallOld.isHidden = !fading || wall.isHidden
+        if fading {
+            let a = CGFloat(1 - fadeAge / 0.45)
+            frameOld.alpha = a
+            wallOld.alpha = a
+        }
+
+        // The golden mimic's frame twinkles.
+        let golden = dress == .golden
+        let rims: [CGRect] = [CGRect(x: 8, y: 150, width: 34, height: 270), CGRect(x: 628, y: 150, width: 34, height: 190),
+                              CGRect(x: 60, y: 440, width: 500, height: 10), CGRect(x: 60, y: 108, width: 540, height: 20)]
+        for (i, sp) in sparkles.enumerated() {
+            sp.isHidden = !golden
+            guard golden else { continue }
+            let ph = (breathTime / 1.9 + Double(i) * 0.33).truncatingRemainder(dividingBy: 1)
+            if ph < sparkPhase[i] {
+                let r = rims[Int(rng.unit() * CGFloat(rims.count)) % rims.count]
+                sp.position = CGPoint(x: rng.range(r.minX, r.maxX), y: rng.range(r.minY, r.maxY))
+            }
+            sparkPhase[i] = ph
+            sp.alpha = CGFloat(sin(ph * Double.pi)) * 0.95
+            sp.zRotation = CGFloat(ph) * 1.2
+            sp.setScale(reduceMotion ? 0.9 : CGFloat(0.6 + 0.6 * sin(ph * Double.pi)))
+        }
     }
+
+    /// The tongue groove's alpha now (tests: 0 when dim).
+    private(set) var creaseAlpha: CGFloat = 0
 }

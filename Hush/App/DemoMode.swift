@@ -14,10 +14,10 @@ import UIKit
 //               default casual) and recorded into the demo progress, so best, rank and relics are all true.
 //     codex / settings / daily   those pages.
 //     lesson    the First Chest lesson (at `lessonStep=`, default 1).
-//     pose      force the book-pose card "Turn it round. Lift the glowing half." (over `mode` if given, else Home).
+//     pose      force the book-pose card "Turn it sideways. Lift the glowing half." (over `mode` if given, else Home).
 //               Only on a Duo-shaped screen or with `fold=1`: a phone never shows it (R2).
 //     cover     force the cover-display card (the sleeping mimic, "Open to carry on").
-//     icon      render AppIconArt to Documents/AppIcon-1024.png (`HUSH-T icon ok 1024x1024`, `HUSH-ICON <path>`)
+//     icon      render the icon (ChestArt.appIcon) to Documents/AppIcon-1024.png (`HUSH-T icon ok 1024x1024`, `HUSH-ICON <path>`)
 //               and show it full screen. `HUSH_ICON=1` in the environment does the same without `-hushDemo`.
 // - `mode=run|daily|attract`      the run mode (`daily` = today's scored try; `attract` never ends, never bites).
 // - `seed=<n>`                    the run seed (default 7 for run/attract, so frames are stable; daily = today's).
@@ -31,6 +31,9 @@ import UIKit
 //                                 print `HUSH-T freeze <tag>`. Moments that are events (bite, bank, relic, torchLow,
 //                                 torchOut) hold 0.3 s after the event so their FX are on screen (bank: 1.25 s, so the
 //                                 counter has rolled to the new total).
+// - `freezeOn=creak`              (R3) freeze 0.3 s after the slam's CREAK (Feel's `onCreakAccent`; every crack logs
+//                                 `HUSH-T event creak`). The relic tag waits 1.65 s (the relic card), a LESSON bank 0.5 s.
+// - `freezeDelay=<s>`             (R3) the beat after the tag event, overriding the defaults above (0…10 s).
 // - `freezeAfter=<s>`             freeze after s seconds of play (`HUSH-T freeze after`); with `freezeOn`, the
 //                                 moment only counts once s seconds have passed.
 // - `lid=<0…1>`                   hold the lid at this openness (no pilot, no hinge; shut for the first 0.25 s so the
@@ -49,6 +52,8 @@ import UIKit
 //                                 late moments (`freezeOn=torchLow`) don't take real minutes. `HUSH-T skipped <s>`.
 // - `noiseUntil=pause`            (R2) with `noise=`: hold it only until the first pause of any reason, then
 //                                 `HUSH-T noise released <n>` and let the session own it (duo.sh REOPEN-NO-BITE).
+// - `pose=book`                   (R3) hold the book-pose card: implies `screen=pose`, shows it on any screen shape, and
+//                                 the App never asks for portrait (the card stays up for the frame). CI: POSE-BOOK.
 // - `golden=1`                    (R2) run/attract: the first seed (from `seed=`) whose chest #3 is a golden mimic;
 //                                 its arrival logs `HUSH-T event chestArrived … golden=1`.
 //
@@ -65,12 +70,12 @@ struct DemoMode: Equatable {
     }
     enum ModeKey: String, Equatable { case run, daily, attract }
     enum Freeze: String, Equatable, CaseIterable {
-        case ready, reveal, stirring, waking, bite, bank, relic, torchLow, torchOut, results
+        case ready, reveal, stirring, waking, bite, bank, relic, torchLow, torchOut, results, creak
 
         /// Event moments hold a beat after the event; state moments freeze at once.
         var isEvent: Bool {
             switch self {
-            case .bite, .bank, .relic, .torchLow, .torchOut: return true
+            case .bite, .bank, .relic, .torchLow, .torchOut, .creak: return true
             case .ready, .reveal, .stirring, .waking, .results: return false
             }
         }
@@ -83,6 +88,11 @@ struct DemoMode: Equatable {
     /// R2 (tester 1, frame 14 "+179 but the total reads 151"): a bank frame waits for the counter's roll (0.3 s delay
     /// + 0.9 s) so the number on screen is the sum of the banks.
     static let bankFreezeDelay: Double = 1.25
+    /// R3 (CI): the lesson's bank frame (07b) must show the bank moment, not the final card that follows 1 s later.
+    static let lessonBankFreezeDelay: Double = 0.5
+    /// R3 (CI): a relic frame lands on the Scene's relic-found card (it rises after `SceneMoments.bankGroupEnd`, 1.15 s),
+    /// not on the bank moment before it.
+    static let relicFreezeDelay: Double = 1.65
 
     /// `golden=1`: the first seed at or after `start` whose first possible golden chest (#3, Core's
     /// `Tuning.goldenFromIndex`) is golden. Core keeps the golden stream apart, so this changes nothing else. Pure;
@@ -97,8 +107,17 @@ struct DemoMode: Equatable {
     }
 
     /// How long an event moment holds before the freeze. Pure; tested.
-    static func freezeDelay(_ tag: Freeze) -> Double {
-        tag == .bank ? bankFreezeDelay : freezeEventDelay
+    static func freezeDelay(_ tag: Freeze, lesson: Bool = false) -> Double {
+        switch tag {
+        case .bank: return lesson ? lessonBankFreezeDelay : bankFreezeDelay
+        case .relic: return relicFreezeDelay
+        default: return freezeEventDelay
+        }
+    }
+
+    /// R3 (CI): `freezeDelay=<s>` overrides the beat after the tag event. Pure; tested.
+    func holdDelay(_ tag: Freeze, lesson: Bool = false) -> Double {
+        eventHold ?? Self.freezeDelay(tag, lesson: lesson)
     }
 
     var raw: String
@@ -110,6 +129,8 @@ struct DemoMode: Equatable {
     var freezeOn: Freeze?
     /// `freezeAfter=` (the field is named apart from the key: the TestFlight demo guard greps Release for the key).
     var holdAfter: Double?
+    /// `freezeDelay=` (R3; named apart from the key for the same reason): seconds after the tag event.
+    var eventHold: Double?
     var lid: Double?
     var noise: Double?
     var lessonStep: Int?
@@ -122,12 +143,15 @@ struct DemoMode: Equatable {
     var noiseUntilPause = false
     /// `golden=1`: the run's seed is the first one (from `seed=`, default 7) whose chest #3 is a golden mimic.
     var golden = false
+    /// `pose=book` (R3): hold the book-pose card (no automatic or lift portrait asks).
+    var poseBook = false
 
     init(raw: String) { self.raw = raw }
 
     /// The screen the app opens on.
     var effectiveScreen: Screen {
         if let screen { return screen }
+        if poseBook { return .pose }
         return mode == nil ? .home : .run
     }
 
@@ -171,6 +195,8 @@ struct DemoMode: Equatable {
                 config.freezeOn = Freeze.allCases.first { $0.rawValue.lowercased() == value.lowercased() }
             case "freezeAfter":
                 if let s = number(value) { config.holdAfter = max(s, 0) }
+            case "freezeDelay":
+                if let s = number(value) { config.eventHold = min(max(s, 0), 10) }
             case "lid": config.lid = unit(value)
             case "noise": config.noise = unit(value)
             case "lessonStep":
@@ -183,6 +209,7 @@ struct DemoMode: Equatable {
             case "orient": config.orient = Orient(rawValue: value.lowercased())
             case "noiseUntil": config.noiseUntilPause = value.lowercased() == "pause"
             case "golden": config.golden = flag(value)
+            case "pose": config.poseBook = value.lowercased() == "book"
             default: break
             }
         }
@@ -285,15 +312,12 @@ enum IconExport {
     static let side: CGFloat = 1024
     static let fileName = "AppIcon-1024.png"
 
-    /// Renders AppIconArt at 1024 × 1024 px, opaque, to Documents/AppIcon-1024.png (CI copies it into
+    /// Renders the icon (R3: the Scene's `ChestArt.appIcon(size:)`, decision 6) at 1024 × 1024 px, flattened onto an
+    /// opaque RGB PNG with no alpha, to Documents/AppIcon-1024.png (CI copies it into
     /// Hush/Assets.xcassets/AppIcon.appiconset/AppIcon-1024.png).
     static func render() {
-        let renderer = ImageRenderer(content: AppIconArt().frame(width: side, height: side))
-        renderer.proposedSize = ProposedViewSize(width: side, height: side)
-        renderer.scale = 1
-        renderer.isOpaque = true
-        guard let cgImage = renderer.cgImage else {
-            AppTrace.t("HUSH-T icon failed: renderer returned no image")
+        guard let cgImage = AppIconCache.image() else {
+            AppTrace.t("HUSH-T icon failed: ChestArt.appIcon returned no image")
             return
         }
         guard let data = opaquePNG(cgImage, side: side),

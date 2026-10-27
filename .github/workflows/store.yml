@@ -1,0 +1,410 @@
+name: App Store screenshots
+
+# The Hush App Store screenshot sets (docs/appstore/screenshots.md), manual only. Adapted from Swoop's store.yml (proven
+# on these runners) for Hush's PORTRAIT sets and the tabletop composite. Three jobs:
+#  • phones: builds the app, captures ci/store-scenarios.txt (P1–P6) on the iPhone 18 Pro Max (6.9", 1320 × 2868) and,
+#    unless `phone_61` is off, the iPhone 18 Pro (6.3", 1206 × 2622 / 1179 × 2556; screenshots.md calls it the required
+#    size) with ci/store-capture.sh (retries missing or wrong-sized frames). Artifacts raw-69, raw-61. Every iPhone frame
+#    must log an unfolded canvas (fold=0: the lever, the phone's words).
+#  • duo: the iPhone Duo (iOS 27.1 runtime, same setup as duo.yml), ci/duo-store-scenarios.txt (D1–D6) on the inner
+#    display in the tabletop canvas (2007 × 2853; ci/duo.sh asks for portrait, Brim's proven route), upright (turn=0).
+#    Artifact raw-duo. Skipped when duo_from_run names an earlier run whose raw-duo to reuse.
+#  • assemble: captions every set with ci/store-set.sh + ci/store-frame.swift. D1 (a real Duo inner capture) becomes the
+#    tabletop composite that is frame 1 of EVERY set, so this job waits for both capture jobs. Artifacts, laid out as
+#    tools/appstore/build-metadata.js and asc.yml expect: store-69 (store/P*.png), store-61 (store/P*.png), store-duo
+#    (duo-screens/store/D*.png), each store/ with MANIFEST.txt / MANIFEST.tsv and _flagged/.
+# One bad frame never fails the run: it is listed in its MANIFEST (and the run summary) as MISSING, FLAGGED, FAILED or
+# REJECTED (a caption with a banned word, e.g. "torch": no frame is made). Upload only store/*.png, never _flagged/.
+on:
+  workflow_dispatch:
+    inputs:
+      phones:
+        description: "Capture the iPhone sets (6.9-inch, and 6.3-inch unless phone_61 is off)"
+        type: boolean
+        default: true
+      phone_61:
+        description: "Also capture the 6.3-inch (6.1-inch class) set"
+        type: boolean
+        default: true
+      duo:
+        description: "Capture the iPhone Duo set (slow: ~8 GB runtime download). Needed for frame 1 of every set"
+        type: boolean
+        default: true
+      duo_from_run:
+        description: "Instead of capturing the Duo, reuse the raw-duo artifact of this earlier store run (run ID)"
+        type: string
+        default: ""
+      device_69:
+        description: "6.9-inch simulator candidates, tried in order (ci/screenshots.sh DEVICE syntax)"
+        type: string
+        default: "iPhone 18 Pro Max|auto:Pro Max|screen:1320x2868"
+      device_61:
+        description: "6.3-inch candidates, tried in order"
+        type: string
+        default: "iPhone 18 Pro|screen:1206x2622,1179x2556"
+      phone_filter:
+        description: "Regex of ci/store-scenarios.txt names for the iPhone sets (reserves: '^(P[0-9]|PR)')"
+        type: string
+        default: "^P[0-9]"
+      duo_filter:
+        description: "Regex of ci/duo-store-scenarios.txt names for the Duo set (reserves: '^(D[0-9]|DR)')"
+        type: string
+        default: "^D[0-9]"
+      tabletop_angle:
+        description: "Frame 1's lid angle in degrees (the lid half raised from the floor half; 95–170)"
+        type: string
+        default: "125"
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: store-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  phones:
+    if: ${{ inputs.phones }}
+    runs-on: xcode-27
+    timeout-minutes: 110
+    env:
+      HOMEBREW_NO_AUTO_UPDATE: "1"
+      HOMEBREW_NO_INSTALL_CLEANUP: "1"
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Select Xcode 27.1
+        timeout-minutes: 15
+        run: |
+          sudo xcode-select -s /Applications/Xcode_27.1.app
+          xcodebuild -version
+          for attempt in 1 2 3; do command -v gtimeout >/dev/null && break; brew install coreutils || sleep 10; done
+          # For the record: the iPhone device types and simulators this image has.
+          xcrun simctl list devicetypes | grep -i "iphone" || true
+          xcrun simctl list devices available | grep -i "iphone" || true
+
+      - name: Generate project
+        timeout-minutes: 15
+        run: |
+          for attempt in 1 2 3; do command -v xcodegen >/dev/null && break; gtimeout 400 brew install xcodegen || sleep 10; done
+          xcodegen generate
+
+      - name: Build
+        id: build
+        timeout-minutes: 45
+        run: |
+          set -o pipefail
+          for attempt in 1 2; do
+            gtimeout 1500 xcodebuild build \
+              -project Hush.xcodeproj -scheme Hush \
+              -destination "platform=iOS Simulator,name=iPhone 18 Pro" \
+              -derivedDataPath build \
+              CODE_SIGNING_ALLOWED=NO \
+              2>&1 | tee build.log | grep -E "error:|warning: .*Hush/|\*\* " || true
+            grep -q "\*\* BUILD SUCCEEDED \*\*" build.log && exit 0
+            echo "::warning::build attempt $attempt failed"
+          done
+          exit 1
+
+      - name: Capture the 6.9-inch set
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        continue-on-error: true
+        timeout-minutes: 40
+        env:
+          DEVICE: ${{ inputs.device_69 }}
+          FILTER: ${{ inputs.phone_filter }}
+        run: bash ci/store-capture.sh phone raw-69 ci/store-scenarios.txt "$FILTER" "1320x2868"
+
+      - name: Capture the 6.3-inch set
+        if: ${{ !cancelled() && steps.build.outcome == 'success' && inputs.phone_61 }}
+        continue-on-error: true
+        timeout-minutes: 40
+        env:
+          DEVICE: ${{ inputs.device_61 }}
+          FILTER: ${{ inputs.phone_filter }}
+        run: |
+          gtimeout 120 xcrun simctl shutdown all || true
+          bash ci/store-capture.sh phone raw-61 ci/store-scenarios.txt "$FILTER" "1206x2622 1179x2556"
+
+      - name: Upload the 6.9-inch captures
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: raw-69
+          path: raw-69/
+          retention-days: 14
+          if-no-files-found: ignore
+
+      - name: Upload the 6.3-inch captures
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: raw-61
+          path: raw-61/
+          retention-days: 14
+          if-no-files-found: ignore
+
+      - name: Upload build log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: store-phones-build-log
+          path: build.log
+          retention-days: 14
+          if-no-files-found: ignore
+
+      - name: Shut down
+        if: always()
+        continue-on-error: true
+        run: xcrun simctl shutdown all || true
+
+  duo:
+    if: ${{ inputs.duo && inputs.duo_from_run == '' }}
+    runs-on: xcode-27
+    timeout-minutes: 130
+    env:
+      XCODE_APP: /Applications/Xcode_27.1.app
+      RUNTIME_ID: com.apple.CoreSimulator.SimRuntime.iOS-27-1
+      DUO_TYPE_FALLBACK: com.apple.CoreSimulator.SimDeviceType.iPhone-Duo
+      HOMEBREW_NO_AUTO_UPDATE: "1"
+      HOMEBREW_NO_INSTALL_CLEANUP: "1"
+    steps:
+      - uses: actions/checkout@v4
+
+      # The runtime, simulator and hinge steps follow duo.yml (keep them in step), with timeouts and retries added.
+      - name: Select Xcode 27.1
+        timeout-minutes: 15
+        run: |
+          sudo xcode-select -s "$XCODE_APP"
+          xcodebuild -version
+          xcrun simctl list runtimes
+          for attempt in 1 2 3; do command -v gtimeout >/dev/null && break; brew install coreutils || sleep 10; done
+
+      - name: Install the iOS 27.1 runtime
+        timeout-minutes: 35
+        run: |
+          installed() {
+            xcrun simctl list runtimes -j | python3 -c "import json,sys,os; sys.exit(0 if any(r['identifier']==os.environ['RUNTIME_ID'] and r.get('isAvailable') for r in json.load(sys.stdin)['runtimes']) else 1)"
+          }
+          if installed; then echo "already installed"; exit 0; fi
+          for attempt in 1 2 3; do
+            gtimeout 1500 xcodebuild -downloadPlatform iOS 2>&1 | grep -v "Downloading iOS" | tail -20 || true
+            installed && break
+            sleep 15
+          done
+          installed || { echo "::error::iOS 27.1 runtime not installed"; exit 1; }
+
+      - name: Create and boot the iPhone Duo
+        id: sim
+        timeout-minutes: 10
+        run: |
+          type=$(xcrun simctl list devicetypes -j | python3 -c "import json,sys; print(next((d['identifier'] for d in json.load(sys.stdin)['devicetypes'] if d['name']=='iPhone Duo'), ''))")
+          type="${type:-$DUO_TYPE_FALLBACK}"
+          udid=$(gtimeout 120 xcrun simctl create "Hush Duo" "$type" "$RUNTIME_ID")
+          echo "udid=$udid" >> "$GITHUB_OUTPUT"
+          gtimeout 300 xcrun simctl boot "$udid" || echo "::warning::simctl boot returned non-zero (bootstatus waits later)"
+
+      - name: Install the hinge tool
+        timeout-minutes: 25
+        run: |
+          for attempt in 1 2 3; do
+            gtimeout 420 brew install artemnovichkov/tap/hinge && break
+            echo "::warning::hinge install attempt $attempt failed"; sleep 10
+          done
+          command -v hinge >/dev/null || { echo "::error::hinge tool unavailable: the Duo cannot be opened"; exit 1; }
+
+      - name: Generate project
+        timeout-minutes: 15
+        run: |
+          for attempt in 1 2 3; do command -v xcodegen >/dev/null && break; gtimeout 400 brew install xcodegen || sleep 10; done
+          xcodegen generate
+
+      - name: Build for the Duo
+        id: build
+        timeout-minutes: 45
+        env:
+          UDID: ${{ steps.sim.outputs.udid }}
+        run: |
+          set -o pipefail
+          for attempt in 1 2; do
+            gtimeout 1500 xcodebuild build -project Hush.xcodeproj -scheme Hush -destination "id=$UDID" \
+              -derivedDataPath build CODE_SIGNING_ALLOWED=NO \
+              2>&1 | tee build.log | grep -E "error:|\*\* " || true
+            grep -q "\*\* BUILD SUCCEEDED \*\*" build.log && exit 0
+            echo "::warning::build attempt $attempt failed"
+          done
+          exit 1
+
+      - name: Wait for boot, warm up the hinge helper
+        timeout-minutes: 15
+        env:
+          UDID: ${{ steps.sim.outputs.udid }}
+        run: |
+          gtimeout 840 xcrun simctl bootstatus "$UDID" -b
+          if command -v hinge >/dev/null; then gtimeout 120 hinge -d "$UDID" get || true; fi
+          gtimeout 30 xcrun simctl io "$UDID" enumerate || true
+
+      - name: Capture the Duo set
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        continue-on-error: true
+        timeout-minutes: 60
+        env:
+          UDID: ${{ steps.sim.outputs.udid }}
+          FILTER: ${{ inputs.duo_filter }}
+          ORIENT: portrait
+        run: bash ci/store-capture.sh duo raw-duo ci/duo-store-scenarios.txt "$FILTER" "2007x2853"
+
+      - name: Upload the Duo captures
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: raw-duo
+          path: raw-duo/
+          retention-days: 30
+          if-no-files-found: ignore
+
+      - name: Upload build log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: store-duo-build-log
+          path: build.log
+          retention-days: 14
+          if-no-files-found: ignore
+
+      - name: Shut down
+        if: always()
+        continue-on-error: true
+        run: xcrun simctl shutdown all || true
+
+  assemble:
+    needs: [phones, duo]
+    if: ${{ always() && !cancelled() }}
+    runs-on: xcode-27
+    timeout-minutes: 45
+    env:
+      HOMEBREW_NO_AUTO_UPDATE: "1"
+      TABLETOP_ANGLE: ${{ inputs.tabletop_angle }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Select Xcode 27.1
+        timeout-minutes: 15
+        run: |
+          sudo xcode-select -s /Applications/Xcode_27.1.app
+          xcodebuild -version
+          for attempt in 1 2 3; do command -v gtimeout >/dev/null && break; brew install coreutils || sleep 10; done
+
+      - name: Download the Duo captures (this run)
+        if: ${{ inputs.duo_from_run == '' }}
+        continue-on-error: true
+        uses: actions/download-artifact@v4
+        with:
+          name: raw-duo
+          path: raw-duo
+
+      - name: Download the Duo captures (earlier run ${{ inputs.duo_from_run }})
+        if: ${{ inputs.duo_from_run != '' }}
+        continue-on-error: true
+        uses: actions/download-artifact@v4
+        with:
+          name: raw-duo
+          path: raw-duo
+          run-id: ${{ inputs.duo_from_run }}
+          github-token: ${{ github.token }}
+
+      - name: Download the 6.9-inch captures
+        if: ${{ inputs.phones }}
+        continue-on-error: true
+        uses: actions/download-artifact@v4
+        with:
+          name: raw-69
+          path: raw-69
+
+      - name: Download the 6.3-inch captures
+        if: ${{ inputs.phones && inputs.phone_61 }}
+        continue-on-error: true
+        uses: actions/download-artifact@v4
+        with:
+          name: raw-61
+          path: raw-61
+
+      - name: Caption the Duo set
+        continue-on-error: true
+        timeout-minutes: 15
+        env:
+          FILTER: ${{ inputs.duo_filter }}
+          STORE_RADIUS: "0.05"
+          # The folded inner display, upright: the last canvas line of every Duo log at capture.
+          REQUIRE_CANVAS: "669x951 fold=1 turned=0"
+          # A fold layout never draws or speaks the lever (ROUND-3 decision 4).
+          CAPTION_FORBID: "lever|slide"
+        run: bash ci/store-set.sh raw-duo 'iPhone Duo inner display (2007 x 2853)' "2007x2853" ci/duo-store-scenarios.txt "$FILTER" store-
+
+      - name: Caption the 6.9-inch set
+        continue-on-error: true
+        timeout-minutes: 15
+        env:
+          FILTER: ${{ inputs.phone_filter }}
+          STORE_RADIUS: "0.07"
+          TABLETOP_DIR: raw-duo
+          # No fold on a phone (P1's tabletop source is checked against TABLETOP_REQUIRE instead).
+          REQUIRE_CANVAS: "fold=0"
+        run: bash ci/store-set.sh raw-69 'iPhone 6.9-inch (1320 x 2868)' "1320x2868" ci/store-scenarios.txt "$FILTER"
+
+      # 1206 x 2622 (iPhone 18/17/16 Pro) and 1179 x 2556 both go in App Store Connect's 6.3-inch slot ("iPhone with
+      # Dynamic Island, medium display").
+      - name: Caption the 6.3-inch set
+        if: ${{ inputs.phone_61 }}
+        continue-on-error: true
+        timeout-minutes: 15
+        env:
+          FILTER: ${{ inputs.phone_filter }}
+          STORE_RADIUS: "0.07"
+          TABLETOP_DIR: raw-duo
+          REQUIRE_CANVAS: "fold=0"
+        run: bash ci/store-set.sh raw-61 'iPhone 6.3-inch (1206 x 2622)' "1206x2622 1179x2556" ci/store-scenarios.txt "$FILTER"
+
+      - name: Lay out the upload artifacts
+        # tools/appstore/build-metadata.js reads store-69/store/<name>.png, store-61/store/<name>.png and
+        # store-duo/duo-screens/store/<name>.png from the downloaded artifacts.
+        if: always()
+        run: |
+          mkdir -p upload/store-69 upload/store-61 upload/store-duo/duo-screens
+          [ -d raw-69/store ] && cp -R raw-69/store upload/store-69/ || true
+          [ -d raw-61/store ] && cp -R raw-61/store upload/store-61/ || true
+          [ -d raw-duo/store ] && cp -R raw-duo/store upload/store-duo/duo-screens/ || true
+          find upload -name '*.png' | sort
+
+      - name: Upload store-duo
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: store-duo
+          path: upload/store-duo/
+          if-no-files-found: ignore
+
+      - name: Upload store-69
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: store-69
+          path: upload/store-69/
+          if-no-files-found: ignore
+
+      - name: Upload store-61
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: store-61
+          path: upload/store-61/
+          if-no-files-found: ignore
+
+      - name: Compositor build log
+        if: always()
+        run: |
+          for d in raw-duo raw-69 raw-61; do
+            [[ -s "$d/logs/store-frame-build.log" ]] && { echo "== $d"; tail -40 "$d/logs/store-frame-build.log"; }
+          done
+          true

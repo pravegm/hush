@@ -27,13 +27,27 @@ enum ChestCopy {
         return String(format: "×%.1f", m)
     }
 
-    /// "Light sleeper · Iron-bound · gold ×1.5" (no multiplier at ×1); golden: "GOLDEN · gold ×2 · light sleeper".
+    /// R3 (juror P2: two tokens at most, Title Case): the plate's short trait ("Dreamer", not "Dreamer · fake
+    /// twitches").
+    static func plateTrait(_ m: MimicKind) -> String {
+        switch m {
+        case .dreamer: return "Dreamer"
+        default: return trait(m)
+        }
+    }
+
+    /// R3: two tokens: "Light sleeper · Iron-bound"; golden: "GOLDEN MIMIC · Light sleeper". The multiplier is on the
+    /// seal (`plateSeal`), never in the line.
     static func plateSubline(_ c: ChestSpec) -> String {
-        let kind = ChestCopy.trait(c.mimic)
-        if c.golden { return "GOLDEN · gold ×2 · \(kind.lowercased())" }
-        var s = "\(kind) · \(ChestCopy.tierShort(c.tier))"
-        if c.multiplier.isFinite && c.multiplier > 1.001 { s += " · gold \(ChestCopy.multiplier(c.multiplier))" }
-        return s
+        let kind = ChestCopy.plateTrait(c.mimic)
+        if c.golden { return "GOLDEN MIMIC · \(kind)" }
+        return "\(kind) · \(ChestCopy.tierShort(c.tier))"
+    }
+
+    /// R3: the seal's number ("×1.5", "×4" for a golden gilded chest: the real `multiplier`, QA-2 P2-8), nil at ×1.
+    static func plateSeal(_ c: ChestSpec) -> String? {
+        guard c.multiplier.isFinite, c.multiplier > 1.001 else { return nil }
+        return multiplier(c.multiplier)
     }
 }
 
@@ -101,6 +115,9 @@ final class SceneLid {
     private let plate: SKSpriteNode
     private let nameLabel: SceneLabel
     private let subLabel: SceneLabel
+    private let seal: SKSpriteNode
+    private let sealCaption: SceneLabel
+    private let sealValue: SceneLabel
     private let sliderRoot: SKNode
     private let knob: SKSpriteNode
     private let chevron: SKSpriteNode
@@ -114,10 +131,13 @@ final class SceneLid {
     private var shownTier: ChestTier = .wooden
     private(set) var name: String = ""
     private(set) var subline: String = ""
+    /// R3: the gold-multiplier seal's text ("×1.5"), nil when hidden (×1).
+    private(set) var sealText: String?
+    private var plateIsGolden = false
     /// The eye's openness as drawn, 0 … 1 (tests).
     private(set) var wake: Double = 0
     /// How far the fangs are bared, 0 … 1 (tests).
-    private(set) var teethShown: CGFloat = 0
+    private(set) var teethShown: CGFloat = ChestLayout.teethAsleep
     /// The brow's tilt now (radians; > 0 is angry).
     private(set) var browTilt: CGFloat = 0
     /// Eye path rebuilds so far (tests: only when the quantised wake changes).
@@ -177,17 +197,22 @@ final class SceneLid {
         // The jaw: the fangs tucked up behind the fleshy lip.
         let jawN = SKNode()
         jawN.zPosition = 50
-        let lipN = SKSpriteNode(texture: SceneTextures.lip, size: CGSize(width: ls.width, height: ChestLayout.lipHeight))
+        let lipN = SKSpriteNode(texture: SceneTextures.lip,
+                                size: CGSize(width: ls.width, height: ChestLayout.lipHeight + 4))
         lipN.anchorPoint = CGPoint(x: 0.5, y: 0)
-        lipN.position = CGPoint(x: ls.width / 2, y: ChestLayout.lipBottom)
+        lipN.position = CGPoint(x: ls.width / 2, y: ChestLayout.lipBottom - 4)
         lipN.zPosition = 2
-        let teethN = SKSpriteNode(texture: SceneTextures.teeth, size: CGSize(width: ls.width, height: 64))
+        let teethN = SKSpriteNode(texture: SceneTextures.teeth, size: CGSize(width: ls.width, height: 72))
         teethN.anchorPoint = CGPoint(x: 0.5, y: 1)
-        teethN.position = CGPoint(x: ls.width / 2, y: ChestLayout.gumY + 2)
+        teethN.position = CGPoint(x: ls.width / 2, y: SceneLid.teethTop(shown: ChestLayout.teethAsleep))
         teethN.zPosition = 1
         let droolN = SKSpriteNode(texture: SceneTextures.dot, size: CGSize(width: 9, height: 14))
         droolN.anchorPoint = CGPoint(x: 0.5, y: 1)
-        droolN.position = CGPoint(x: ls.width / 9 * 1.5, y: ChestLayout.lipBottom + 6)
+        // On the left canine's tip while it sleeps.
+        let canine = SceneTextures.fangSpec[1]
+        let sleepTop: CGFloat = SceneLid.teethTop(shown: ChestLayout.teethAsleep)
+        let canineTip: CGFloat = sleepTop - ChestLayout.gumRise - 4 + SceneTextures.gumEdge(canine.x) - canine.len
+        droolN.position = CGPoint(x: canine.x, y: canineTip + 2)
         droolN.color = UIColor(red: 0.85, green: 0.93, blue: 1, alpha: 1)
         droolN.colorBlendFactor = 1
         droolN.alpha = 0
@@ -280,21 +305,39 @@ final class SceneLid {
         plateN.position = ChestLayout.plateCenter
         plateN.zPosition = 9
         let nameN = SceneLabel(size: 24, color: ScenePaint.ui(RGBA(hex: 0x2E1606)), outline: nil)
-        nameN.maxWidth = ChestLayout.plateSize.width - 80
+        nameN.maxWidth = ChestLayout.plateSize.width - 100
         nameN.node.position = CGPoint(x: 0, y: 14)
         plateN.addChild(nameN.node)
         let subN = SceneLabel(size: 16, color: ScenePaint.ui(RGBA(hex: 0x4A2408)), outline: nil, minimumSize: 13)
-        subN.maxWidth = ChestLayout.plateSize.width - 70
+        subN.maxWidth = ChestLayout.plateSize.width - 130
         subN.node.position = CGPoint(x: 0, y: -15)
         plateN.addChild(subN.node)
+        // R3: the multiplier as a brass seal over the plate's left end ("GOLD ×1.5"), not more words on the plate.
+        let sealN = SKSpriteNode(texture: SceneTextures.plateSeal(golden: false),
+                                 size: CGSize(width: ChestLayout.sealRadius * 2 + 6, height: ChestLayout.sealRadius * 2 + 6))
+        sealN.position = ChestLayout.sealCenter
+        sealN.zPosition = 9.6
+        sealN.isHidden = true
+        let sealCap = SceneLabel(size: 12, color: ScenePaint.ui(RGBA(hex: 0x3A1E06)), outline: nil, minimumSize: 12,
+                                 kern: 1.2)
+        sealCap.set("GOLD")
+        sealCap.node.position = CGPoint(x: 0, y: 11)
+        sealCap.node.zPosition = 1
+        sealN.addChild(sealCap.node)
+        let sealVal = SceneLabel(size: 19, color: ScenePaint.ui(RGBA(hex: 0x2E1606)), outline: nil, minimumSize: 14)
+        sealVal.maxWidth = ChestLayout.sealRadius * 2 - 10
+        sealVal.node.position = CGPoint(x: 0, y: -6)
+        sealVal.node.zPosition = 1
+        sealN.addChild(sealVal.node)
 
         let sliderN = SKNode()
         sliderN.zPosition = 12
         sliderN.isHidden = true
         let trackH = ChestLayout.sliderMaxY - ChestLayout.sliderMinY + 40
-        let trackN = SKSpriteNode(texture: SceneTextures.sliderTrack, size: CGSize(width: 56, height: trackH))
+        let trackN = SKSpriteNode(texture: SceneTextures.sliderTrack,
+                                  size: CGSize(width: ChestLayout.sliderTrackWidth, height: trackH))
         trackN.position = CGPoint(x: ChestLayout.sliderX, y: (ChestLayout.sliderMinY + ChestLayout.sliderMaxY) / 2)
-        let knobS = SKSpriteNode(texture: SceneTextures.sliderKnob, size: CGSize(width: 96, height: 56))
+        let knobS = SKSpriteNode(texture: SceneTextures.sliderKnob, size: ChestLayout.sliderKnobSize)
         knobS.position = CGPoint(x: ChestLayout.sliderX, y: ChestLayout.sliderMinY)
         knobS.zPosition = 1
         let chevN = SKSpriteNode(texture: SceneTextures.chevron, size: CGSize(width: 40, height: 26))
@@ -316,7 +359,8 @@ final class SceneLid {
             sp.append(s)
         }
 
-        let all: [SKNode] = [baseN, extN, capN, vigN, eyeRoot, browL, browR, knobN, dimN, glowN, plateN, jawN, sliderN]
+        let all: [SKNode] = [baseN, extN, capN, vigN, eyeRoot, browL, browR, knobN, dimN, glowN, plateN, sealN, jawN,
+                             sliderN]
         for n in all { rootN.addChild(n) }
         for z in zs { rootN.addChild(z.node) }
         for s in sp { rootN.addChild(s) }
@@ -349,6 +393,9 @@ final class SceneLid {
         plate = plateN
         nameLabel = nameN
         subLabel = subN
+        seal = sealN
+        sealCaption = sealCap
+        sealValue = sealVal
         sliderRoot = sliderN
         knob = knobS
         chevron = chevN
@@ -394,7 +441,21 @@ final class SceneLid {
 
     func setTier(_ t: ChestTier, animated: Bool) { setDress(.tier(t), tier: t, animated: animated) }
 
-    /// The name plate: the mimic's name and its trait / tier line. A new name slides the plate in.
+    /// The name plate: the mimic's name and its trait / tier line, the multiplier seal (nil hides it) and the golden
+    /// mimic's bright plate. A new name slides the plate in.
+    func setPlate(name s: String, subline sub: String, seal tab: String?, golden: Bool) {
+        if tab != sealText {
+            sealText = tab
+            if let t = tab { sealValue.set(t) }
+        }
+        if golden != plateIsGolden {
+            plateIsGolden = golden
+            plate.texture = golden ? SceneTextures.plateGolden : SceneTextures.plate
+            seal.texture = SceneTextures.plateSeal(golden: golden)
+        }
+        setPlate(name: s, subline: sub)
+    }
+
     func setPlate(name s: String, subline sub: String) {
         if s != name {
             name = s
@@ -448,14 +509,27 @@ final class SceneLid {
         }
     }
 
-    /// How far the fangs are bared for a stage and noise.
+    /// How far the fangs are bared for a stage and noise. R3: never below `teethAsleep` (the sleeping mimic still
+    /// shows its tooth tips under the lip: about a third, the canines about half).
     static func teethTarget(stage: MimicStage, noise: Double) -> CGFloat {
         switch stage {
-        case .asleep: return 0
-        case .stirring: return 0.3
-        case .waking: return CGFloat(0.7 + 0.3 * min(max((noise - 0.7) / 0.3, 0), 1))
+        case .asleep: return ChestLayout.teethAsleep
+        case .stirring: return 0.6
+        case .waking: return CGFloat(0.8 + 0.2 * min(max((noise - 0.7) / 0.3, 0), 1))
         case .biting: return 1
         }
+    }
+
+    /// The fangs sprite's top (lid-local) for how far they are bared (`shown` is clamped to `teethAsleep … 1`).
+    static func teethTop(shown: CGFloat) -> CGFloat {
+        let k = min(max(shown, ChestLayout.teethAsleep), 1)
+        return ChestLayout.lipBottom + ChestLayout.gumRise + 6 + ChestLayout.teethTuck * (1 - k)
+    }
+
+    /// How much of a canine shows below the lip at `shown` (tests: always some, even asleep).
+    static func canineShowing(shown: CGFloat) -> CGFloat {
+        let tuck = ChestLayout.teethTuck * (1 - min(max(shown, ChestLayout.teethAsleep), 1))
+        return max(SceneTextures.fangSpec[1].len - 2 - tuck, 0)
     }
 
     /// The brow's tilt for a stage (radians; the outer ends rise into an angry "V").
@@ -504,6 +578,10 @@ final class SceneLid {
             plate.position = ChestLayout.plateCenter
             plate.alpha = 1
         }
+        seal.isHidden = sealText == nil
+        seal.position = CGPoint(x: plate.position.x - ChestLayout.plateCenter.x + ChestLayout.sealCenter.x,
+                                y: ChestLayout.sealCenter.y)
+        seal.alpha = plate.alpha
 
         // The eye.
         var target = wakeOverride ?? SceneLid.wakeTarget(stage: s.stage, noise: s.noise)
@@ -560,9 +638,10 @@ final class SceneLid {
         var tt = teethOverride ?? SceneLid.teethTarget(stage: s.stage, noise: s.noise)
         if teethOverride == nil && twitchAge < 0.35 { tt = max(tt, 0.35) }
         teethShown += (tt - teethShown) * CGFloat(min(dt * 10, 1))
-        let tuck = 1 - min(max(teethShown, 0), 1)
-        teeth.position.y = ChestLayout.gumY + 2 + 34 * tuck
-        teeth.yScale = 0.72 + 0.28 * (1 - tuck)
+        teeth.position.y = SceneLid.teethTop(shown: teethShown)
+        // A slow breath in the jaw while it sleeps (2.4 s).
+        let jawBreath = s.stage == .asleep && !reduceMotion ? CGFloat(sin(time * 2 * Double.pi / 2.4)) : 0
+        jaw.yScale = 1 + 0.014 * jawBreath
         // A drool glint at a canine while it sleeps.
         let sleepy: CGFloat = s.stage == .asleep && wake < 0.08 ? 1 : 0
         let dr = (time / 2.6).truncatingRemainder(dividingBy: 1)
@@ -574,7 +653,8 @@ final class SceneLid {
         for (i, z) in zzz.enumerated() {
             let ph = (time / 3.2 + Double(i) / 3).truncatingRemainder(dividingBy: 1)
             let k = CGFloat(ph)
-            z.node.position = CGPoint(x: ec.x + 190 + 26 * k + CGFloat(i) * 8, y: ec.y + 30 + 90 * k)
+            // R3: upper-LEFT of the eye (the lever lives on the right).
+            z.node.position = CGPoint(x: ec.x - 186 - 24 * k - CGFloat(i) * 8, y: ec.y + 36 + 88 * k)
             z.node.alpha = sleepy * min(k * 4, 1) * (1 - k) * 1.4
         }
 
@@ -602,7 +682,7 @@ final class SceneLid {
             knob.position = CGPoint(x: ChestLayout.sliderX, y: ky)
             let invite = o < 0.05 && s.bagValue == 0 && (s.phase == .ready || s.phase == .looting)
             let bob = reduceMotion ? 0 : CGFloat(sin(time * 4)) * 6
-            chevron.position = CGPoint(x: ChestLayout.sliderX, y: ky + 52 + bob)
+            chevron.position = CGPoint(x: ChestLayout.sliderX, y: ky + 44 + bob)
             let ca: CGFloat = invite ? 0.9 : 0
             chevron.alpha += (ca - chevron.alpha) * CGFloat(min(dt * 6, 1))
         }

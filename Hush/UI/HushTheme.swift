@@ -134,7 +134,8 @@ extension Color {
 // MARK: - Buttons
 
 struct HushButtonStyle: ButtonStyle {
-    enum Kind { case primary, secondary, quiet }
+    /// R3 (decision 5): `leather` is the in-chest secondary (the bag strip's leather and stitching, never a teal card).
+    enum Kind { case primary, secondary, quiet, leather }
     var kind: Kind = .primary
     var height: CGFloat = HushTheme.primaryHeight
     var compact = false
@@ -159,7 +160,7 @@ struct HushButtonStyle: ButtonStyle {
     private var textColor: Color {
         switch kind {
         case .primary: return HushTheme.ink
-        case .secondary: return HushTheme.parchment
+        case .secondary, .leather: return HushTheme.parchment
         case .quiet: return HushTheme.mist
         }
     }
@@ -185,8 +186,147 @@ struct HushButtonBackground: View {
                     .overlay(shape.stroke(HushTheme.stroke, lineWidth: 1))
             case .quiet:
                 Color.clear
+            case .leather:
+                PlateBackground(style: .leather, radius: HushTheme.buttonRadius, pressed: pressed)
             }
         }
+    }
+}
+
+// MARK: - R3 (founder decision 5): the in-world plate
+
+/// The one plate for everything SwiftUI draws over the chest: the hint, the lesson cards, the pause, resume and
+/// closing cards and the callouts. The Scene draws it (`ChestArt.plateImage(size:style:)`, one art source with the
+/// scene's own plates): parchment for hints, lesson steps and callouts; leather for the pause, resume and closing
+/// cards; urgent (oxblood) for "Freeze!". No black pills, no teal cards, one prompt at a time.
+///
+/// `PlateArt.image` is the one line that picks the image source; if it returns nil the plate is drawn here from the
+/// Scene's own plate colours (`ChestArt.plateColors`).
+enum PlateArt {
+    static func image(size: CGSize, style: PlateStyle) -> CGImage? {
+        ChestArt.plateImage(size: size, style: style)
+    }
+
+    /// Text and icon colours on a plate (the Scene's palette for it).
+    static func text(_ style: PlateStyle) -> Color { Color(hush: ChestArt.plateColors(style).text) }
+    static func accent(_ style: PlateStyle) -> Color { Color(hush: ChestArt.plateColors(style).accent) }
+    static func muted(_ style: PlateStyle) -> Color { Color(hush: ChestArt.plateColors(style).muted) }
+    /// "Phew. Snoring again." and "Hold it there…" on parchment: a deep moss that reads on the paper.
+    static let calm = Color(hushHex: 0x2E6B4E)
+}
+
+struct PlateBackground: View {
+    var style: PlateStyle = .parchment
+    var radius: CGFloat = 16
+    var pressed = false
+
+    var body: some View {
+        GeometryReader { geo in
+            Group {
+                if geo.size.width >= 8, geo.size.height >= 8, let art = PlateArt.image(size: geo.size, style: style) {
+                    Image(decorative: art, scale: 3)
+                        .resizable()
+                        .frame(width: geo.size.width, height: geo.size.height)
+                } else {
+                    drawn(geo.size)
+                }
+            }
+            .brightness(pressed ? -0.12 : 0)
+        }
+        .shadow(color: Color.black.opacity(0.4), radius: 5, y: 3)
+    }
+
+    /// The fallback: the same plate in the Scene's colours.
+    private func drawn(_ size: CGSize) -> some View {
+        let c = ChestArt.plateColors(style)
+        let shape = RoundedRectangle(cornerRadius: radius, style: .continuous)
+        let inset = min(6, min(size.width, size.height) * 0.12)
+        return ZStack {
+            shape.fill(LinearGradient(colors: [Color(hush: c.fill), Color(hush: c.fillDark)],
+                                      startPoint: .top, endPoint: .bottom))
+            shape.stroke(Color(hush: c.edge), lineWidth: 2.5)
+            RoundedRectangle(cornerRadius: max(radius - inset, 2), style: .continuous)
+                .inset(by: inset)
+                .stroke(Color(hush: c.stitch).opacity(0.7), style: StrokeStyle(lineWidth: 1.2, dash: [5, 4]))
+        }
+        .frame(width: size.width, height: size.height)
+    }
+}
+
+extension View {
+    /// R3: wraps the view in the in-world plate (decision 5).
+    func hushPlate(_ style: PlateStyle = .leather, padding: CGFloat = 16, radius: CGFloat = 18) -> some View {
+        self.padding(.horizontal, padding + 8)
+            .padding(.vertical, padding)
+            .background(PlateBackground(style: style, radius: radius))
+    }
+}
+
+/// A drawn plate icon (the Scene's `ChestArt.glyphImage`): the lesson's stakes, never SF Symbols in the chest.
+struct PlateGlyphView: View {
+    let glyph: PlateGlyph
+    var side: CGFloat = 28
+
+    var body: some View {
+        Group {
+            if let image = ChestArt.glyphImage(glyph, side: side) {
+                Image(decorative: image, scale: 3)
+                    .resizable()
+            } else {
+                Color.clear
+            }
+        }
+        .frame(width: side, height: side)
+        .accessibilityHidden(true)
+    }
+}
+
+// MARK: - R3: drawn glyphs (no SF Symbols inside the chest)
+
+/// Two rounded bars.
+struct PauseGlyph: Shape {
+    func path(in rect: CGRect) -> Path {
+        let w = rect.width * 0.36
+        var p = Path()
+        p.addRoundedRect(in: CGRect(x: rect.minX, y: rect.minY, width: w, height: rect.height),
+                         cornerSize: CGSize(width: w * 0.3, height: w * 0.3))
+        p.addRoundedRect(in: CGRect(x: rect.maxX - w, y: rect.minY, width: w, height: rect.height),
+                         cornerSize: CGSize(width: w * 0.3, height: w * 0.3))
+        return p
+    }
+}
+
+/// A chunky arrow, up or down.
+struct ArrowGlyph: Shape {
+    var up = true
+
+    func path(in rect: CGRect) -> Path {
+        let w = rect.width, h = rect.height
+        let shaft = w * 0.34
+        let head = h * 0.5
+        var p = Path()
+        p.move(to: CGPoint(x: w / 2, y: 0))
+        p.addLine(to: CGPoint(x: w, y: head))
+        p.addLine(to: CGPoint(x: (w + shaft) / 2, y: head))
+        p.addLine(to: CGPoint(x: (w + shaft) / 2, y: h))
+        p.addLine(to: CGPoint(x: (w - shaft) / 2, y: h))
+        p.addLine(to: CGPoint(x: (w - shaft) / 2, y: head))
+        p.addLine(to: CGPoint(x: 0, y: head))
+        p.closeSubpath()
+        let t = up ? CGAffineTransform(translationX: rect.minX, y: rect.minY)
+            : CGAffineTransform(a: 1, b: 0, c: 0, d: -1, tx: rect.minX, ty: rect.minY + h)
+        return p.applying(t)
+    }
+}
+
+/// A tick (the pose step's "Hold it there…").
+struct TickGlyph: Shape {
+    func path(in rect: CGRect) -> Path {
+        var p = Path()
+        p.move(to: CGPoint(x: rect.minX + rect.width * 0.08, y: rect.minY + rect.height * 0.55))
+        p.addLine(to: CGPoint(x: rect.minX + rect.width * 0.4, y: rect.minY + rect.height * 0.86))
+        p.addLine(to: CGPoint(x: rect.minX + rect.width * 0.94, y: rect.minY + rect.height * 0.16))
+        return p.strokedPath(StrokeStyle(lineWidth: max(rect.width * 0.18, 2), lineCap: .round, lineJoin: .round))
     }
 }
 
@@ -332,7 +472,6 @@ struct HushProgressBar: View {
 
 /// R2 (juror P1-10): the pause button as a round brass stud, like the chest's hinges, never a flat SwiftUI circle.
 struct BrassCoinButton: View {
-    let systemName: String
     let label: String
     var visual: CGFloat = 50
     let action: () -> Void
@@ -350,9 +489,10 @@ struct BrassCoinButton: View {
                     .frame(width: visual, height: visual)
                 Circle().stroke(HushTheme.goldDeep.opacity(0.9), lineWidth: 2)
                     .frame(width: visual * 0.74, height: visual * 0.74)
-                Image(systemName: systemName)
-                    .font(.system(size: visual * 0.34, weight: .black, design: .rounded))
-                    .foregroundStyle(HushTheme.ink)
+                // R3 (decision 5): drawn, never an SF Symbol inside the chest.
+                PauseGlyph()
+                    .fill(HushTheme.ink)
+                    .frame(width: visual * 0.3, height: visual * 0.34)
             }
             .shadow(color: Color.black.opacity(0.45), radius: 5, y: 3)
             .frame(width: max(visual, HushTheme.minTap), height: max(visual, HushTheme.minTap))

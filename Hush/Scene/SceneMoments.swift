@@ -5,7 +5,7 @@ import UIKit
 struct SceneMomentFrame {
     /// The jaw's drop (lid-local points, ≤ 0: the fangs slam down across the fold).
     var jawDrop: CGFloat = 0
-    /// The chest's slide (floor points; `exitOffset` = gone off the front).
+    /// R3: the chest's small hop (floor points, 0 … 8: the arrival bump, the bite's hops). The chest never leaves.
     var chestOffset: CGFloat = 0
     var wakeOverride: Double?
     var teethOverride: CGFloat?
@@ -18,29 +18,32 @@ struct SceneMomentFrame {
 ///   the back wall (0.09 s), the lid squashes, the canvas shakes and flashes red, "CHOMP!" pops (cream, thick dark-red
 ///   edge), then "Too loud!" and what it cost ("−164" over the pouch, "−10s" off the candle); the eye goes wide; the
 ///   loot in hand flies into the mouth (`SceneLootView`). The jaw chews twice, lifts at 0.55–0.85 s, the chest hops
-///   twice and leaves off the front.
-/// - **Bank** (`banked`): the lid's shadow sweeps from the fold to the front over 0.35 s, the bagged loot flies in arcs
-///   to the BANKED counter (which rolls up), one centred group pops ("Hushed!" over "BANKED +179"); the chest leaves
-///   off the front at 1.05–1.4 s. `chainUp` adds "Hush Chain ×1.3" by the chain medallion.
-/// - **Arrival** (`chestArrived`): the chest slides in from the front (0.5 s, ease-out) and lands with dust and a
-///   bump. R2: its name, trait and tier are on the lid's name plate (never over the loot).
-/// - **Relic found** (`relicFound`, after the bank's group): a golden sunburst, the relic, "Relic found!", its name.
+///   twice, then the interior goes dark (1.45–1.8 s).
+/// - **Bank** (`banked`): the lid's shadow sweeps over the INTERIOR from the fold to the front (0.35 s) and stays
+///   (R3, juror P0-1: the frame, front wall and lock stay lit at full alpha, every tier); the bagged loot flies out of
+///   the pouch in arcs and dives into the BANKED coin stack UNDER the plate's label (it never covers "BANKED"); one
+///   centred stack pops: "Hushed!" over "BANKED +179" over "Hush Chain ×1.3" (`chainUp`).
+/// - **Arrival** (`chestArrived`): the interior's shadow lifts (0.5 s), the new dress fades in over the old one, the
+///   chest bumps and dust flies. Its name, trait and tier are on the lid's name plate (never over the loot).
+/// - **Relic found** (`relicFound`, after the bank's stack): a big parchment card on the floor ("RELIC FOUND!", the
+///   relic, its name) over a golden sunburst, fully shown for ≥ 1.2 s.
+/// - **Creak** (`ChestScene.showCreak()`, R3): "CREAK!" jolts in under the hint band, the lid twitches, the canvas
+///   bumps (the HUD flashes the meter red). The App calls it from Feel's creak accent (never a rule on noise here).
 /// - **Candle out**: darkness closes in from the edges over 1.4 s, then everything goes black.
 /// - **Waking**: a slow red pulse round the floor half's edges (steady under Reduce Motion).
 /// Reduce Motion: no shake, no red flash; everything else plays.
 @MainActor
 final class SceneMoments {
-    /// In the floor half, over the loot and under the HUD: the lid shadow, the throat, the lower fangs.
+    /// In the floor half, over the loot and under the HUD: the interior's shutter, the throat, the lower fangs, the
+    /// bank's flyers (under the plates' labels).
     let floorRoot: SKNode
-    /// Over the floor and lid (shaken with them): CHOMP, callouts, the relic banner, flyers, popups.
+    /// Over the floor and lid (shaken with them): CHOMP, callouts, the relic card, popups.
     let fxRoot: SKNode
     /// Over everything (never shaken): the red flash, the danger pulse, candle-out darkness.
     let overlayRoot: SKNode
     var reduceMotion = false
-    /// Where the chest goes when it leaves off the front (below the extension too).
-    private(set) var exitOffset: CGFloat = SceneMoments.baseExitOffset
 
-    private let sweep: SKSpriteNode
+    private let shutter: SKSpriteNode
     private let throat: SKSpriteNode
     private let lowerTeeth: SKSpriteNode
     private let chomp: SceneLabel
@@ -48,7 +51,10 @@ final class SceneMoments {
     private let biteLoss: SceneLabel
     private let bankEyebrow: SceneLabel
     private let bankValue: SceneLabel
+    private let bankSub: SceneLabel
+    private let creakLabel: SceneLabel
     private let bannerRays: SKSpriteNode
+    private let relicCard: SKNode
     private let bannerArt: SKSpriteNode
     private let bannerTag: SceneLabel
     private let bannerName: SceneLabel
@@ -62,6 +68,7 @@ final class SceneMoments {
     private var biteAge: Double = 99
     private var bankAge: Double = 99
     private var arriveAge: Double = 99
+    private var creakAge: Double = 99
     private var torchAge: Double?
     private var exited = false
     private var flashAge: Double = 99
@@ -72,8 +79,15 @@ final class SceneMoments {
     private var rng = SceneRNG(seed: 0xC0_40)
     private var biteLost = 0
     private var bankHushed = false
+    private var bankChain = false
     /// Set when the lid should squash this frame (the slam).
     private(set) var slammedThisFrame = false
+    /// Set when the lid should twitch this frame (a creak).
+    private(set) var creakedThisFrame = false
+    /// How dark the interior's shutter is now (0 open … 1 the lid's shadow over the whole interior; tests).
+    private(set) var shutLevel: CGFloat = 0
+    /// Creaks drawn so far (tests).
+    private(set) var creakCount = 0
 
     private struct Flyer {
         var from: CGPoint
@@ -88,20 +102,26 @@ final class SceneMoments {
     private var popupRise: [CGFloat] = []
     private var popupCursor = 0
 
-    static let baseExitOffset: CGFloat = -420
     static let bannerTime: Double = 1.9
-    /// The bank group shows for this long; the relic banner waits for it.
+    /// The bank group shows for this long; the relic card waits for it.
     static let bankGroupEnd: Double = 1.15
+    /// The shutter's darkness when the lid's shadow is down.
+    static let shutAlpha: CGFloat = 0.9
 
     /// Moment flags (tests and the App's CI freezes).
     var biteActive: Bool { biteAge < 1.8 }
     var bankActive: Bool { bankAge < 1.4 }
     var arrivalActive: Bool { arriveAge < 0.8 }
     var bannerShowing: Bool { bannerAge < SceneMoments.bannerTime }
+    /// The relic card is fully up (a still frame shows the relic and its name).
+    var relicCardFullyShown: Bool { bannerAge >= 0.12 && bannerAge < 1.5 }
+    var creakShowing: Bool { creakAge < 0.7 }
     var torchOutLevel: CGFloat { torchAge.map { CGFloat(min($0 / 2, 1)) } ?? 0 }
     /// The bite callout's text as showing ("Too loud!" / "−164"), for tests.
     var biteCalloutShowing: Bool { !tooLoud.node.isHidden && tooLoud.node.alpha > 0.05 }
     var biteLossText: String { biteLoss.text }
+    /// The bank stack's third line ("Hush Chain ×1.3"; tests).
+    var bankSubText: String { bankSub.text }
 
     init() {
         let pal = ChestArt.palette
@@ -113,14 +133,16 @@ final class SceneMoments {
         let overN = SKNode()
         overN.zPosition = 100
 
-        let sweepN = SKSpriteNode(texture: SceneTextures.vertical("sweep", [0.65, 0.9, 0.95], [0, 0.25, 1]),
-                                  size: CGSize(width: canvas.width, height: ChestLayout.floorTop - 110))
-        sweepN.anchorPoint = CGPoint(x: 0.5, y: 1)
-        sweepN.position = CGPoint(x: canvas.width / 2, y: ChestLayout.floorTop)
-        sweepN.color = ScenePaint.ui(pal.dungeonDeep)
-        sweepN.colorBlendFactor = 1
-        sweepN.isHidden = true
-        sweepN.zPosition = 0
+        // The lid's shadow over the INTERIOR only (the rims, front wall and lock stay lit).
+        let rim = ChestLayout.rimInner
+        let shutN = SKSpriteNode(texture: SceneTextures.vertical("shutter", [0.82, 0.96, 1], [0, 0.3, 1]),
+                                 size: rim.size)
+        shutN.anchorPoint = CGPoint(x: 0.5, y: 1)
+        shutN.position = CGPoint(x: rim.midX, y: rim.maxY)
+        shutN.color = ScenePaint.ui(pal.dungeonDeep)
+        shutN.colorBlendFactor = 1
+        shutN.isHidden = true
+        shutN.zPosition = 0
         let throatN = SKSpriteNode(texture: SceneTextures.vertical("throat", [0, 0.9], [0, 1]),
                                    size: CGSize(width: canvas.width, height: 90))
         throatN.anchorPoint = CGPoint(x: 0.5, y: 1)
@@ -134,7 +156,7 @@ final class SceneMoments {
         lowerN.position = CGPoint(x: canvas.width / 2, y: ChestLayout.interior.maxY - 16)
         lowerN.isHidden = true
         lowerN.zPosition = 2
-        for n in [sweepN, throatN, lowerN] { floorN.addChild(n) }
+        for n in [shutN, throatN, lowerN] { floorN.addChild(n) }
 
         let darkRed = ScenePaint.ui(RGBA(hex: 0x6E0A14))
         let chompN = SceneLabel(size: 72, color: ScenePaint.ui(pal.text), outline: darkRed, strokeWidth: -8)
@@ -150,39 +172,65 @@ final class SceneMoments {
         lossN.node.position = CGPoint(x: ChestLayout.pouchMouth.x, y: 168)
         lossN.node.isHidden = true
 
-        let eyebrowN = SceneLabel(size: 26, color: ScenePaint.ui(ScenePaint.meterGreen))
+        // R3: the bank's one centred stack, in the brass / cream palette (no green).
+        let eyebrowN = SceneLabel(size: 26, color: ScenePaint.ui(pal.candle))
         eyebrowN.set("Hushed!")
-        eyebrowN.node.position = CGPoint(x: canvas.width / 2, y: 372)
+        eyebrowN.node.position = CGPoint(x: canvas.width / 2, y: ChestLayout.bankEyebrowY)
         eyebrowN.node.isHidden = true
         let valueN = SceneLabel(size: 36, color: ScenePaint.ui(pal.gold))
         valueN.maxWidth = ChestLayout.interior.width - 20
-        valueN.node.position = CGPoint(x: canvas.width / 2, y: 332)
+        valueN.node.position = CGPoint(x: canvas.width / 2, y: ChestLayout.bankTitleY)
         valueN.node.isHidden = true
+        let subN = SceneLabel(size: 24, color: ScenePaint.ui(pal.amber))
+        subN.maxWidth = ChestLayout.interior.width - 40
+        subN.node.position = CGPoint(x: canvas.width / 2, y: ChestLayout.bankSubY)
+        subN.node.isHidden = true
 
+        // R3: "CREAK!" (a slam that didn't bite): cream with a thick brown edge, tilted.
+        let creakN = SceneLabel(size: 46, color: ScenePaint.ui(pal.text), outline: ScenePaint.ui(RGBA(hex: 0x5A1E08)),
+                                strokeWidth: -8)
+        creakN.set("CREAK!")
+        creakN.node.position = ChestLayout.creakPoint
+        creakN.node.zRotation = -0.08
+        creakN.node.isHidden = true
+
+        // R3: the relic card: a parchment plate with the relic and its name, over a sunburst.
         let bp = ChestLayout.relicBannerPoint
-        let raysN = SKSpriteNode(texture: SceneTextures.rays, size: CGSize(width: 360, height: 360))
+        let cardSize = ChestLayout.relicCardSize
+        let raysN = SKSpriteNode(texture: SceneTextures.rays, size: CGSize(width: 460, height: 460))
         raysN.position = bp
         raysN.blendMode = .add
         raysN.color = ScenePaint.ui(pal.gold)
         raysN.colorBlendFactor = 1
         raysN.isHidden = true
+        let cardN = SKNode()
+        cardN.position = bp
+        cardN.isHidden = true
+        let plateN = SKSpriteNode(texture: SceneTextures.plateTexture(size: cardSize, style: .parchment), size: cardSize)
+        plateN.zPosition = 0
+        cardN.addChild(plateN)
+        let ink = ChestArt.plateColors(.parchment)
         let artN = SKSpriteNode()
-        artN.position = bp
-        artN.isHidden = true
-        let tagN = SceneLabel(size: 24, color: ScenePaint.ui(pal.candle))
-        tagN.set("Relic found!")
-        tagN.node.position = CGPoint(x: bp.x, y: bp.y + 84)
-        tagN.node.isHidden = true
-        let bnameN = SceneLabel(size: 30, color: ScenePaint.ui(pal.gold))
-        bnameN.maxWidth = ChestLayout.interior.width - 10
-        bnameN.node.position = CGPoint(x: bp.x, y: bp.y - 72)
-        bnameN.node.isHidden = true
+        artN.position = CGPoint(x: 0, y: 6)
+        artN.zPosition = 1
+        cardN.addChild(artN)
+        let tagN = SceneLabel(size: 20, color: ScenePaint.ui(ink.accent), outline: nil, kern: 1.6)
+        tagN.set("RELIC FOUND!")
+        tagN.node.position = CGPoint(x: 0, y: cardSize.height / 2 - 30)
+        tagN.node.zPosition = 1
+        cardN.addChild(tagN.node)
+        let bnameN = SceneLabel(size: 26, color: ScenePaint.ui(ink.text), outline: nil)
+        bnameN.maxWidth = cardSize.width - 60
+        bnameN.node.position = CGPoint(x: 0, y: -cardSize.height / 2 + 32)
+        bnameN.node.zPosition = 1
+        cardN.addChild(bnameN.node)
 
         var fl: [SKSpriteNode] = []
         for _ in 0..<10 {
             let s = SKSpriteNode()
             s.isHidden = true
-            s.zPosition = 5
+            // Under the HUD's labels (HUD z 30 > floorRoot z 27 + 0.5): they dive INTO the BANKED plate.
+            s.zPosition = 0.5
             fl.append(s)
         }
         var pops: [SceneLabel] = []
@@ -193,10 +241,10 @@ final class SceneMoments {
             l.node.zPosition = 6
             pops.append(l)
         }
-        let fxNodes: [SKNode] = [raysN, artN, tagN.node, bnameN.node, eyebrowN.node, valueN.node, chompN.node,
-                                 loudN.node, lossN.node]
+        let fxNodes: [SKNode] = [raysN, cardN, eyebrowN.node, valueN.node, subN.node, chompN.node, loudN.node,
+                                 lossN.node, creakN.node]
         for n in fxNodes { fxN.addChild(n) }
-        for s in fl { fxN.addChild(s) }
+        for s in fl { floorN.addChild(s) }
         for l in pops { fxN.addChild(l.node) }
 
         let flashN = SKSpriteNode(color: ScenePaint.ui(pal.danger), size: canvas)
@@ -224,7 +272,7 @@ final class SceneMoments {
         floorRoot = floorN
         fxRoot = fxN
         overlayRoot = overN
-        sweep = sweepN
+        shutter = shutN
         throat = throatN
         lowerTeeth = lowerN
         chomp = chompN
@@ -232,7 +280,10 @@ final class SceneMoments {
         biteLoss = lossN
         bankEyebrow = eyebrowN
         bankValue = valueN
+        bankSub = subN
+        creakLabel = creakN
         bannerRays = raysN
+        relicCard = cardN
         bannerArt = artN
         bannerTag = tagN
         bannerName = bnameN
@@ -260,7 +311,6 @@ final class SceneMoments {
         closeIn.position = CGPoint(x: c.width / 2, y: -b + full.height / 2)
         danger.size = CGSize(width: c.width, height: ChestLayout.floorTop + b)
         danger.position = CGPoint(x: 0, y: -b)
-        exitOffset = SceneMoments.baseExitOffset - b
     }
 
     // MARK: Triggers
@@ -269,20 +319,22 @@ final class SceneMoments {
         biteAge = 99
         bankAge = 99
         arriveAge = 99
+        creakAge = 99
         torchAge = nil
         exited = false
         flashAge = 99
         shakeAmp = 0
         shake = .zero
         dangerLevel = 0
+        shutLevel = 0
         flights = []
         relicQueue = []
         bannerAge = 99
         for i in 0..<popupAge.count { popupAge[i] = 99 }
         for s in flyers { s.isHidden = true }
         for l in popups { l.node.isHidden = true }
-        for n in [sweep, lowerTeeth, chomp.node, tooLoud.node, biteLoss.node, bankEyebrow.node, bankValue.node,
-                  bannerRays, bannerArt, bannerTag.node, bannerName.node, flash, danger, closeIn, black] as [SKNode] {
+        for n in [shutter, lowerTeeth, chomp.node, tooLoud.node, biteLoss.node, bankEyebrow.node, bankValue.node,
+                  bankSub.node, creakLabel.node, bannerRays, relicCard, flash, danger, closeIn, black] as [SKNode] {
             n.isHidden = true
         }
         throat.alpha = 0
@@ -299,7 +351,7 @@ final class SceneMoments {
 
     static func multiplierText(_ m: Double) -> String { ChestCopy.multiplier(m) }
 
-    /// A new chest slides in (its name, trait and tier go on the lid's plate, not here).
+    /// A new chest: the interior's shadow lifts (its name, trait and tier go on the lid's plate, not here).
     func arrive() {
         arriveAge = 0
         exited = false
@@ -325,7 +377,7 @@ final class SceneMoments {
         biteLost = max(lostValue, 0)
         biteLoss.set(biteLost > 0 ? "−\(SceneNumber.gold(biteLost))" : "")
         if seconds.isFinite && seconds > 0 {
-            popup("−\(Int(seconds.rounded()))s", at: CGPoint(x: candle.x + 48, y: min(candle.y + 10, 336)),
+            popup("−\(Int(seconds.rounded()))s", at: CGPoint(x: candle.x + 56, y: min(candle.y + 10, 336)),
                   color: ScenePaint.ui(ChestArt.palette.danger), delay: 0.2, rise: 46)
         }
     }
@@ -335,6 +387,7 @@ final class SceneMoments {
         biteAge = 99
         flights = []
         bankHushed = hushed
+        bankChain = false
         bankValue.set(value > 0 ? "BANKED +\(SceneNumber.gold(value))" : "BANKED")
         for (i, s) in flyers.enumerated() {
             guard i < items.count else {
@@ -346,18 +399,17 @@ final class SceneMoments {
             let side = SceneTextures.lootSide(it.radius)
             s.size = CGSize(width: side, height: side)
             s.position = it.point
-            s.setScale(0.8)
+            s.setScale(0.66)
             s.isHidden = true
             flights.append(Flyer(from: it.point, delay: 0.12 + Double(i) * 0.07))
         }
     }
 
-    /// The Hush Chain grew: "Hush Chain ×1.3" by the medallion.
+    /// The Hush Chain grew: "Hush Chain ×1.3" as the bank stack's third line (centred under "BANKED +n").
     func chainUp(multiplier: Double) {
-        let tenths = Int((multiplier * 10).rounded())
-        let p = ChestLayout.chainCenter
-        popup("Hush Chain ×\(tenths / 10).\(tenths % 10)", at: CGPoint(x: p.x - 92, y: p.y + 64),
-              color: ScenePaint.ui(ScenePaint.meterGreen), delay: 0.5, rise: 22)
+        let tenths = Int((multiplier.isFinite ? multiplier * 10 : 10).rounded())
+        bankSub.set("Hush Chain ×\(tenths / 10).\(tenths % 10)")
+        bankChain = true
     }
 
     func queueRelic(_ id: RelicID) {
@@ -366,6 +418,15 @@ final class SceneMoments {
 
     func torchOut() {
         if torchAge == nil { torchAge = 0 }
+    }
+
+    /// R3: a slam that didn't bite ("CREAK!"). Not during a bite (the bite says it louder).
+    func creak() {
+        guard !biteActive else { return }
+        creakAge = 0
+        creakCount += 1
+        creakedThisFrame = true
+        bump(7)
     }
 
     func bump(_ amount: CGFloat) {
@@ -416,27 +477,33 @@ final class SceneMoments {
                 lid: SceneLid) -> SceneMomentFrame {
         time += dt
         slammedThisFrame = false
+        let creakedNow = creakedThisFrame
+        creakedThisFrame = false
         var f = SceneMomentFrame()
         let pal = ChestArt.palette
         let w = ChestLayout.canvas.width
 
-        // Arrival.
+        // The interior's shutter: down while the chest is "between chests"; the moments below move it.
+        var cover: CGFloat = exited ? 1 : 0
+        var coverAlpha: CGFloat = SceneMoments.shutAlpha
+        var offset: CGFloat = 0
+
+        // Arrival: the shadow lifts, the chest bumps.
         let prevArrive = arriveAge
         arriveAge += dt
-        var offset: CGFloat = exited ? exitOffset : 0
         if arriveAge < 0.8 {
             let a = arriveAge
             if a < 0.5 {
-                let t = a / 0.5
-                offset = exitOffset * CGFloat(pow(1 - t, 3))
+                cover = 1
+                coverAlpha = SceneMoments.shutAlpha * CGFloat(1 - SceneMoments.smooth(a / 0.5))
             } else {
-                offset = 7 * CGFloat(sin((a - 0.5) / 0.3 * Double.pi))
+                offset = 6 * CGFloat(sin((a - 0.5) / 0.3 * Double.pi))
             }
             if prevArrive < 0.5 && arriveAge >= 0.5 {
                 let dust = UIColor(red: 0.72, green: 0.6, blue: 0.47, alpha: 1)
-                effects.dustPuff(from: CGPoint(x: 10, y: 112), to: CGPoint(x: w - 10, y: 112), count: 14, color: dust)
-                effects.dustPuff(from: CGPoint(x: 20, y: 130), to: CGPoint(x: 20, y: 420), count: 5, color: dust)
-                effects.dustPuff(from: CGPoint(x: w - 20, y: 130), to: CGPoint(x: w - 20, y: 420), count: 5, color: dust)
+                effects.dustPuff(from: CGPoint(x: 60, y: 140), to: CGPoint(x: w - 60, y: 140), count: 12, color: dust)
+                effects.dustPuff(from: CGPoint(x: 70, y: 150), to: CGPoint(x: 70, y: 410), count: 4, color: dust)
+                effects.dustPuff(from: CGPoint(x: w - 70, y: 150), to: CGPoint(x: w - 70, y: 400), count: 4, color: dust)
                 bump(5)
             }
         }
@@ -469,15 +536,14 @@ final class SceneMoments {
             SceneMoments.beat(chomp, a, start: slam, end: 1.4)
             SceneMoments.beat(tooLoud, a, start: 0.3, end: 1.75)
             SceneMoments.beat(biteLoss, a, start: 0.42, end: 1.75, show: biteLost > 0)
-            // Hop twice, then leave off the front.
+            // Hop twice (a few points: the frame never leaves the satchel), then the interior goes dark.
             if a >= 1.1 && a < 1.45 {
-                offset = 22 * CGFloat(abs(sin((a - 1.1) / 0.35 * 2 * Double.pi)))
+                offset = 8 * CGFloat(abs(sin((a - 1.1) / 0.35 * 2 * Double.pi)))
             } else if a >= 1.45 && a < 1.8 {
-                let t = (a - 1.45) / 0.35
-                offset = exitOffset * CGFloat(t * t)
+                cover = CGFloat(SceneMoments.smooth((a - 1.45) / 0.35))
             } else if a >= 1.8 {
                 exited = true
-                offset = exitOffset
+                cover = 1
             }
         } else {
             chomp.node.isHidden = true
@@ -492,6 +558,23 @@ final class SceneMoments {
         lowerTeeth.isHidden = jawK < 0.01
         lowerTeeth.yScale = max(jawK, 0.01)
         throat.alpha = 0.85 * jawK
+
+        // A creak: "CREAK!" jolts in and wobbles.
+        creakAge += dt
+        if creakAge < 0.7 {
+            let a = creakAge
+            creakLabel.node.isHidden = false
+            let wob = reduceMotion ? 0 : CGFloat(sin(a * 38) * 0.06 * max(0, 1 - a / 0.4))
+            creakLabel.node.zRotation = -0.08 + wob
+            creakLabel.node.setScale(SceneMoments.popScale(a))
+            creakLabel.node.alpha = CGFloat(1 - SceneMoments.smooth((a - 0.45) / 0.25))
+            if creakedNow && !reduceMotion {
+                effects.dustPuff(from: CGPoint(x: 120, y: 448), to: CGPoint(x: w - 120, y: 448), count: 6,
+                                 color: UIColor(white: 0.6, alpha: 1))
+            }
+        } else {
+            creakLabel.node.isHidden = true
+        }
 
         // The flash and the shake.
         flashAge += dt
@@ -514,61 +597,60 @@ final class SceneMoments {
         bankAge += dt
         if bankAge < 2 {
             let a = bankAge
-            sweep.isHidden = false
-            sweep.yScale = CGFloat(max(SceneMoments.smooth(a / 0.35), 0.01))
-            sweep.alpha = 0.8
+            // The lid's shadow sweeps over the interior, fold → front, and stays down.
+            cover = max(cover, CGFloat(SceneMoments.smooth(a / 0.35)))
             f.hideBagged = true
             for i in 0..<flights.count where i < flyers.count {
                 let fl = flights[i]
                 let node = flyers[i]
-                let t = (a - fl.delay) / 0.5
+                let t = (a - fl.delay) / 0.55
                 if t < 0 || fl.landed {
                     node.isHidden = true
                     continue
                 }
                 let k = CGFloat(min(t, 1))
+                // Out of the pouch, over, and down INTO the coin stack (under the "BANKED" label).
                 let to = ChestLayout.counterCoin
-                let c = CGPoint(x: (fl.from.x + to.x) / 2, y: max(fl.from.y, to.y) + 130)
+                let c = CGPoint(x: (fl.from.x + to.x) / 2 + 30, y: max(fl.from.y, to.y) + 120)
                 let u = 1 - k
                 node.isHidden = false
                 node.position = CGPoint(x: u * u * fl.from.x + 2 * u * k * c.x + k * k * to.x,
                                         y: u * u * fl.from.y + 2 * u * k * c.y + k * k * to.y)
-                node.setScale(0.8 - 0.4 * k)
+                node.setScale(0.66 - 0.3 * k)
                 node.zRotation = k * 4
                 if t >= 1 {
                     flights[i].landed = true
                     node.isHidden = true
-                    effects.sparkBurst(at: to, count: 5, color: ScenePaint.ui(pal.gold), speed: 160, size: 18)
+                    effects.sparkBurst(at: CGPoint(x: to.x, y: to.y + 18), count: 5, color: ScenePaint.ui(pal.gold),
+                                       speed: 160, size: 18)
                     hud.popCounter()
                 }
             }
-            // One centred group: "Hushed!" over "BANKED +179".
+            // One centred stack: "Hushed!" over "BANKED +179" over "Hush Chain ×1.3".
             SceneMoments.beat(bankValue, a, start: 0.15, end: SceneMoments.bankGroupEnd)
             SceneMoments.beat(bankEyebrow, a, start: 0.3, end: SceneMoments.bankGroupEnd, show: bankHushed)
-            if a >= 1.05 && a < 1.4 {
-                let t = (a - 1.05) / 0.35
-                offset = exitOffset * CGFloat(t * t)
-            } else if a >= 1.4 {
-                exited = true
-                offset = exitOffset
-            }
+            SceneMoments.beat(bankSub, a, start: 0.45, end: SceneMoments.bankGroupEnd, show: bankChain)
+            if a >= 1.4 { exited = true }
         } else {
-            sweep.isHidden = true
             bankValue.node.isHidden = true
             bankEyebrow.node.isHidden = true
+            bankSub.node.isHidden = true
             for n in flyers { n.isHidden = true }
         }
-        f.chestOffset = offset
-        sweep.position = CGPoint(x: w / 2, y: ChestLayout.floorTop + offset)
+        f.chestOffset = min(max(offset, 0), 8)
+        shutLevel = cover * coverAlpha / SceneMoments.shutAlpha
+        shutter.isHidden = cover <= 0.005 || coverAlpha <= 0.005
+        shutter.yScale = max(cover, 0.01)
+        shutter.alpha = coverAlpha
 
-        // The relic banner (after the bank's group has had its moment).
+        // The relic card (after the bank's stack has had its moment).
         bannerAge += dt
         if bannerAge >= SceneMoments.bannerTime, !relicQueue.isEmpty, bankAge >= SceneMoments.bankGroupEnd {
             let id = relicQueue.removeFirst()
             let relic = RelicCatalog.all.first(where: { $0.id == id })
             bannerName.set(relic?.name ?? "A relic")
-            bannerArt.texture = SceneTextures.loot(.relic(id), radius: 50)
-            let side = SceneTextures.lootSide(50)
+            bannerArt.texture = SceneTextures.loot(.relic(id), radius: 60)
+            let side = SceneTextures.lootSide(60)
             bannerArt.size = CGSize(width: side, height: side)
             bannerAge = 0
             effects.sparkBurst(at: ChestLayout.relicBannerPoint, count: 14, color: ScenePaint.ui(pal.gold), speed: 240)
@@ -576,18 +658,17 @@ final class SceneMoments {
         if bannerAge < SceneMoments.bannerTime {
             let a = bannerAge
             let fade = CGFloat(1 - SceneMoments.smooth((a - 1.5) / 0.4))
-            for n in [bannerRays, bannerArt, bannerTag.node, bannerName.node] as [SKNode] {
-                n.isHidden = false
-                n.alpha = fade
-            }
-            bannerRays.zRotation = CGFloat(a) * 0.6
+            bannerRays.isHidden = false
+            relicCard.isHidden = false
+            bannerRays.alpha = fade * 0.85
+            relicCard.alpha = fade
+            bannerRays.zRotation = reduceMotion ? 0 : CGFloat(a) * 0.6
             bannerRays.setScale(SceneMoments.popScale(a) * (1 + 0.05 * CGFloat(sin(a * 3))))
-            bannerArt.setScale(SceneMoments.popScale(a))
-            bannerArt.zRotation = 0.12 * CGFloat(sin(a * 2.4))
-            bannerName.node.alpha = fade * CGFloat(SceneMoments.smooth((a - 0.15) / 0.2))
-            bannerTag.node.alpha = fade * CGFloat(SceneMoments.smooth(a / 0.2))
+            relicCard.setScale(reduceMotion ? 1 : SceneMoments.popScale(a))
+            bannerArt.zRotation = reduceMotion ? 0 : 0.1 * CGFloat(sin(a * 2.4))
         } else {
-            for n in [bannerRays, bannerArt, bannerTag.node, bannerName.node] as [SKNode] { n.isHidden = true }
+            bannerRays.isHidden = true
+            relicCard.isHidden = true
         }
 
         // Popups.

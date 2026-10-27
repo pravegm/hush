@@ -75,23 +75,33 @@ struct DuoDiagram: View {
     }
 }
 
-/// Book pose (landscape on a Duo), R2 (UX P0-5, REVIEW-1-duo P0-1 / P2-12): "Turn it round. Lift the glowing half."
-/// Brim's two-page layout: the WHOLE half to lift glows gold, the words, the animated diagram and "I've stood it up"
-/// sit on the other page, nothing within 24 pt of the fold. In a narrow window, one stacked column. Drawn in the
-/// interface's own orientation (never turned round). A phone never shows it.
+/// Book pose (landscape on a Duo), R3 (UX P1-6): "Turn it sideways. Lift the glowing half." ("round" is a half turn,
+/// and Settings' "Turn the chest round" means one). Brim's two-page layout: the WHOLE half to lift glows gold, the
+/// words, the animated diagram and "I've stood it up" sit on the other page, nothing within 24 pt of the fold. In a
+/// narrow window, one stacked column. Drawn in the interface's own orientation (never turned round). A phone never
+/// shows it. R3 (QA-2 P2-4): "Play anyway" appears once iOS has refused portrait, or after `wayOutDelay` s.
 struct StandUpCard: View {
     let insets: EdgeInsets
     let liftSide: ScreenSide
     let reduceMotion: Bool
+    /// iOS refused a portrait request.
+    var refused = false
     let onStoodUp: () -> Void
+    var onPlayAnyway: () -> Void = {}
+    @State private var waited = false
 
     /// The fold of a Duo in book pose runs down the middle (a 40 pt band). Content keeps ≥ 24 pt clear of it.
     static let creaseHalf: CGFloat = 20
     static let creaseClear: CGFloat = 24
     static let pageMargin: CGFloat = 28
+    static let wayOutDelay: Double = 8
 
-    static let title = "Turn it round. Lift the glowing half."
+    static let title = "Turn it sideways. Lift the glowing half."
     static let bodyText = "Keep the other half flat, nearest you. That's the floor."
+    static let wayOut = "Play anyway"
+
+    /// Pure; tested.
+    static func showsWayOut(refused: Bool, waited: Bool) -> Bool { refused || waited }
 
     /// Pure (tested): a Duo inner display in book pose, where the card splits into one column per page.
     static func splitsOnFold(_ size: CGSize) -> Bool {
@@ -110,6 +120,10 @@ struct StandUpCard: View {
             }
         }
         .ignoresSafeArea()
+        .task {
+            try? await Task.sleep(nanoseconds: UInt64(Self.wayOutDelay * 1_000_000_000))
+            waited = true
+        }
     }
 
     private func bookPages(_ size: CGSize) -> some View {
@@ -195,6 +209,12 @@ struct StandUpCard: View {
                 Label("I've stood it up", systemImage: "checkmark")
             }
             .accessibilityHint("Turns the screen upright for the chest")
+            if Self.showsWayOut(refused: refused, waited: waited) {
+                HushButton(kind: .quiet, height: HushTheme.minTap, action: onPlayAnyway) {
+                    Text(Self.wayOut)
+                }
+                .accessibilityHint("Plays sideways, with an on-screen lever for the lid")
+            }
         }
     }
 }
@@ -270,35 +290,41 @@ struct CoverCard: View {
         midRun ? "Open me gently, then hold still. Your candle waits." : "There's gold in here. And something else."
     }
 
+    /// R3 (UX P2-12, juror P1-11): the group is centred and the mimic fills the card (never top-heavy).
     var body: some View {
         ZStack {
             HushTheme.backdrop
-            ScrollView(showsIndicators: false) {
-                VStack(spacing: 16) {
-                    MimicPortraitView(scene: portrait, fps: 30)
-                        .frame(width: 220)
-                    Text(Self.title(midRun: midRun))
-                        .font(HushType.title(true))
-                        .foregroundStyle(HushTheme.parchment)
-                        .multilineTextAlignment(.center)
-                        .fixedSize(horizontal: false, vertical: true)
-                    Text(Self.detail(midRun: midRun))
-                        .font(HushType.body(true))
-                        .foregroundStyle(HushTheme.mist)
-                        .multilineTextAlignment(.center)
-                        .fixedSize(horizontal: false, vertical: true)
+            GeometryReader { geo in
+                ScrollView(showsIndicators: false) {
+                    VStack(spacing: 16) {
+                        MimicPortraitView(scene: portrait, fps: 30)
+                            .frame(width: min(geo.size.width * 0.82, 380))
+                        Text(Self.title(midRun: midRun))
+                            .font(HushType.title(true))
+                            .foregroundStyle(HushTheme.parchment)
+                            .multilineTextAlignment(.center)
+                            .fixedSize(horizontal: false, vertical: true)
+                        Text(Self.detail(midRun: midRun))
+                            .font(HushType.body(true))
+                            .foregroundStyle(HushTheme.mist)
+                            .multilineTextAlignment(.center)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    .padding(.horizontal, 24)
+                    .padding(.vertical, 40)
+                    .frame(width: geo.size.width)
+                    .frame(minHeight: geo.size.height)
                 }
-                .padding(.horizontal, 24)
-                .padding(.vertical, 40)
-                .frame(maxWidth: .infinity)
+                .scrollBounceBehavior(.basedOnSize)
             }
-            .scrollBounceBehavior(.basedOnSize)
         }
         .ignoresSafeArea()
         .onAppear {
             portrait.openness = 0
             portrait.wake = 0
             portrait.reduceMotion = reduceMotion
+            // R3 (Scene): asleep, a sliver open, the eye glinting through the seam, the chest filling the card.
+            portrait.applyCoverStyle()
         }
         .accessibilityElement(children: .combine)
     }

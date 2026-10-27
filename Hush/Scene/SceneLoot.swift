@@ -195,10 +195,16 @@ final class SceneLootView {
     static let pileScale: CGFloat = 0.66
 
     /// How strongly a relic glimmers (0 … 1): it is within 0.25 of being lit and not yet revealed.
+    /// R3 (QA-2 P2-6): on exactly when Core's hint and sound are (`HeistSession.relicGlimmers`), brightening toward
+    /// the glint line.
     static func glimmer(depth: Double, openness: Double, light: Double) -> CGFloat {
-        guard depth.isFinite, openness.isFinite else { return 0 }
-        let near = CGFloat(min(max((openness - (depth - 0.25)) / 0.25, 0), 1))
-        guard near > 0 else { return 0 }
+        guard depth.isFinite, openness.isFinite, HeistSession.relicGlimmers(depth: depth, openness: openness) else {
+            return 0
+        }
+        let glintAt = depth + Tuning.revealLight * Tuning.lightRamp
+        let range = max(Tuning.relicGlimmerRange, 0.01)
+        let ramp = CGFloat(min(max((openness - (glintAt - range)) / range, 0), 1))
+        let near = 0.35 + 0.65 * ramp
         let l = CGFloat(min(max(light.isFinite ? light : 0, 0), 1))
         return near * (1 - smooth(0.15, 0.45, l))
     }

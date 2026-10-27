@@ -87,6 +87,16 @@ final class GameCenterManager {
         }
     }
 
+    /// R3 (QA-2 P2-7): is any sheet up over our windows right now? The App asks on each activation: if the dashboard's
+    /// dismissal handler never fired, nothing is presented any more, and the app turns round again.
+    func sheetIsUp() -> Bool {
+        let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
+        for window in scenes.flatMap({ $0.windows }) where window.rootViewController?.presentedViewController != nil {
+            return true
+        }
+        return false
+    }
+
     private static func topViewController() -> UIViewController? {
         let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
         let windows = scenes.flatMap { $0.windows }
@@ -110,8 +120,8 @@ final class GameCenterManager {
         case .run:
             if gold > 0 { queueScore(gold, leaderboard: Leaderboard.best, day: nil) }
         case let .daily(day, scored):
+            // R3 (QA-2 P2-13): a Daily goes to the Daily board only. Best Haul is the Run's best, as Home shows it.
             if scored && outcome.dailyCounted && gold > 0 {
-                queueScore(gold, leaderboard: Leaderboard.best, day: nil)
                 queueScore(gold, leaderboard: Leaderboard.daily, day: day)
             }
         case .attract, .lesson:

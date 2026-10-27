@@ -51,6 +51,8 @@ struct RecordOutcome: Equatable {
 
     /// "New best!" only when an earlier best was beaten (never on the very first haul).
     var showsNewBest: Bool { isNewBest && previousBest > 0 }
+    /// R3 (UX P1-4): the very first haul of this mode ("First haul!", never "Best 3,849" on the first run).
+    var isFirstHaul: Bool { isNewBest && previousBest == 0 && best > 0 }
     var rankedUp: Bool { rankAfter > rankBefore }
 }
 
@@ -91,6 +93,9 @@ struct ProgressData: Codable, Equatable {
     /// R2 (QA-1 P1-3): a live run's result so far, saved when the app goes to the background. A kill there never
     /// loses its relics, gold or achievements: the next launch files it (`ProgressStore.recoverPendingRun`).
     var pendingRun: RunResult?
+    /// R3: the one-time teaching callouts already shown (`RunTip` raw values: the Hush Chain, its first break, the bag
+    /// jingle). Optional in the JSON, so no version bump.
+    var seenTips: Set<String> = []
 
     init() {}
 
@@ -119,6 +124,7 @@ struct ProgressData: Codable, Equatable {
         lastDailyDay = (try? c.decodeIfPresent(Int.self, forKey: .lastDailyDay)) ?? Int.min
         lessonDone = (try? c.decodeIfPresent(Bool.self, forKey: .lessonDone)) ?? false
         pendingRun = (try? c.decodeIfPresent(RunResult.self, forKey: .pendingRun)) ?? nil
+        seenTips = (try? c.decodeIfPresent(Set<String>.self, forKey: .seenTips)) ?? []
         ProgressRules.migrate(&self, fromVersion: storedVersion)
     }
 
@@ -173,6 +179,9 @@ enum ProgressRules {
             r.finished = false
             data.daily[day] = r
         }
+        // R3 (QA-2 P2-14): a run left with nothing banked doesn't count as a run (five quick Restarts must not retire
+        // the teaching hints); its relics, bites and the Daily try are still filed above.
+        if max(result.gold, 0) == 0, !outcome.ignored { data.runs = max(data.runs - 1, 0) }
         return outcome
     }
 
@@ -371,6 +380,16 @@ final class ProgressStore: ObservableObject {
         guard let pending = data.pendingRun else { return nil }
         let outcome = recordAbandoned(pending, today: today)
         return (pending, outcome)
+    }
+
+    /// R3: a one-time callout was shown. Returns false if it had been shown before (then don't show it).
+    @discardableResult
+    func markTip(_ tip: String) -> Bool {
+        guard !data.seenTips.contains(tip) else { return false }
+        var d = data
+        d.seenTips.insert(tip)
+        commit(d)
+        return true
     }
 
     func markLessonDone() {

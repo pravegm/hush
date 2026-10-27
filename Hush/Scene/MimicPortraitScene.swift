@@ -152,6 +152,30 @@ final class MimicPortraitScene: SKScene {
     var showsBackdrop: Bool = false {
         didSet { backdrop.isHidden = !showsBackdrop }
     }
+    /// R3 (juror P1-11, the cover): every ~5 s the sleeping mimic's amber eye glints open through the seam for a
+    /// moment (the lid lifts a touch, the tooth tips show), then it settles back to its slow breath. Off under Reduce
+    /// Motion.
+    var idlePeek: Bool = false
+    /// R3: how big the art is drawn (1 = the 400-unit box fits the scene's short side). The cover uses ~1.2 so the
+    /// chest fills its card; above 1 the art is also centred on its body (not its box).
+    var artScale: CGFloat = 1 {
+        didSet {
+            artScale = min(max(artScale.isFinite ? artScale : 1, 0.5), 2)
+            relayout()
+        }
+    }
+
+    /// The cover card's look: asleep, cracked a sliver, peeking every ~5 s, filling the card.
+    func applyCoverStyle() {
+        openness = 0.12
+        wake = 0
+        idlePeek = true
+        artScale = 1.2
+    }
+
+    /// How far into a peek it is (0 none … 1 fully peeking; tests).
+    private(set) var peekLevel: CGFloat = 0
+    private var peekClock: Double = 3.0
 
     // MARK: Read-outs (tests)
 
@@ -367,9 +391,11 @@ final class MimicPortraitScene: SKScene {
     }
 
     private func relayout() {
-        let k = max(min(size.width, size.height), 1) / MimicPortraitScene.box
+        let k = max(min(size.width, size.height), 1) / MimicPortraitScene.box * artScale
         root.setScale(k)
-        root.position = CGPoint(x: size.width / 2, y: size.height / 2)
+        // The art's own middle sits ~22 units below its box centre: centre it when it is drawn big.
+        let lift: CGFloat = artScale > 1.001 ? 22 * k : 0
+        root.position = CGPoint(x: size.width / 2, y: size.height / 2 + lift)
     }
 
     private func redress() {
@@ -399,7 +425,15 @@ final class MimicPortraitScene: SKScene {
     private func pose(dt: Double) {
         time += dt
         let breath = reduceMotion ? 0 : sin(time * 2 * Double.pi / 2.4)
-        gap = 12 + 62 * CGFloat(openness) + 1.6 * CGFloat(breath)
+        // The cover's peek: a 1.3 s glint every ~5 s.
+        var peek: CGFloat = 0
+        if idlePeek && !reduceMotion {
+            peekClock -= dt
+            if peekClock <= -1.3 { peekClock = 3.7 }
+            if peekClock <= 0 { peek = CGFloat(sin(min(-peekClock / 1.3, 1) * Double.pi)) }
+        }
+        peekLevel = peek
+        gap = 12 + 62 * (CGFloat(openness) + 0.16 * peek) + 1.6 * CGFloat(breath)
         let lidBase: CGFloat = 10 + gap
         lidNode.position = CGPoint(x: 0, y: lidBase)
         lidNode.zRotation = -0.05 * CGFloat(openness) - 0.012
@@ -418,7 +452,7 @@ final class MimicPortraitScene: SKScene {
             blinkAge = 0
             nextBlink = Double(rng.range(2.6, 5.2))
         }
-        var w = wake
+        var w = max(wake, 0.5 * Double(peek))
         if blinkAge < 0.16 { w *= 0.1 }
         shownWake += (w - shownWake) * min(dt * 12, 1)
         if dt == 0 { shownWake = w }
@@ -432,7 +466,7 @@ final class MimicPortraitScene: SKScene {
         lashes.alpha = max(0, 1 - CGFloat(shownWake) * 5)
 
         // Zzz while it sleeps.
-        let sleepy: CGFloat = wake < 0.08 ? 1 : 0
+        let sleepy: CGFloat = wake < 0.08 && peek < 0.15 ? 1 : 0
         for (i, z) in zzz.enumerated() {
             let ph = reduceMotion ? 0.5 : (time / 3.2 + Double(i) / 3).truncatingRemainder(dividingBy: 1)
             let k = CGFloat(ph)

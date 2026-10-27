@@ -47,7 +47,9 @@ struct SessionOptions: Equatable {
 // - R2 Hush Chain: a Hushed bank adds 1 and pays ×Noise.chainMultiplier(chain). The chain breaks (to 0) the moment the
 //   mimic leaves Asleep in a chest (a stir, or a bite straight from Asleep): that chest can no longer be Hushed.
 // - R2 bag jingle: while loot is in the bag, decay stops at Noise.jingleFloor (it never pushes noise up).
-// - R2 pause: `rest(dt:)` while paused (decay only), `resumeGrace(seconds:)` on resume (lid noise ignored).
+// - R3 pause (ROUND-3 decision 2): a pause is simply no stepping, so the noise, the stage, the candle and the clock
+//   all stay frozen. `resumeGrace(seconds:)` on resume (slow lid noise ignored; a sustained loud lid ends it, QA-2
+//   P2-9). `rest(dt:)` (decay only) stays in the API but the App no longer calls it for pauses.
 // Mirrored by HeistSession in tools/balance-sim.js (minus hints, rest/resumeGrace and cosmetic snapshot fields).
 
 final class HeistSession {
@@ -79,6 +81,8 @@ final class HeistSession {
     private var closing: Bool = false
     /// Seconds of lid noise still ignored after a resume (`resumeGrace`).
     private var lidGrace: Double = 0
+    /// R3 (QA-2 P2-9): seconds of this grace spent with the lid above `Tuning.loudSpeed`.
+    private var graceLoudFor: Double = 0
 
     private var noise: Double = 0
     private var stage: MimicStage = .asleep
@@ -197,9 +201,13 @@ final class HeistSession {
         return ev
     }
 
-    /// R2: call instead of `step` while the game is paused (closing, cover, menu). Noise decays (to the bag jingle
-    /// floor, after the usual grace) and nothing else happens: no candle, no bites, no moments, no light; the lid
-    /// reads still (`lidSpeed` 0). The only events are `stageChanged` (the mimic settling). Only in .ready / .looting.
+    /// Lets the mimic settle without play time passing: noise decays (to the bag jingle floor, after the usual grace)
+    /// and nothing else happens: no candle, no bites, no moments, no light; the lid reads still (`lidSpeed` 0). The
+    /// only events are `stageChanged` (the mimic settling). Only in .ready / .looting.
+    ///
+    /// R3 (ROUND-3 decision 2): **not for pauses.** Noise is frozen while paused: the App simply stops calling `step`
+    /// (and doesn't call this), so closing the lid is no free way to calm the mimic (REVIEW-2-duo P2-5). Kept for
+    /// tools and tests, and for a future "the mimic dozes off" rule.
     @discardableResult
     func rest(dt: Double) -> [HeistEvent] {
         guard isPlaying else { return [] }
@@ -222,8 +230,12 @@ final class HeistSession {
 
     /// R2: on resume, lid motion makes no noise for `seconds` of play (the lift back into play is free; REVIEW-1-duo
     /// P0-2). Drags and one-off sounds still count. A longer pending grace is kept.
+    /// R3 (QA-2 P2-9): once the lid has spent more than `Tuning.resumeGraceLoudLimit` of the grace above
+    /// `Tuning.loudSpeed`, the grace ends and the lid counts again, so a pause can't buy a silent fling. A short
+    /// filter blip is still forgiven.
     func resumeGrace(seconds: Double) {
         let s: Double = seconds.isFinite ? max(0, seconds) : 0
+        if lidGrace <= 0 { graceLoudFor = 0 }
         lidGrace = max(lidGrace, s)
     }
 
@@ -275,11 +287,17 @@ final class HeistSession {
 
         // Noise.
         var raw: Double = 0
-        if lidGrace > 0 {
-            lidGrace = max(0, lidGrace - h)
-        } else {
-            raw = Noise.lidRate(speed: lid.speed, closing: closing)
+        var lidHeard: Bool = lidGrace <= 0
+        if !lidHeard {
+            if lid.speed > Tuning.loudSpeed { graceLoudFor += h }
+            if graceLoudFor > Tuning.resumeGraceLoudLimit + 1e-9 {
+                lidGrace = 0
+                lidHeard = true
+            } else {
+                lidGrace = max(0, lidGrace - h)
+            }
         }
+        if lidHeard { raw = Noise.lidRate(speed: lid.speed, closing: closing) }
         for t in touches { raw += Noise.dragRate(speed: t.speed) }
         let rate: Double = raw * noiseMultiplier
         noise += rate * h

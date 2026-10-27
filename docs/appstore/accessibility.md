@@ -1,21 +1,22 @@
 # Hush: Accessibility Nutrition Labels (v1.0)
 
-*Decided Tue 27 Oct 2026 from the design (`design/GAME-DESIGN.md`, `design/ROUND-1.md`), with the method Squish, Brim and Swoop use: **claim a label only when the build earns it across every common task**, and verify on the release build first. Labels are voluntary, per device, and can only be published once a version is live, so this happens on **launch day, Tue 1 Dec** (runbook §6).*
+*Decided Tue 27 Oct 2026, updated in Round 3 from the code (`Hush/UI/Pages.swift`, `Hush/Scene/SceneMoments.swift`, `Hush/UI/RootView.swift`), with the method Squish, Brim and Swoop use: **claim a label only when the build earns it across every common task**, and verify on the release build first. Labels are voluntary, per device, and can only be published once a version is live, so this happens on **launch day, Tue 1 Dec** (runbook §6).*
 
 Common tasks for Hush:
 1. the first launch: get through **First Chest** (or skip it after step 2), including the pose card on a Duo;
 2. start a Run or the Daily Dungeon from Home;
-3. play a chest: open the lid (hinge on a Duo, lid slider elsewhere), see which loot is lit, drag it to the bag, read the noise meter and the torch, react to Stirring/Waking/FREEZE, ease the lid shut to bank;
+3. play a chest: open the lid (hinge on a Duo, the lever elsewhere), see which loot is lit, drag it to the bag, read the noise meter and the candle, react to Stirring/Waking/"Freeze!", ease the lid shut to bank;
 4. read Results (gold banked, new best, chests, Hushed count, bites, relics, rank progress);
 5. open the Codex and read a relic's name and blurb;
-6. change Settings (Sound, Haptics, Respect silent switch, Turn the chest round, Reduce motion, Replay First Chest).
+6. change Settings (Sound, Haptics, Play sound on silent, Turn the chest round (Duo only), Reduce motion, Replay First Chest).
 
-## What the design gives us (27 Oct, before the code)
+## What the build gives us (27 Oct, Round 3)
 
-- **Every tell is on the sharp floor half and in sound and haptics** (`GAME-DESIGN.md` §3, §5): the noise meter (segments plus stage ticks, shaking near the top), the tongue's movement, the "FREEZE" word, a snore that stops, a heartbeat that speeds up, a growl. No cue is colour-only or sound-only by design.
-- **A Reduce motion setting** (ROUND-1 Settings; the scene has a `reduceMotion` flag).
-- **Sound and haptics switches**, and "Respect silent switch".
-- **Two ways to move the lid:** the hinge (Duo) and the on-screen lid slider (other iPhones). Neither ever needs a fast or precise flick; both reward slow, steady movement.
+- **Every tell is on the sharp floor half and in sound and haptics** (`GAME-DESIGN.md` §3, §5): the noise meter (segments plus stage ticks, shaking near the top), the tongue's movement, the "Freeze!" hint, a snore that stops, a heartbeat that speeds up (sound at Stirring, sound and haptic at Waking), a growl. No cue is colour-only or sound-only by design.
+- **Reduce motion**, in Settings and following the iOS setting (`RootView` `systemReduceMotion`): no shake and no red flash on a bite (`SceneMoments`).
+- **Sound and Haptics switches**, and "Play sound on silent" (on by default).
+- **Two ways to move the lid:** the hinge (Duo) and the on-screen lever (other iPhones; a Duo never shows it, `ROUND-3.md` decision 4). Neither ever needs a fast or precise flick; both reward slow, steady movement.
+- **VoiceOver groundwork (Round 3, App):** elements for BANKED, the candle and NOISE, and spoken stage, bite and bank announcements. Still not enough for the VoiceOver label (task 3 needs sight of the lit loot).
 - **Dark by design:** the app forces the dark style (`UIUserInterfaceStyle: Dark` in `project.yml`), and every screen is candlelit gold on teal-black.
 - **Large targets:** HUD and menu targets ≥ 56 pt (ROUND-1 Theme).
 
@@ -38,10 +39,10 @@ Common tasks for Hush:
 ## Checks (on the release build, on a Duo and on a non-Duo iPhone)
 
 ### A. Differentiate Without Color Alone (and sound-off play)
-- [ ] The **noise meter** reads by **fill level** and the **tick marks** at the stage lines, not only by its green/amber/red colour. Waking also shows the word **FREEZE**; the tongue visibly twitches (Stirring) and curls (Waking).
+- [ ] The **noise meter** reads by **fill level** and the **tick marks** at the stage lines, not only by its green/amber/red colour. Waking also shows the hint **"Freeze!"**; the tongue visibly twitches (Stirring) and curls (Waking).
 - [ ] **Lit vs unlit loot** differs by brightness and the glint, and a grabbable item shows a shape cue (outline or glint), not only a hue. Gem colours (ruby, emerald, sapphire, amethyst) only change value, and the value is shown when bagged.
 - [ ] The **bag** shows its in-hand value as a number; the **shut-hold ring** fills (shape), not only changes colour.
-- [ ] The **torch** reads by its height, and "low torch" adds a flicker and a tick sound, not only a colour change.
+- [ ] The **candle** reads by its height, and the last 15 seconds add a guttering flame, a countdown and a tick sound, not only a colour change.
 - [ ] **Codex:** found relics are drawn, unfound ones are silhouettes with "???", not greyed colour alone.
 - [ ] **Settings** toggles show their position, not only a tint.
 - [ ] With **sound off**, a full run is still fair: every stage change is visible on the floor half (`GAME-DESIGN.md` §3 "Nothing time-critical lives only on the lid").
@@ -49,9 +50,9 @@ Common tasks for Hush:
 
 ### B. Sufficient Contrast
 Apple's bar: about 4.5:1 for text, 3:1 for large text, controls and state indicators.
-- [ ] HUD text (the hint line, the gold counter, the bag value, the mimic's name tag, "FREEZE") keeps ≥ 4.5:1 (3:1 for the large ones) against the **dark chest interior** and against the **light wash** when the lid is wide open. Gold `#F2B84B` on teal-black `#12161C` is about 10:1; dim golds and the velvet tongue behind text are the risk.
+- [ ] HUD text (the hint line, the gold counter, the bag value, the mimic's name tag, "Freeze!") keeps ≥ 4.5:1 (3:1 for the large ones) against the **dark chest interior** and against the **light wash** when the lid is wide open. Gold `#F2B84B` on teal-black `#12161C` is about 10:1; dim golds and the velvet tongue behind text are the risk.
 - [ ] Menu, Codex and Results text ≥ 4.5:1 on its panel, including the quiet secondary lines and relic blurbs.
-- [ ] The noise meter, the pause button, the lid slider's knob and the bag strip reach 3:1 against what's behind them.
+- [ ] The noise meter, the pause coin, the lever's knob and the bag reach 3:1 against what's behind them.
 - [ ] Check with Increase Contrast and Bold Text on.
 
 Measure with a contrast checker on the release-build frames (the CI frame sets) and paste the ratios here (Brim's table format).
@@ -77,7 +78,7 @@ The description says "Every warning is shown on screen too, so you can play with
 
 | Fix | Size | Earns |
 |---|---|---|
-| Spoken cues: "Coin, lit", "Gem, lit, deep", the stage changes ("Stirring", "Freeze"), plus a VoiceOver drag action "Put in bag" for the focused item | M | VoiceOver (maybe) |
+| Spoken cues: "Coin, lit", "Gem, lit, deep", the stage changes (Round 3 announces them), plus a VoiceOver drag action "Put in bag" for the focused item | M | VoiceOver (maybe) |
 | Named custom actions "Open a little", "Close a little", "Bag it" on the play area, driving the lid at a fixed slow speed | S | Voice Control (with the above) |
 | HUD, Results, Codex and menus scale to AX3 with reflow | M | Larger Text |
 

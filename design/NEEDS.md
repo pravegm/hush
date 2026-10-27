@@ -82,3 +82,61 @@ All promised hooks were found and are called by their exact names: Core `rest(dt
 - **Hardware (founder's Duo):** whether `GKAccessPoint.trigger(handler:)` calls back on dismissal (the app is drawn
   un-turned while the dashboard is up and re-turns in the handler); whether `UIDevice.orientation` reads `.portrait`
   when held camera-up in tabletop (the "Other way round" banner).
+
+## CI engineer (R3)
+DEBUG / demo-only unless stated; keep the `HUSH-` prefix. CI already passes these keys (unknown keys are ignored) and
+reports INFO / expect-miss / no-freeze until they land. `pose=book` is in DemoMode already: thanks, CI uses it.
+- **App: the CREAK rule, visible to CI** (duo.sh SLAM-CREAK, scenarios `13b-creak`). Wherever the App applies the
+  "noise jumps > 0.25 in 0.3 s" rule (the call to `FeedbackDirector.creakAccent()` / the Scene's CREAK), print
+  `HUSH-T creak jump=<Δ 2dp> noise=<n 2dp>`, and add `creak` to `DemoMode.Freeze` as an EVENT freeze (0.3 s, then the
+  scene hold), logging `HUSH-T freeze creak`. If Feel detects it inside `handle` instead, log the same line from there.
+- **App: the relic freeze must land on the relic card** (juror R2: "15 captured a bank"). The card only rises once the
+  bank group has had `SceneMoments.bankGroupEnd` (1.15 s), but `freezeDelay(.relic)` is 0.3 s, so the scene is paused
+  before the card exists. Make `.relic` wait until the card is up (≈ bankGroupEnd + 0.5 = 1.65 s, or the Scene's R3
+  card timing), and ideally add a `freezeDelay=<s>` key that overrides any event freeze's delay (Swoop has it):
+  scenarios `15-relic`, `DR2-relic`, `PR2-relic` already pass `freezeDelay=1.7`.
+- **App: a lesson bank freeze that shows the praise.** In a lesson, `freezeOn=bank` waits `bankFreezeDelay` (1.25 s),
+  past `LessonScript.praiseSeconds` (1.0 s), so the frame is the final card, never "Banked! Gently does it."
+  (REVIEW-2-ux P1-7 wants BANKED 8 with that line). Use ≤ 0.6 s for the bank freeze while `mode == .lesson`
+  (scenario `07b-lesson-banked`).
+- **App: a lesson trace.** On every `lessonDisplay` change print `HUSH-T lesson step <n> praise=<0|1> line '<line>'`,
+  so CI can prove each lesson frame's step (scenarios 04/05 expect `HUSH-T lesson step 2|3`).
+- **App (+ Core if needed): a deterministic golden chest.** `golden=1` makes chest #3 golden, so the golden frames
+  (36, 36b, DR1, PR1) rely on `freezeAfter=` timing to skip chests 1–2. A `golden=first` (e.g. Core's
+  `SessionOptions.goldenFirst`, as the App suggested in R2) would make "the first chest is golden" exact.
+- **App (nice to have):** print `HUSH-T dynamic-type <UIContentSizeCategory raw value>` at launch, so the Large
+  Dynamic Type frames (41–47, launched with `-UIPreferredContentSizeCategoryName …`) can prove the size took.
+- **App / Scene: cover-display handover lines.** COVER-SLOW-REOPEN reports the relight angle from the first
+  `HUSH-T pose play` after a shut; REVIEW-2-duo P1-3's `HUSH-T relight angle=<θ>` would make it exact (CI already
+  greps it).
+- **Launch lead:** the store captions now live in `ci/store-scenarios.txt` and `ci/duo-store-scenarios.txt` (copied
+  from screenshots.md §A/§B, 27 Oct, ≤ 6 + 6 words, linted). Two args differ from the doc (both real states, noted in
+  the files): D1/P1 use the casual pilot (the proven reveal), DR1/PR1 wait for chest #3 (golden=1's chest).
+
+## App engineer (R3)
+Every hook named in the brief is called by its exact name. Present at the end of the round: Scene `ChestArt.appIcon(size:)`
+(ChestArtIcon.swift), `ChestArt.plateImage(size:style:)` / `plateColors` / `glyphImage` (ChestArtPlates.swift),
+`ChestScene.showCreak()`, `ChestLayout.pauseArea` / `hintBand` / `meterRect` / `leverTrack` / `lidLabelSlot`; Feel
+`onCreakAccent`, `preferredFPS(lidSpeed:animating:)`, `requiredResumeAngle`, `coverResumeAngle(relight:)`,
+`effectiveResumeAngle`. Nothing blocking.
+- **CI:** the "Codex 9/24 vs 22/24" mismatch is `ci/duo.sh` line 414: `ui-codex` launches with `progress=late` while
+  `ui-home` / `ui-results` use `progress=mid`. Please shoot the Duo Codex with `progress=mid` (keep a separate
+  `codex-late` frame if you want the full Codex). AppTests `onePresetAgreesAcrossHomeCodexAndResults` pins the App side.
+- **CI (your R3 list, done):** `freezeOn=creak` (logs `HUSH-T event creak` on every crack; Feel also logs `HUSH-T creak
+  accent …`), `freezeDelay=<s>` (any event freeze, 0…10 s), `.relic` now waits 1.65 s by default, a LESSON bank waits
+  0.5 s, `HUSH-T lesson step <n> praise=<0|1> line '<…>'`, `HUSH-T dynamic-type <category>`, `HUSH-T relight angle=<θ>` and
+  `HUSH-T handoff angle=<θ>`. Not done: `golden=first` (needs Core's `SessionOptions.goldenFirst`; `golden=1` + chest #3
+  stands).
+- **CI, behaviour changes to expect in the Duo logs:**
+  - no `pose cover-open` / `small-canvas-open` lines ever (decision 1); new `HUSH-T handover hold <from>-><to> angle=<θ>`
+    on every small ↔ inner change in a live hinge run, and the run then resumes only on the inner canvas;
+  - a live run's first hinge report logs `HUSH-T first hinge sample held angle=<θ>` and pauses (it resumes on
+    `canResume`, so expect one extra `HUSH-T resumed angle …` early in a hinge run);
+  - a Duo-layout demo run with no pilot, no `lid=` and no hinge yet is `input fixed` (shut, no lever), not `slider`;
+  - `HUSH-T orient ask reason=<card|launch|cover|lift|device|button> device=<n>` before each portrait request, and
+    `HUSH-T orient ask skipped …` when the device is held landscape (POSE-BOOK in book pose should now keep the card);
+  - `HUSH-T mask <portrait|allButUpsideDown> live=<0|1> iface=<…>` on every mask refresh;
+  - `HUSH-T callout <text>` for the one-time tips and the golden banner; `HUSH-T ending finished headless` if a candle-out
+    had to be finished off-screen.
+- **Founder / Launch lead:** Settings › About's line is now "Diagnostics", shown in DEBUG or after a 2-second press on
+  the About text (any build). TestFlight builds no longer show it by themselves. Device-test step 9 needs the press.

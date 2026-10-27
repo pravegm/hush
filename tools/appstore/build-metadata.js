@@ -45,10 +45,11 @@ const loc = (desc) => ({ name, subtitle, privacyPolicyUrl: site + 'privacy.html'
   supportUrl: site + 'support.html', marketingUrl: site });
 const lbLoc = (n) => ({ name: n, formatterSuffix: ' gold', formatterSuffixSingular: ' gold' });
 // Frame names follow docs/appstore/screenshots.md; the store pipeline (store.yml) must write exactly these files.
-const phones = ['P1-hero-open', 'P2-drag-gently', 'P3-freeze', 'P4-bank', 'P5-chomp', 'P6-codex'];
-const duo = ['D1-hero-open', 'D2-drag-gently', 'D3-freeze', 'D4-bank', 'D5-chomp', 'D6-codex'];
+// R3 (27 Oct 2026): freeze, bank and chain lead (the first three sell the game in search); drag moved to the reserves.
+const phones = ['P1-hero-open', 'P2-freeze', 'P3-bank', 'P4-chain', 'P5-chomp', 'P6-codex'];
+const duo = ['D1-hero-open', 'D2-freeze', 'D3-bank', 'D4-chain', 'D5-chomp', 'D6-codex'];
 const meta = {
-  _comment: 'Generated 27 Oct 2026 from docs/appstore/metadata.md, review-notes.md, achievements.md and featuring-nomination.md (node tools/appstore/build-metadata.js); asc.swift pushes it (tools/appstore/README.md). No personal data: the copyright and the App Review contact are read at run time from Squish (--inherit-from com.pravegm.squish). Achievements are TBD-sync with Hush/Core Achievements.all.',
+  _comment: 'Generated 27 Oct 2026 (Round 3) from docs/appstore/metadata.md, review-notes.md, achievements.md and featuring-nomination.md (node tools/appstore/build-metadata.js); asc.swift pushes it (tools/appstore/README.md). No personal data: the copyright and the App Review contact are read at run time from Squish (--inherit-from com.pravegm.squish). Achievements synced with Hush/Core/Ranks.swift Achievements.all (R2 titles and thresholds; ids unchanged).',
   bundleId: 'com.pravegm.hush',
   primaryLocale: 'en-GB',
   copyrightHolder: null,

@@ -64,7 +64,7 @@ struct PageScaffold<Content: View>: View {
                 content()
                     .frame(width: info.columnWidth)
                     .padding(.top, 4)
-                    .padding(.bottom, 28)
+                    .padding(.bottom, 72)   // R3: the last row scrolls clear of the fade and Done
             }
             .scrollIndicators(.hidden)
             .mask(LinearGradient(stops: [.init(color: .black, location: 0), .init(color: .black, location: 0.9),
@@ -143,8 +143,9 @@ struct CodexView: View {
                                     .font(HushType.caption(info.isCompact))
                                     .foregroundStyle(has ? HushTheme.parchment : HushTheme.haze)
                                     .multilineTextAlignment(.center)
-                                    .lineLimit(3)
-                                    .fixedSize(horizontal: false, vertical: true)
+                                    .lineLimit(2)
+                                    .minimumScaleFactor(0.8)
+                                    .frame(height: HushType.scaled(14, .footnote) * 2.7, alignment: .top)
                             }
                             .padding(.vertical, 10)
                             .padding(.horizontal, 6)
@@ -184,19 +185,19 @@ struct BadgesView: View {
                             .clipShape(Circle())
                         Text(item.element.title)
                             .font(HushType.body(info.isCompact))
-                            .foregroundStyle(has ? HushTheme.goldLight : HushTheme.mist)
+                            .foregroundStyle(has ? HushTheme.goldLight : HushTheme.parchment.opacity(0.8))
                             .multilineTextAlignment(.center)
                             .fixedSize(horizontal: false, vertical: true)
                         Text(item.element.detail)
                             .font(HushType.caption(info.isCompact))
-                            .foregroundStyle(HushTheme.haze)
+                            .foregroundStyle(HushTheme.mist)
                             .multilineTextAlignment(.center)
                             .fixedSize(horizontal: false, vertical: true)
                     }
                     .padding(10)
                     .frame(maxWidth: .infinity, minHeight: 170, alignment: .top)
-                    .background(RoundedRectangle(cornerRadius: 16, style: .continuous)
-                        .fill(has ? HushTheme.surfaceRaised : HushTheme.surface))
+                    // R3 (juror P2): the Codex's velvet tiles here too; a locked badge is a dimmed tile.
+                    .background(VelvetTile(selected: has).opacity(has ? 1 : 0.55))
                     .accessibilityElement(children: .ignore)
                     .accessibilityLabel("\(item.element.title). \(item.element.detail) "
                                         + (has ? "Earned." : "Not earned yet."))
@@ -306,10 +307,11 @@ struct SettingsView: View {
     let info: AppCanvas
     @State private var showsAbout = false
     @State private var showsCredits = false
+    @State private var showsDiagnostics = BuildChannel.showsDiagnostics()
 
-    /// Pure; tested (UX P2-15 / brief copy).
+    /// Pure; tested (UX P2-15 / brief copy). R3 (tester 6: "what does 'stays sharp' mean?"): plain words.
     static let turnTitle = "Turn the chest round"
-    static let turnDetail = "Keeps the loot on the half that stays sharp when you fold"
+    static let turnDetail = "Puts the loot on the half that stays flat, the lid on the half you lift"
     static let silentTitle = "Play sound on silent"
 
     var body: some View {
@@ -350,13 +352,18 @@ struct SettingsView: View {
                                 .foregroundStyle(HushTheme.mist)
                                 .multilineTextAlignment(.center)
                                 .fixedSize(horizontal: false, vertical: true)
-                            if BuildChannel.isTestBuild {
-                                Text("Test build · lid: \(controller.hasHinge ? "hinge" : "lever") · "
-                                     + OrientationLock.status())
+                                // R3 (QA-2 P2-15): a hidden 2 s press toggles Diagnostics; a sandbox receipt (App
+                                // Review installs carry one) never shows test UI by itself.
+                                .onLongPressGesture(minimumDuration: 2) {
+                                    showsDiagnostics = BuildChannel.toggleDiagnostics()
+                                }
+                            if showsDiagnostics {
+                                Text("Diagnostics · " + controller.diagnosticsLine)
                                     .font(HushType.caption(c))
                                     .foregroundStyle(HushTheme.haze)
                                     .multilineTextAlignment(.center)
                                     .fixedSize(horizontal: false, vertical: true)
+                                    .textSelection(.enabled)
                             }
                         }
                         .padding(.horizontal, 14)

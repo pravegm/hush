@@ -218,6 +218,9 @@ enum Tuning {
     /// multiplier, capped at jingleMax (under Stirring, so a full bag never stirs the mimic by itself).
     static let jinglePerItem: Double = 0.035
     static let jingleMax: Double = 0.30
+    /// R3 (QA-2 P2-9): a resume grace (`HeistSession.resumeGrace`) ends once the lid has been above `loudSpeed` for
+    /// more than this much of it (s). Pauses never happen in the balance runs, so the balance is unchanged.
+    static let resumeGraceLoudLimit: Double = 0.15
     /// Hold the lid in the shut zone this long (s) with loot in the bag to bank.
     static let shutHoldSeconds: Double = 0.35
     static let bankMomentSeconds: Double = 1.4

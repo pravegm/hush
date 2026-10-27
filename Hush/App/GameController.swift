@@ -9,13 +9,18 @@ import UIKit
 /// app's route, the First Chest lesson and the Duo states (pose, closing, shut).
 ///
 /// Pauses (no stepping): the lid closing (`ClosingPause`), the app inactive or in the background, the pause menu, and a
-/// pose card (book pose, the cover display). R2 (REVIEW-1-duo P0-2):
-/// - while paused the session RESTS (`HeistSession.rest(dt:)`: the noise settles, no candle, no bites), every frame the
-///   scene still draws and, for the time it didn't (cover display, background), in one catch-up on the next frame;
+/// pose card (book pose, the cover display).
+/// - R3 (founder decision 2): a pause is simply NO stepping. Nothing rests, so the noise, the stage and the candle are
+///   frozen (closing the lid is no free calm-down), and the first step back gets a frame-sized dt, never the pause.
 /// - a hinge run resumes only when Feel says the lid is open and still (`HingeLidSource.canResume`); a run coming back
-///   from the cover display or the book-pose card waits the same way (the closing card says "Hold still…");
+///   from the cover display or the book-pose card waits the same way (the closing card says "Hold still…").
+/// - R3 (decision 1): the cover display is ALWAYS a pause. Any small ↔ inner canvas change during a live hinge run
+///   holds the closing pause, and a live run never resumes on a small canvas.
+/// - R3: the first hinge report of a live run holds the pause too, and the menu's Resume goes through the same gate.
 /// - every resume resets the hinge filters and gives `resumeGrace(seconds: 0.5)` of silent lid;
-/// - the pause menu opens only on `.background` (P1-8), never while the Duo is shut.
+/// - the pause menu opens only on `.background` (P1-8), never while the Duo is shut;
+/// - R3 (QA-2 P2-2): the bank, bite and candle-out moments play out under a closing or pose pause, so finishing a run
+///   always reaches Results.
 @MainActor
 final class GameController: ObservableObject, SceneDriver {
     private enum PauseReason: String, Hashable { case menu, closing, background, pose }
@@ -36,14 +41,19 @@ final class GameController: ObservableObject, SceneDriver {
     /// Home's title chest publishes at most this often.
     static let homeLidInterval: Double = 1.0 / 30.0
     static let toastSeconds: Double = 2.4
-    /// A gap this long between frames (the scene wasn't drawing: cover display, background) is rested through.
-    static let catchUpGap: Double = 0.1
+    /// R3: an in-run callout (a one-time tip, the golden banner) stays up this long (wall s).
+    static let calloutSeconds: Double = 2.4
     /// Portrait requests are throttled to one per this many seconds.
     static let portraitAskInterval: Double = 1.0
     /// Held camera-end-up this long while turned round: "Other way round" (P1-7).
     static let holdHintDelay: Double = 0.7
     /// An event freeze also pauses the scene this long after it lands (CI: the moment stays on screen).
     static let sceneHoldDelay: Double = 0.4
+    /// R3 (QA-2 P2-2): if the candle-out moment hasn't finished this long after it began (the scene stopped drawing:
+    /// the cover display), the run is finished headless and Results shown.
+    static let endWatchSeconds: Double = 2.6
+    /// R3 (Feel note): stage announcements wait this long, so VoiceOver's ducking doesn't swallow the audio cue.
+    static let announceDelay: Double = 0.3
 
     // MARK: Published state (the HUD lives in `hud`)
 
@@ -58,12 +68,14 @@ final class GameController: ObservableObject, SceneDriver {
     @Published private(set) var isMenuOpen = false
     /// "Lift the lid a little to carry on" / "Hold still…".
     @Published private(set) var isClosingPaused = false
-    /// The lid is back up (≥ 95°) but not yet still: the closing card says "Hold still…".
+    /// The lid is back up (≥ the resume angle) but not yet still: the closing card says "Hold still…".
     @Published private(set) var closingLifted = false
+    /// R3 (P1-4): no hinge report yet this run: the closing card says "Move the lid a little".
+    @Published private(set) var closingAwaitsHinge = false
     @Published private(set) var summary: ResultSummary?
     @Published private(set) var lessonDisplay: LessonDisplay?
     @Published private(set) var pose: AppPose = .play
-    /// Demo `screen=pose|cover` forces a pose.
+    /// Demo `screen=pose|cover` (and `pose=book`) forces a pose.
     @Published private(set) var forcedPose: AppPose?
     /// Demo `screen=icon`: the app icon full screen (and rendered to Documents).
     @Published private(set) var showsIcon = false
@@ -77,12 +89,12 @@ final class GameController: ObservableObject, SceneDriver {
     @Published private(set) var showsHoldHint = false
     /// Demo event freezes: the scene is paused too, so the moment stays on screen.
     @Published private(set) var sceneHeld = false
-    /// A cover-sized canvas while the hinge is held open: a compatibility column, played (`AppRules.pose`).
-    @Published private(set) var smallCanvasOpen = false
-    private var smallCanvasOpenSince: TimeInterval?
-    private var smallCanvasTask: Task<Void, Never>?
-    /// The scene's frame rate (Feel: 60 under Low Power or a hot device, else 120).
+    /// The scene's frame rate (R3, Feel: the ceiling while something moves, 60 when idle; 60 under Low Power or heat).
     @Published private(set) var preferredFPS = 120
+    /// R3 (QA-2 P2-4): iOS refused a portrait request: the book-pose card offers "Play anyway".
+    @Published private(set) var portraitRefused = false
+    /// R3 (QA-2 P2-4): the player chose "Play anyway" on the book-pose card: landscape is played, on the lever.
+    @Published private(set) var playAnyway = false
 
     let hud = HUDState()
     let homeLid = HomeLidState()
@@ -112,7 +124,6 @@ final class GameController: ObservableObject, SceneDriver {
     private var lastHUD: TimeInterval = -1
     private var lastLesson: TimeInterval = -1
     private var lastLidLog: TimeInterval = -1
-    private var lastAdvanceNow: TimeInterval?
     private var hintGate = HintGate()
     private var glimmerOn = false
     private var recorded = false
@@ -120,6 +131,7 @@ final class GameController: ObservableObject, SceneDriver {
     private var resultsTask: Task<Void, Never>?
     private var toastTask: Task<Void, Never>?
     private var holdHintTask: Task<Void, Never>?
+    private var endWatchTask: Task<Void, Never>?
     /// Session seconds stepped this run (the demo freeze-after key).
     private var playTime: Double = 0
     /// Demo freeze: the session no longer steps (the scene keeps drawing the held frame).
@@ -134,6 +146,9 @@ final class GameController: ObservableObject, SceneDriver {
     private var lastCanvasLine = ""
     private var bannerText: String?
     private var bannerUntil: Double = 0
+    /// R3: the in-run callout (a one-time tip, the golden banner) and until when it shows (wall clock).
+    private var callout: String?
+    private var calloutUntil: TimeInterval = 0
     /// The hinge angle when the book-pose card appeared (P0-1: a ≥ 15° lift asks iOS for portrait).
     private var standUpAngle: Double?
     private var lastPortraitAsk: TimeInterval = -100
@@ -141,12 +156,27 @@ final class GameController: ObservableObject, SceneDriver {
     /// R2: the gold counter must equal the sum of the banks (checked every frame in demo runs).
     private var bankedSum = 0
     private var goldMismatchLogged = false
+    /// R3 (decision 1): the class of the canvas on screen (the cover display is `.small`).
+    private var canvasClass: AppRules.CanvasClass?
+    /// R3 (REVIEW-2-duo P1-3, Diagnostics): the hinge angle when iOS last handed the app to the cover display, and when
+    /// it last relit the inner display.
+    private(set) var handoffAngle: Double?
+    private(set) var relightAngle: Double?
+    /// The Scene's frame rate is published only when it changes.
+    private var lastFPS = 120
+    /// Tips already looked up this launch (shown, or seen on an earlier one): never looked up again per frame.
+    private var tipsChecked: Set<RunTip> = []
+    /// R3 (CI `freezeOn=creak`): a CREAK fired since the last frame.
+    private var creakPending = false
+    /// R3: the first-hinge-report guard is being set (it doesn't release `noiseUntil=pause`).
+    private var guardHold = false
 
     init(store: ProgressStore, settings: SettingsStore) {
         self.store = store
         self.settings = settings
         self.demo = DemoMode.current
-        // `hush.hasHinge` comes back with a backup restored onto another iPhone: believe it only on a Duo-shaped screen.
+        // `hush.hasHinge` comes back with a backup restored onto another iPhone: believe it only on a Duo-shaped
+        // screen (R3: the cover display counts).
         let stored = UserDefaults.standard.bool(forKey: OrientationLock.hingeKey)
         let trusted = OrientationLock.trustsStoredHinge(stored, screen: UIScreen.main.bounds.size)
         if stored && !trusted { UserDefaults.standard.removeObject(forKey: OrientationLock.hingeKey) }
@@ -154,9 +184,25 @@ final class GameController: ObservableObject, SceneDriver {
         self.reduceMotion = settings.reduceMotion
         GameCenterManager.shared.bannersAllowed = !trusted
         self.preferredFPS = FeedbackDirector.shared.preferredFPS
-        // Feel calls this on the main actor (its notification observers run on the main queue).
+        self.lastFPS = self.preferredFPS
+        // Feel calls this on the main actor (its notification observers run on the main queue): the CEILING changed.
         FeedbackDirector.shared.onPreferredFPSChange = { [weak self] fps in
-            MainActor.assumeIsolated { self?.preferredFPS = fps }
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                if !self.route.isPlay || fps < self.lastFPS { self.publishFPS(fps) }
+            }
+        }
+        // R3 (Feel): the slam's CREAK, picture and sound from one detector.
+        FeedbackDirector.shared.onCreakAccent = { [weak self] in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                self.scene?.showCreak()
+                self.creakPending = true
+                AppTrace.t("HUSH-T event creak")
+            }
+        }
+        OrientationLock.onRefused = { [weak self] in
+            MainActor.assumeIsolated { self?.portraitRefused = true }
         }
     }
 
@@ -179,8 +225,10 @@ final class GameController: ObservableObject, SceneDriver {
     }
     var today: Int { DailyClock.today() }
     var dailyScoredAvailable: Bool { store.canPlayScoredDaily(today: today) }
-    /// The lid speaks in the slider's words (no hinge in this run).
-    var sliderWording: Bool { input != .hinge }
+    /// R3 (founder decision 4): the copy follows the LAYOUT, not the input. A fold (a real Duo, or demo `fold=1`)
+    /// speaks of the lid; no fold speaks of the lever.
+    var layoutHasFold: Bool { layout?.hasFold ?? false }
+    var sliderWording: Bool { !layoutHasFold }
     var lessonReplaying: Bool { lessonReplay }
     /// "Daily Dungeon · 27 Oct" for the run's day (nil outside a Daily).
     var dailyMarker: String? {
@@ -188,15 +236,22 @@ final class GameController: ObservableObject, SceneDriver {
         return (scored ? "Daily Dungeon · " : "Daily practice · ") + AppRules.dailyDate(day: day)
     }
 
+    /// Settings › About › Diagnostics (DEBUG, or the hidden gesture): the founder's device-test line.
+    var diagnosticsLine: String {
+        let a = { (v: Double?) in v.map { AppTrace.fixed($0, 1) + "°" } ?? "-" }
+        return "Lid: \(hasHinge ? "hinge" : "lever") · " + OrientationLock.status()
+            + " · cover at \(a(handoffAngle)) · relit at \(a(relightAngle)) · device \(UIDevice.current.orientation.rawValue)"
+    }
+
     // MARK: - SceneDriver
 
     /// R2 (UX P0-4): on an iPhone without a fold the lever is always drawn, whoever drives the lid (CI's pilot and
-    /// `lid=` frames included); only the player's slider takes its touches (`sliderTouch`).
+    /// `lid=` frames included); only the player's slider takes its touches (`sliderTouch`). R3 (decision 4): a fold
+    /// layout never draws or uses the lever.
     var usesSlider: Bool {
-        guard route.isPlay else { return false }
+        guard route.isPlay, !layoutHasFold else { return false }
         switch input {
-        case .slider: return true
-        case .pilot, .fixed: return !(layout?.hasFold ?? false)
+        case .slider, .pilot, .fixed: return true
         case .hinge: return false
         }
     }
@@ -206,29 +261,29 @@ final class GameController: ObservableObject, SceneDriver {
         if frames == 120 { AppTrace.t("HUSH-T frame 120") }
         var out = pendingSceneEvents
         pendingSceneEvents.removeAll()
-        let wall = lastAdvanceNow.map { max(now - $0, 0) } ?? 0
-        lastAdvanceNow = now
         guard let session else { return (HeistSnapshot(), out) }
         guard route.isPlay, !session.isFinished else { return (session.snapshot, out) }
-        checkClosing(now: now)
+        checkClosing(now: now, phase: session.snapshot.phase)
         if frozen {
             feedback.handle([], telemetry: AppRules.telemetry(session.snapshot, dragSpeed: 0, playing: false,
                                                               paused: true))
             return (session.snapshot, out)
         }
         if isPaused {
-            // Keep the hinge filters warm (Feel's `canResume` reads them) and let the mimic settle.
-            if input == .hinge { _ = hinge.lid(at: now) }
-            out += rest(session, seconds: wall)
-            let s = session.snapshot
-            feedback.handle([], telemetry: AppRules.telemetry(s, dragSpeed: 0, playing: false, paused: true))
-            publishHUD(s, now: now)
-            return (s, out)
+            let modal = pauseReasons.contains(.menu) || pauseReasons.contains(.background)
+            if !AppRules.stepsThroughPause(session.snapshot.phase, menuOrBackground: modal) {
+                // R3 (decision 2): no stepping, no rest. Keep the hinge filters warm (Feel's `canResume` reads them).
+                if input == .hinge { _ = hinge.lid(at: now) }
+                publishFPS(min(feedback.preferredFPS, 60))
+                let s = session.snapshot
+                feedback.handle([], telemetry: AppRules.telemetry(s, dragSpeed: 0, playing: false, paused: true))
+                publishHUD(s, now: now)
+                return (s, out)
+            }
         }
+        // A frame-sized step (clamped at 1/30 s), never the time the game was paused or not drawn (Core R3).
         let step = AppRules.clampStep(dt)
         guard step > 0 else { return (session.snapshot, out) }
-        // The scene wasn't drawing (cover display, background): the time it missed is rest, not play.
-        if wall > Self.catchUpGap { out += rest(session, seconds: wall - step) }
 
         var events: [HeistEvent] = []
         let lid = currentLid(now: now, step: step, session: session, events: &events)
@@ -252,13 +307,18 @@ final class GameController: ObservableObject, SceneDriver {
             publishLesson(script, hint: snapshot.hint, now: now, force: force || !actions.isEmpty)
         }
 
-        feedback.handle(events, telemetry: AppRules.telemetry(snapshot, dragSpeed: session.dragSpeed,
-                                                              playing: AppRules.isLive(snapshot.phase)))
+        let live = AppRules.isLive(snapshot.phase)
+        let dragSpeed = session.dragSpeed
+        feedback.handle(events, telemetry: AppRules.telemetry(snapshot, dragSpeed: dragSpeed, playing: live))
         for event in events {
             if case let .banked(value, _, _) = event { bankedSum += value }
             if case .chestArrived = event, snapshot.chest?.golden == true { feedback.goldenArrived() }
+            if case .torchOut = event { watchTheEnd() }
             AppTrace.t("HUSH-T event " + traceLine(event, snapshot: snapshot))
+            callouts(for: event, snapshot: snapshot, now: now)
+            announce(event)
         }
+        if snapshot.noiseFloor >= RunTip.jingleFloor, mode != .lesson { showTip(.jingle, now: now) }
         checkGold(snapshot)
         if AppTrace.enabled && now - lastLidLog >= Self.lidLogInterval {
             lastLidLog = now
@@ -266,6 +326,9 @@ final class GameController: ObservableObject, SceneDriver {
                                         angle: input == .hinge ? hinge.angle : nil, noise: snapshot.noise,
                                         stage: snapshot.stage))
         }
+        // R3 (Feel, REVIEW-2-duo P2-7): 120 fps only while the lid moves or something animates, else 60.
+        let animating = dragSpeed > 0 || !live || now < calloutUntil
+        publishFPS(feedback.preferredFPS(lidSpeed: lid.speed, animating: animating))
         publishHUD(snapshot, now: now)
         demoAfterStep(snapshot, events: events)
         if session.isFinished { handleFinished(immediate: false) }
@@ -273,20 +336,9 @@ final class GameController: ObservableObject, SceneDriver {
         return (snapshot, out)
     }
 
-    /// Rests the session through `seconds` (the noise settles; no candle, no bites). Returns a `stageChanged` if the
-    /// mimic's stage dropped, so the scene and Feedback hear it.
-    private func rest(_ session: HeistSession, seconds: Double) -> [HeistEvent] {
-        let (count, step) = AppRules.restChunks(seconds)
-        guard count > 0 else { return [] }
-        let before = session.snapshot.stage
-        for _ in 0..<count { _ = session.rest(dt: step) }
-        let after = session.snapshot.stage
-        guard after != before else { return [] }
-        let change = HeistEvent.stageChanged(from: before, to: after)
-        feedback.handle([change], telemetry: AppRules.telemetry(session.snapshot, dragSpeed: 0, playing: false,
-                                                                paused: true))
-        AppTrace.t("HUSH-T event " + AppTrace.describe(change) + " rest=1")
-        return [change]
+    private func publishFPS(_ fps: Int) {
+        lastFPS = fps
+        if preferredFPS != fps { preferredFPS = fps }
     }
 
     func floorTouchBegan(_ id: Int, at point: CGPoint, time: TimeInterval) {
@@ -306,7 +358,7 @@ final class GameController: ObservableObject, SceneDriver {
     }
 
     func sliderTouch(began: Bool, ended: Bool, fraction: Double, time: TimeInterval) {
-        guard input == .slider, route.isPlay else { return }
+        guard input == .slider, route.isPlay, !layoutHasFold else { return }
         if (isPaused || frozen) && !ended { return }
         let f = fraction.isFinite ? min(max(fraction, 0), 1) : 0
         slider.touch(began: began, ended: ended, fraction: f, time: time)
@@ -340,6 +392,54 @@ final class GameController: ObservableObject, SceneDriver {
         AppTrace.t("HUSH-T gold mismatch banked=\(s.banked) sum=\(bankedSum)")
     }
 
+    // MARK: - Callouts and announcements (R3)
+
+    /// UX P1-3 / P1-8 / P2-11: the first Hush Chain, its first break, the bag jingle (once ever each), and every
+    /// golden chest's arrival.
+    private func callouts(for event: HeistEvent, snapshot: HeistSnapshot, now: TimeInterval) {
+        guard mode != .lesson else { return }
+        switch event {
+        case .chainUp: showTip(.chain, now: now)
+        case .chainBroken: showTip(.chainBroken, now: now)
+        case .chestArrived:
+            if snapshot.chest?.golden == true { showCallout(RunTip.golden, now: now) }
+        default: break
+        }
+    }
+
+    private func showTip(_ tip: RunTip, now: TimeInterval) {
+        guard !tipsChecked.contains(tip) else { return }
+        tipsChecked.insert(tip)
+        guard !store.data.seenTips.contains(tip.rawValue) else { return }
+        store.markTip(tip.rawValue)
+        showCallout(tip.text, now: now)
+    }
+
+    private func showCallout(_ text: String, now: TimeInterval) {
+        callout = text
+        calloutUntil = now + Self.calloutSeconds
+        AppTrace.t("HUSH-T callout \(text)")
+        announceNow(text)
+    }
+
+    /// UX P1-9: VoiceOver hears the stages, the bites and the banks (stages a beat late, after Feel's cue).
+    private func announce(_ event: HeistEvent) {
+        guard let text = HushCopy.announcement(event) else { return }
+        if case .stageChanged = event {
+            Task { [weak self] in
+                try? await Task.sleep(nanoseconds: UInt64(GameController.announceDelay * 1_000_000_000))
+                self?.announceNow(text)
+            }
+        } else {
+            announceNow(text)
+        }
+    }
+
+    private func announceNow(_ text: String) {
+        guard !isDemo, UIAccessibility.isVoiceOverRunning else { return }
+        UIAccessibility.post(notification: .announcement, argument: text)
+    }
+
     private func currentLid(now: TimeInterval, step: Double, session: HeistSession,
                             events: inout [HeistEvent]) -> LidInput {
         switch input {
@@ -365,10 +465,15 @@ final class GameController: ObservableObject, SceneDriver {
         }
     }
 
+    /// R3 (REVIEW-2-duo P1-4): on a Duo (a hinge seen, or a fold layout) a run never plays on the lever. Before the
+    /// first hinge report it waits in the closing pause ("Move the lid a little"); demo runs without a hinge hold a
+    /// shut lid instead (`.fixed`), so CI's fold frames still draw. "Play anyway" (landscape) uses the lever.
     private func chooseInput() -> AppInputKind {
         if demo?.pilot != nil { return .pilot }
         if demo?.lid != nil { return .fixed }
+        if playAnyway { return .slider }
         if hinge.hasHinge { return .hinge }
+        if hingeSeen || layoutHasFold { return isDemo ? .fixed : .hinge }
         return .slider
     }
 
@@ -378,7 +483,7 @@ final class GameController: ObservableObject, SceneDriver {
         if changed || session != nil { AppTrace.t("HUSH-T input \(kind.rawValue)") }
     }
 
-    /// The first hinge sample of a launch upgrades a slider run to the hinge (the slider's last state is dropped).
+    /// The first hinge sample of a launch (or a fold appearing) re-chooses the input (the slider's state is dropped).
     func refreshInput() {
         guard session != nil else { return }
         let kind = chooseInput()
@@ -391,6 +496,7 @@ final class GameController: ObservableObject, SceneDriver {
     func launch() {
         UIDevice.current.beginGeneratingDeviceOrientationNotifications()
         if let demo {
+            AppTrace.t("HUSH-T dynamic-type \(UIApplication.shared.preferredContentSizeCategory.rawValue)")
             launchDemo(demo)
             return
         }
@@ -399,7 +505,8 @@ final class GameController: ObservableObject, SceneDriver {
             GameCenterManager.shared.report(result: recovered.0, outcome: recovered.1, progress: store.data)
         }
         // P0-1: on a Duo's inner display, ask iOS for portrait at launch (a Duo lying flat never rotates by itself).
-        if hingeSeen || OrientationLock.looksLikeDuo(OrientationLock.screenSize()) { askPortrait() }
+        // R3 (P1-2): not while it is held landscape, like a book: then the card speaks.
+        if hingeSeen || OrientationLock.looksLikeDuo(OrientationLock.screenSize()) { autoAskPortrait(reason: "launch") }
         if store.data.lessonDone {
             goHome()
         } else {
@@ -420,9 +527,16 @@ final class GameController: ObservableObject, SceneDriver {
             // A live run that has just reached portrait gets its portrait lock now (never before: Duo run 40506125012).
             OrientationLock.interfaceChanged()
         }
+        noteCanvasClass(AppRules.canvasClass(size))
+        // Back in portrait: "Play anyway" is over.
+        if playAnyway && size.height > size.width {
+            playAnyway = false
+            refreshInput()
+        }
         isTurned = turned
         if !turned && showsHoldHint { showsHoldHint = false }
         let newLayout = ScreenLayout.make(hasFold: hasFold, viewSize: size)
+        let foldChanged = newLayout.hasFold != layout?.hasFold
         if newLayout != layout || scene == nil {
             layout = newLayout
             if let scene {
@@ -431,7 +545,37 @@ final class GameController: ObservableObject, SceneDriver {
                 makeScene(newLayout)
             }
         }
+        // "Play anyway" in landscape shows the whole portrait chest (aspect-fit), never a crop.
+        scene?.scaleMode = size.width > size.height ? .aspectFit : .aspectFill
         if let scene, scene.turned != turned { scene.turned = turned }
+        if foldChanged { refreshInput() }
+    }
+
+    /// R3 (decision 1): a small ↔ inner canvas change during a live hinge run holds the closing pause, whatever the
+    /// pose does. The hand-off and relight angles are kept for Diagnostics, and a relight lowers Feel's resume angle
+    /// to what the player can already see (REVIEW-2-duo P1-3).
+    private func noteCanvasClass(_ new: AppRules.CanvasClass?) {
+        guard let new, new != canvasClass else { return }
+        let old = canvasClass
+        canvasClass = new
+        guard old != nil else { return }
+        let angle = hinge.angle
+        let a = angle.map { AppTrace.fixed($0, 1) } ?? "-"
+        if hingeSeen {
+            if new == .small {
+                handoffAngle = angle
+                AppTrace.t("HUSH-T handoff angle=\(a)")
+            } else {
+                relightAngle = angle
+                AppTrace.t("HUSH-T relight angle=\(a)")
+                if isLiveRun { hinge.requiredResumeAngle = HingeLidSource.coverResumeAngle(relight: angle) }
+            }
+        }
+        if AppRules.handoverHolds(from: old, to: new, liveHingeRun: isLiveRun && input == .hinge) {
+            closingPause.hold()
+            setClosing(true)
+            AppTrace.t("HUSH-T handover hold \(old?.rawValue ?? "-")->\(new.rawValue) angle=\(a)")
+        }
     }
 
     private func makeScene(_ layout: ScreenLayout) {
@@ -454,6 +598,11 @@ final class GameController: ObservableObject, SceneDriver {
             if checkpointSaved {
                 checkpointSaved = false
                 store.clearCheckpoint()
+            }
+            // R3 (QA-2 P2-7): if Game Center's dismissal handler never fired, turn round again now.
+            if systemSheetUp && !GameCenterManager.shared.sheetIsUp() {
+                systemSheetUp = false
+                AppTrace.t("HUSH-T gc sheet cleared on activation")
             }
             setPause(.background, false)
             if route == .home { startHomeTicker() }
@@ -483,12 +632,11 @@ final class GameController: ObservableObject, SceneDriver {
         pose = newPose
         AppTrace.t("HUSH-T pose \(newPose.rawValue) reason="
                    + AppRules.poseReason(newPose, canvas: canvas, forced: forcedPose != nil, angle: hinge.angle))
-        if newPose == .cover { watchSmallCanvas() }
         if newPose == .standUp {
             standUpAngle = hinge.angle
-            askPortrait()
+            autoAskPortrait(reason: "card")
         }
-        if old == .cover && newPose != .cover && isLiveRun { askPortrait() }
+        if old == .cover && newPose != .cover && isLiveRun { autoAskPortrait(reason: "cover") }
         if newPose == .play && old != .play && isLiveRun && input == .hinge {
             // Back from the cover display or the book card mid-run: wait for an open, still lid (P0-2).
             closingPause.hold()
@@ -510,25 +658,50 @@ final class GameController: ObservableObject, SceneDriver {
         portraits.setReduceMotion(on)
     }
 
-    /// P0-1: ask iOS for portrait (throttled; never while CI holds the Duo sim in landscape on purpose).
-    func askPortrait() {
-        guard demo?.orient != .landscape else { return }
+    /// Never while CI holds the Duo sim in landscape on purpose (`orient=landscape`, `pose=book`).
+    private var demoHoldsLandscape: Bool { demo?.orient == .landscape || demo?.poseBook == true }
+
+    /// P0-1: ask iOS for portrait (throttled). Logs `HUSH-T orient ask reason=<…> device=<raw>`.
+    func askPortrait(reason: String) {
+        guard !demoHoldsLandscape else { return }
         let now = CACurrentMediaTime()
         guard now - lastPortraitAsk >= Self.portraitAskInterval else { return }
         lastPortraitAsk = now
+        AppTrace.t("HUSH-T orient ask reason=\(reason) device=\(UIDevice.current.orientation.rawValue)")
         OrientationLock.requestPortrait()
+    }
+
+    /// R3 (REVIEW-2-duo P1-2): the automatic asks only fire while the device isn't held landscape (like a book).
+    private func autoAskPortrait(reason: String) {
+        guard AppRules.mayAutoAskPortrait(UIDevice.current.orientation) else {
+            AppTrace.t("HUSH-T orient ask skipped reason=\(reason) device=\(UIDevice.current.orientation.rawValue)")
+            return
+        }
+        askPortrait(reason: reason)
     }
 
     /// The book-pose card's "I've stood it up" (always asks, unthrottled).
     func stoodItUp() {
         lastPortraitAsk = CACurrentMediaTime()
+        AppTrace.t("HUSH-T orient ask reason=button device=\(UIDevice.current.orientation.rawValue)")
+        if demo?.poseBook == true { forcedPose = nil }
         OrientationLock.requestPortrait()
+    }
+
+    /// R3 (QA-2 P2-4): the book-pose card's way out: play in landscape, on the lever.
+    func choosePlayAnyway() {
+        AppTrace.t("HUSH-T pose play-anyway")
+        if forcedPose == .standUp { forcedPose = nil }
+        playAnyway = true
+        refreshInput()
     }
 
     /// P1-7: the device's physical orientation changed (UIDevice notifications, begun at launch).
     func deviceOrientationChanged() {
         let o = UIDevice.current.orientation
         AppTrace.t("HUSH-T device-orient \(o.rawValue)")
+        // R3 (P1-2): the card is up and the Duo left landscape (the floor went flat): that's "stood it up".
+        if pose == .standUp && o != .unknown && AppRules.mayAutoAskPortrait(o) { askPortrait(reason: "device") }
         holdHintTask?.cancel()
         guard AppRules.readsUpsideDown(turned: isTurned, cameraUp: o == .portrait, angle: hinge.angle) else {
             if showsHoldHint { showsHoldHint = false }
@@ -548,6 +721,7 @@ final class GameController: ObservableObject, SceneDriver {
 
     func hingeSample(angle: Double, time: TimeInterval) {
         guard angle.isFinite else { return }
+        let first = !hinge.hasHinge
         hinge.ingest(angleDegrees: angle, at: time)
         if !hingeSeen {
             hingeSeen = true
@@ -561,54 +735,36 @@ final class GameController: ObservableObject, SceneDriver {
         } else if angle <= Self.shutBelow {
             isShut = true
         }
-        // A cover-sized canvas with the hinge held well open isn't the cover display (`AppRules.smallCanvasIsOpen`).
-        if angle >= AppRules.smallCanvasOpenAngle {
-            if smallCanvasOpenSince == nil { smallCanvasOpenSince = CACurrentMediaTime() }
-        } else {
-            smallCanvasOpenSince = nil
-            if smallCanvasOpen { smallCanvasOpen = false }
-        }
         // P0-1: the book card is up and the hinge moved into the play range: they lifted it. Ask for portrait.
         if pose == .standUp {
             if standUpAngle == nil { standUpAngle = angle }
             if AppRules.liftedFromBook(angle: angle, angleAtCard: standUpAngle) {
                 standUpAngle = angle
-                askPortrait()
+                askPortrait(reason: "lift")
             }
         }
         refreshInput()
+        if closingAwaitsHinge { closingAwaitsHinge = false }
+        // R3 (REVIEW-2-duo P1-4): the first report of a live run is never played straight away. Fresh filters, then
+        // the closing pause: the run carries on once the lid is open and still.
+        if first && isLiveRun && input == .hinge {
+            hinge.reset()
+            closingPause.hold()
+            // Not the "first pause" CI's `noiseUntil=pause` waits for (that is the player's close).
+            guardHold = true
+            setClosing(true)
+            guardHold = false
+            AppTrace.t("HUSH-T first hinge sample held angle=\(AppTrace.fixed(angle, 1))")
+        }
     }
 
     /// After a hinge has been seen, a nil is a display handover, never "no hinge" (Brim research).
     func hingeUnavailable() {}
 
-    /// While the cover card is up: if the hinge stays well open (≥ 60° for 2.5 s; the Duo sends no reports while
-    /// still, so this is polled), the small canvas is a compatibility column on the inner display, not the cover
-    /// display. Ask for portrait again and play there rather than sit on the cover card with nothing stepping.
-    private func watchSmallCanvas() {
-        smallCanvasTask?.cancel()
-        smallCanvasTask = Task { [weak self] in
-            while !Task.isCancelled {
-                try? await Task.sleep(nanoseconds: 500_000_000)
-                guard let self, self.pose == .cover || self.smallCanvasOpen else { return }
-                let open = AppRules.smallCanvasIsOpen(angle: self.hinge.angle, openSince: self.smallCanvasOpenSince,
-                                                      now: CACurrentMediaTime())
-                if open != self.smallCanvasOpen {
-                    self.smallCanvasOpen = open
-                    if open {
-                        AppTrace.t("HUSH-T pose cover-open angle=\(AppTrace.fixed(self.hinge.angle ?? 0, 1)): "
-                                   + "a small canvas with the hinge open, asking for portrait")
-                        self.askPortrait()
-                    }
-                }
-                if !open && self.pose != .cover { return }
-            }
-        }
-    }
-
-    /// The closing pause (`ClosingPause`): Feel's gate (θ < `Tuning.closingAngle`, 70° in R2, for 0.4 s) or shut
-    /// pauses; it lifts only when `hinge.canResume` (open ≥ 95° and still).
-    private func checkClosing(now: TimeInterval) {
+    /// The closing pause (`ClosingPause`): Feel's gate (θ < `Tuning.closingAngle`, 70°, for 0.4 s) or shut pauses; it
+    /// lifts only when `hinge.canResume` (open ≥ the resume angle and still) AND the canvas is the inner display.
+    /// R3 (QA-2 P2-2): it only engages while a chest is live; a hold made during a moment waits for the next chest.
+    private func checkClosing(now: TimeInterval, phase: RunPhase) {
         guard input == .hinge, route.isPlay, session != nil else {
             if closingPause.paused || isClosingPaused {
                 closingPause.clear()
@@ -617,10 +773,13 @@ final class GameController: ObservableObject, SceneDriver {
             return
         }
         let angle = hinge.angle
-        let lifted = (angle ?? 0) >= AppRules.resumeAngle
+        let lifted = (angle ?? 0) >= hinge.effectiveResumeAngle
         if lifted != closingLifted { closingLifted = lifted }
+        guard AppRules.closingApplies(phase) else { return }
+        if closingPause.paused && !isClosingPaused { setClosing(true) }
+        let resumable = AppRules.mayResume(canResume: hinge.canResume, canvas: canvasClass)
         switch closingPause.update(angle: angle, gateClosing: hinge.isClosing, isShut: isShut,
-                                   canResume: hinge.canResume, now: now) {
+                                   canResume: resumable, now: now) {
         case .paused?:
             setClosing(true)
             #if DEBUG
@@ -709,8 +868,14 @@ final class GameController: ObservableObject, SceneDriver {
         setPause(.menu, true)
     }
 
+    /// R3 (QA-2 P2-10, REVIEW-2-duo P2-6): a hinge run's Resume goes through the hinge gate: the closing pause holds
+    /// it (taken BEFORE the menu reason is dropped, so the run never steps in between) until the lid is open and still.
     func resume() {
         guard isMenuOpen else { return }
+        if input == .hinge && isLiveRun {
+            closingPause.hold()
+            setClosing(true)
+        }
         isMenuOpen = false
         setPause(.menu, false)
     }
@@ -732,6 +897,7 @@ final class GameController: ObservableObject, SceneDriver {
     func goHome() {
         abandonLiveRun()
         resultsTask?.cancel()
+        endWatchTask?.cancel()
         session = nil
         pilot = nil
         lessonScript = nil
@@ -739,11 +905,12 @@ final class GameController: ObservableObject, SceneDriver {
         clearRunPauses()
         frozen = false
         sceneHeld = false
+        callout = nil
         setGlimmer(false)
         lockForLiveRun(false)
         feedback.silence()
         feedback.idle = true
-        hud.update(hint: nil, banner: nil, stage: .asleep, bagCount: 0, debugLoot: nil)
+        hud.update(hint: nil, banner: nil, stage: .asleep, bagCount: 0, debugLoot: nil, spoken: SpokenHUD())
         setRoute(.home)
         refreshIdleTimer()
     }
@@ -775,6 +942,7 @@ final class GameController: ObservableObject, SceneDriver {
         }
         if newRoute == .home { startHomeTicker() } else { homeTicker?.stop() }
         feedback.idle = !newRoute.isPlay
+        if !newRoute.isPlay { publishFPS(min(feedback.preferredFPS, 60)) }
     }
 
     // MARK: - The First Chest lesson
@@ -824,7 +992,13 @@ final class GameController: ObservableObject, SceneDriver {
         guard force || now - lastLesson >= Self.hudInterval else { return }
         lastLesson = now
         let display = script.display(slider: sliderWording, angle: input == .hinge ? hinge.angle : nil, hint: hint)
-        if display != lessonDisplay { lessonDisplay = display }
+        if display != lessonDisplay {
+            if display.step != lessonDisplay?.step || display.praise != lessonDisplay?.praise
+                || display.line != lessonDisplay?.line {
+                AppTrace.t("HUSH-T lesson step \(display.step) praise=\(display.praise ? 1 : 0) line '\(display.line)'")
+            }
+            lessonDisplay = display
+        }
     }
 
     // MARK: - Runs
@@ -832,6 +1006,7 @@ final class GameController: ObservableObject, SceneDriver {
     private func start(_ newMode: RunMode) {
         abandonLiveRun()
         resultsTask?.cancel()
+        endWatchTask?.cancel()
         summary = nil
         clearRunPauses()
         frozen = false
@@ -839,6 +1014,8 @@ final class GameController: ObservableObject, SceneDriver {
         freezePendingAt = nil
         freezePendingTag = nil
         noiseReleased = false
+        callout = nil
+        calloutUntil = 0
         var m = newMode
         if case let .daily(day, scored) = m, scored {
             if store.canPlayScoredDaily(today: day) {
@@ -872,10 +1049,21 @@ final class GameController: ObservableObject, SceneDriver {
         bannerText = Self.startBanner(m)
         bannerUntil = bannerText == nil ? 0 : Self.bannerSeconds
         scene?.reset()
+        // R3 (decision 3): "not safe yet" under IN BAG while the teaching runs last.
+        scene?.showsBagSublabel = store.data.runs < AppRules.teachingRuns
         setInput(chooseInput())
-        if input == .hinge { hinge.reset() }
-        hud.update(hint: nil, banner: bannerText, stage: .asleep, bagCount: 0, debugLoot: nil)
+        if input == .hinge {
+            hinge.reset()
+            hinge.requiredResumeAngle = HingeLidSource.resumeAngle
+        }
+        hud.update(hint: nil, banner: bannerText, stage: .asleep, bagCount: 0, debugLoot: nil, spoken: SpokenHUD())
         setRoute(m == .lesson ? .lesson : .playing)
+        // R3 (P1-4): a Duo run with no hinge report yet waits, shut and paused, for the lid to move.
+        if input == .hinge && !hinge.hasHinge {
+            closingAwaitsHinge = true
+            closingPause.hold()
+            setClosing(true)
+        }
         lockForLiveRun(true)
         refreshIdleTimer()
     }
@@ -923,10 +1111,34 @@ final class GameController: ObservableObject, SceneDriver {
         AppTrace.t("HUSH-T abandoned gold=\(partial.gold) chests=\(partial.chestsBanked) relics=\(partial.relics.count)")
     }
 
+    /// R3 (QA-2 P2-2): the candle-out moment normally finishes in 2 s of drawn frames. If the scene stopped drawing
+    /// (the Duo was folded onto the cover display), finish the run headless so Results never wait on the lid.
+    private func watchTheEnd() {
+        endWatchTask?.cancel()
+        endWatchTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: UInt64(GameController.endWatchSeconds * 1_000_000_000))
+            guard !Task.isCancelled else { return }
+            self?.finishIfStuck()
+        }
+    }
+
+    private func finishIfStuck() {
+        guard let session, !recorded, !session.isFinished, route.isPlay, !frozen, freezePendingAt == nil else { return }
+        guard case .torchOut = session.snapshot.phase else { return }
+        var steps = 0
+        while !session.isFinished && steps < 600 {
+            _ = session.step(dt: AppRules.maxStep, lid: LidInput())
+            steps += 1
+        }
+        AppTrace.t("HUSH-T ending finished headless steps=\(steps)")
+        if session.isFinished { handleFinished(immediate: true) }
+    }
+
     private func handleFinished(immediate: Bool) {
         guard !recorded, let session, let result = session.result else { return }
         recorded = true
         checkpointSaved = false
+        endWatchTask?.cancel()
         lockForLiveRun(false)
         setGlimmer(false)
         let outcome = store.record(result, today: today)
@@ -988,9 +1200,11 @@ final class GameController: ObservableObject, SceneDriver {
                              rankTitle: ThiefRanks.title(rank), nextRankTitle: next, rankProgressBefore: before,
                              rankProgressAfter: after, againLabel: again,
                              nearMiss: AppRules.nearMiss(gold: result.gold, best: outcome.best,
-                                                         newBest: outcome.isNewBest))
+                                                         newBest: outcome.isNewBest),
+                             cause: AppRules.causeLine(result))
     }
 
+    /// R3 (QA-2 P2-3): the hint gate runs on WALL time (`now`), so it settles even while the session is paused.
     private func publishHUD(_ s: HeistSnapshot, now: TimeInterval) {
         var wanted = s.hint
         if let h = wanted, !AppRules.showsHint(h, runs: store.data.runs) { wanted = nil }
@@ -1000,16 +1214,26 @@ final class GameController: ObservableObject, SceneDriver {
             wanted = nil
             if hintGate.shown != nil { hintGate.clear() }
         }
-        let shown = hintGate.update(wanted, now: s.time)
+        var shown = hintGate.update(wanted, now: now)
+        if isPaused { shown = nil }
         setGlimmer(shown == .relicDeeper)
-        let banner = shown == nil && s.time < bannerUntil ? bannerText : nil
+        // One prompt at a time: a warning hint wins; then a callout (a tip, the golden banner); then the hint; then the
+        // run-start banner.
+        var banner: String?
+        if let text = callout, now < calloutUntil, !isPaused, !(shown.map(AppRules.isWarning) ?? false),
+           route != .lesson {
+            banner = text
+            shown = nil
+        } else if shown == nil && s.time < bannerUntil && !isPaused {
+            banner = bannerText
+        }
         var bagged = 0
         for item in s.loot where item.place == .inBag { bagged += 1 }
         let urgent = shown != hud.hint || banner != hud.banner || bagged != hud.bagCount
         guard urgent || now - lastHUD >= Self.hudInterval else { return }
         lastHUD = now
         hud.update(hint: shown, banner: banner, stage: s.stage, bagCount: bagged,
-                   debugLoot: isDemo ? Self.mostLit(s) : nil)
+                   debugLoot: isDemo ? Self.mostLit(s) : nil, spoken: SpokenHUD(s))
     }
 
     /// The most-lit item that can be grabbed now (CI's turned-drag UI test aims at it). Pure.
@@ -1035,7 +1259,7 @@ final class GameController: ObservableObject, SceneDriver {
         if on {
             let inserted = pauseReasons.insert(reason).inserted
             if inserted && route.isPlay && reason != .closing { AppTrace.t("HUSH-T paused \(reason.rawValue)") }
-            if inserted && route.isPlay && demo?.noiseUntilPause == true && !noiseReleased {
+            if inserted && route.isPlay && demo?.noiseUntilPause == true && !noiseReleased && !guardHold {
                 noiseReleased = true
                 AppTrace.t("HUSH-T noise released \(AppTrace.fixed(session?.snapshot.noise ?? 0, 2))")
             }
@@ -1045,9 +1269,15 @@ final class GameController: ObservableObject, SceneDriver {
         if isPaused && !was {
             feedback.silence()
             setGlimmer(false)
+            // R3 (QA-2 P2-3): nothing stays drawn under a pause card.
+            hintGate.clear()
+            hud.update(hint: nil, banner: nil, stage: hud.stage, bagCount: hud.bagCount, debugLoot: hud.debugLoot)
         } else if !isPaused && was && route.isPlay {
             // Every resume: fresh hinge filters and half a second of silent lid (P0-2).
-            if input == .hinge { hinge.reset() }
+            if input == .hinge {
+                hinge.reset()
+                hinge.requiredResumeAngle = HingeLidSource.resumeAngle
+            }
             if let session { _ = session.resumeGrace(seconds: AppRules.resumeGraceSeconds) }
             let angle = input == .hinge ? hinge.angle.map { AppTrace.fixed($0, 1) } ?? "-" : "-"
             AppTrace.t("HUSH-T resumed angle \(angle)")
@@ -1061,6 +1291,7 @@ final class GameController: ObservableObject, SceneDriver {
         closingPause.clear()
         if isMenuOpen { isMenuOpen = false }
         if isClosingPaused { isClosingPaused = false }
+        if closingAwaitsHinge { closingAwaitsHinge = false }
     }
 
     /// QA-1 P2-4: the screen may sleep while paused (a Duo left half-closed), never mid-chest.
@@ -1071,7 +1302,7 @@ final class GameController: ObservableObject, SceneDriver {
 
     /// P0-1: portrait only while a run is live on the inner display (not while CI holds the sim in landscape).
     private func lockForLiveRun(_ on: Bool) {
-        guard demo?.orient != .landscape else { return }
+        guard !demoHoldsLandscape else { return }
         OrientationLock.setLiveRun(on)
     }
 
@@ -1122,10 +1353,12 @@ final class GameController: ObservableObject, SceneDriver {
             let step = LessonScript.Step(rawValue: d.lessonStep ?? 1) ?? .pose
             startLesson(replay: false, at: step)
         case .pose:
-            // A phone never shows the book-pose card (UX: frame 25).
+            // A phone never shows the book-pose card (UX: frame 25), unless CI asks for it by name (`pose=book`).
             var screen = OrientationLock.screenSize()
             if screen.width < 1 { screen = UIScreen.main.bounds.size }
-            if AppRules.allowsForcedPose(.standUp, screen: screen, demoFold: d.fold) { forcedPose = .standUp }
+            if d.poseBook || AppRules.allowsForcedPose(.standUp, screen: screen, demoFold: d.fold) {
+                forcedPose = .standUp
+            }
             if d.mode != nil { start(d.runMode(today: day)) } else { goHome() }
         case .cover:
             forcedPose = .cover
@@ -1148,10 +1381,12 @@ final class GameController: ObservableObject, SceneDriver {
             return
         }
         if let after = demo.holdAfter, playTime < after { return }
+        let creak = creakPending
+        creakPending = false
         if let tag = demo.freezeOn {
-            guard tag != .results, Self.matches(tag, s, events: events) else { return }
+            guard tag != .results, Self.matches(tag, s, events: events, creak: creak) else { return }
             if tag.isEvent {
-                freezePendingAt = playTime + DemoMode.freezeDelay(tag)
+                freezePendingAt = playTime + demo.holdDelay(tag, lesson: mode == .lesson)
                 freezePendingTag = tag
             } else {
                 freeze(tag.rawValue, holdScene: false)
@@ -1162,8 +1397,11 @@ final class GameController: ObservableObject, SceneDriver {
     }
 
     /// Whether this frame is the demo freeze moment `tag`. Pure; tested.
-    nonisolated static func matches(_ tag: DemoMode.Freeze, _ s: HeistSnapshot, events: [HeistEvent]) -> Bool {
+    nonisolated static func matches(_ tag: DemoMode.Freeze, _ s: HeistSnapshot, events: [HeistEvent],
+                                    creak: Bool = false) -> Bool {
         switch tag {
+        case .creak:
+            return creak
         case .ready:
             if case .ready = s.phase { return true }
             return false

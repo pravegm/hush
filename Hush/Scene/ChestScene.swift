@@ -16,7 +16,7 @@ import UIKit
 ///   - shaker (shaken):
 ///     - the lid half (`SceneLid`, z 0, at y 496): planks, the eye, brow, plate, the jaw (z 50 inside it);
 ///     - the hinge strip (z 5, y 456…496);
-///     - the floor half (`SceneFloor`, z 0): the satchel; the chest (slides) with the front wall, bed, tongue,
+///     - the floor half (`SceneFloor`, z 0): the satchel; the chest (R3: hops, never leaves) with the front wall, bed, tongue,
 ///       darkness, wash; then the loot (z 25), the moments' floor layer (z 27), the HUD (z 30);
 ///     - FX: particles (z 55), the moments' callouts, banners, flyers, popups (z 60);
 ///     - the NOISE meter (z 90: on top of everything).
@@ -67,8 +67,31 @@ final class ChestScene: SKScene {
     var browTilt: CGFloat { lid.browTilt }
     /// The gold counter as drawn (it rolls during a bank).
     var shownBanked: Int { hud.shownBanked }
-    /// The chest's slide offset this frame.
+    /// The chest's hop this frame (R3: 0 … 8 pt; the chest never slides away).
     var chestOffset: CGFloat { floor.chestRoot.position.y }
+    /// R3: how dark the interior's shutter is (1 = between chests: the lid's shadow over the interior only).
+    var interiorShut: CGFloat { moments.shutLevel }
+    /// R3 (juror P0-1): the chest's frame, front wall and lock are whole and at full alpha.
+    var chestShellIsWhole: Bool { floor.shellIsWhole }
+    /// R3: the slam callout ("CREAK!") and the meter's red flash.
+    var creakShowing: Bool { moments.creakShowing }
+    var creakCount: Int { moments.creakCount }
+    var meterFlash: CGFloat { hud.meterFlashLevel }
+    /// R3: the chain tab's words ("GOLD ×1.2"), the bank stack's third line, the relic card fully up.
+    var chainTabText: String { hud.chainValueText }
+    var bankSubline: String { moments.bankSubText }
+    var relicCardFullyShown: Bool { moments.relicCardFullyShown }
+    /// R3: the name plate's multiplier seal ("×1.5"; nil at ×1) and the tongue groove (0 when dim).
+    var plateSeal: String? { lid.sealText }
+    var tongueCrease: CGFloat { floor.creaseAlpha }
+    /// R3 (decision 3): "not safe yet" under IN BAG while it holds loot (the App may turn it off after the first runs).
+    var showsBagSublabel: Bool {
+        get { hud.showsBagSublabel }
+        set { hud.showsBagSublabel = newValue }
+    }
+    var bagSublabelShowing: Bool { hud.bagSublabelShowing }
+    /// R3: the lever is drawn (never on a fold layout, decision 4).
+    var leverShowing: Bool { usesSlider && !layout.hasFold }
     /// Items drawn this frame, and relics glimmering.
     var visibleLoot: Int { lootView.visibleCount }
     var glimmeringRelics: Int { lootView.glimmerCount }
@@ -199,6 +222,8 @@ final class ChestScene: SKScene {
             _ = SceneTextures.frontWall(d)
             _ = SceneTextures.browKnob(d)
         }
+        _ = SceneTextures.plateGolden
+        _ = SceneTextures.plateSeal(golden: true)
         applyLayout()
     }
 
@@ -261,7 +286,8 @@ final class ChestScene: SKScene {
         var fxDt = dt
         if let d = driver {
             let out = d.advance(dt: dt, now: CACurrentMediaTime())
-            usesSlider = d.usesSlider
+            // Decision 4: a fold layout never draws or uses the lever.
+            usesSlider = d.usesSlider && !layout.hasFold
             var simDt: Double = 0
             if hasSnapshot {
                 if out.0.time + 0.25 < snapshot.time {
@@ -325,9 +351,10 @@ final class ChestScene: SKScene {
         if let last = lastDressed, last == c { return }
         lastDressed = c
         let d = ChestDress.of(tier: c.tier, golden: c.golden)
-        floor.setDress(d, tier: c.tier)
+        floor.setDress(d, tier: c.tier, animated: animated)
         lid.setDress(d, tier: c.tier, animated: animated)
-        lid.setPlate(name: c.mimicName, subline: ChestCopy.plateSubline(c))
+        lid.setPlate(name: c.mimicName, subline: ChestCopy.plateSubline(c), seal: ChestCopy.plateSeal(c),
+                     golden: c.golden)
     }
 
     /// The candle's flicker on the light (1 steady; lower is dimmer). It gutters in the last 15 s.
@@ -340,6 +367,18 @@ final class ChestScene: SKScene {
         var k = 1 - amp * n
         if low && sin(t * 3.7) > 0.93 { k -= amp }
         return CGFloat(max(k, 0.4))
+    }
+
+    /// R3: a slam that didn't bite: "CREAK!" jolts in under the hint band, the meter flashes red and shakes, the lid
+    /// twitches, the canvas bumps (no shake under Reduce Motion; the meter's flash still shows). The App calls this
+    /// from Feel's `FeedbackDirector.onCreakAccent` (noise up > 0.25 in 0.3 s with the lid moving > 30°/s or a fast
+    /// drag, never on a bite frame). The scene has no noise rule of its own (the lesson's scripted stir jumps the
+    /// noise with the lid still, and must not creak). Ignored during a bite.
+    func showCreak() {
+        guard !moments.biteActive else { return }
+        moments.creak()
+        hud.creak()
+        lid.twitch()
     }
 
     private func lookTarget() -> CGPoint? {
@@ -360,7 +399,7 @@ final class ChestScene: SKScene {
                     lastDressed = nil
                     dressChest(c, animated: true)
                 } else {
-                    floor.setTier(tier)
+                    floor.setTier(tier, animated: true)
                     lid.setTier(tier, animated: true)
                     lid.setName(name)
                 }
@@ -404,7 +443,7 @@ final class ChestScene: SKScene {
             case .oilAdded(let seconds):
                 hud.flare()
                 let fp = hud.flamePoint
-                moments.popup("+\(Int(seconds.rounded()))s", at: CGPoint(x: fp.x + 50, y: min(fp.y + 20, 330)),
+                moments.popup("+\(Int(seconds.rounded()))s", at: CGPoint(x: fp.x + 56, y: min(fp.y + 20, 330)),
                               color: ScenePaint.ui(pal.amber), rise: 40)
                 fx.sparkBurst(at: fp, count: 6, color: ScenePaint.ui(pal.amber), speed: 120, size: 18)
             case .stageChanged:
@@ -421,8 +460,8 @@ final class ChestScene: SKScene {
             case .chainUp(_, let multiplier):
                 hud.chainUp()
                 moments.chainUp(multiplier: multiplier)
-                fx.sparkBurst(at: ChestLayout.chainCenter, count: 8, color: ScenePaint.ui(ScenePaint.meterGreen),
-                              speed: 150, size: 18)
+                fx.sparkBurst(at: ChestLayout.chainCenter, count: 8, color: ScenePaint.ui(pal.gold), speed: 150,
+                              size: 18)
             case .chainBroken:
                 hud.chainBroken()
             case .relicFound(let id):
@@ -475,11 +514,12 @@ final class ChestScene: SKScene {
     /// One touch beginning at canvas point `p` (UITouch path and tests).
     func beginTouch(_ id: Int, canvas p: CGPoint, time: TimeInterval) {
         guard let d = driver else { return }
+        let lever = d.usesSlider && !layout.hasFold
         if ChestLayout.startsOnFloor(p) {
             touchHalves[id] = true
             floorTouchPoints[id] = p
             d.floorTouchBegan(id, at: floorPoint(forCanvas: p), time: time)
-        } else if d.usesSlider {
+        } else if lever {
             touchHalves[id] = false
             d.sliderTouch(began: true, ended: false, fraction: sliderFraction(p), time: time)
         }

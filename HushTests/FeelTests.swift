@@ -599,6 +599,10 @@ struct FeelTests {
             recipes.append(FeelSoundBook.coinSpill(lostValue: value, seconds: 10, dice: &dice))
         }
         recipes.append(FeelSoundBook.glimmerTwinkle(dice: &dice))
+        // R3 moments.
+        recipes.append(FeelSoundBook.creakAccent(dice: &dice))
+        recipes.append(FeelSoundBook.stageCue(from: .asleep, to: .stirring, dice: &dice))
+        recipes.append(FeelSoundBook.stageCue(from: .waking, to: .asleep, dice: &dice))
         for urgent in [false, true] {
             for tock in [false, true] {
                 recipes.append(FeelSoundBook.torchTick(urgent: urgent, tock: tock))
@@ -848,6 +852,7 @@ struct FeelTests {
             FeelHapticBook.chainBroken(), FeelHapticBook.chainBroken(delay: 1.1), FeelHapticBook.goldenArrived(),
             FeelHapticBook.coinSpill(times: FeelSoundBook.spillTimes(count: 10)),
             FeelHapticBook.candleTick(urgent: false), FeelHapticBook.candleTick(urgent: true),
+            FeelHapticBook.creakAccent,
         ]
         let bitePeak = FeelHapticBook.bite.notes.map { $0.intensity }.max() ?? 0
         #expect(bitePeak == 1)
@@ -1263,6 +1268,7 @@ struct FeelTests {
         cues.append(FeelSoundBook.chainUp(count: 5, delay: FeelSoundBook.chainAfterBank, dice: &dice))
         cues.append(FeelSoundBook.chestArrived(tier: .gilded, dice: &dice))
         cues.append(FeelSoundBook.goldenArrived(dice: &dice))
+        cues.append(FeelSoundBook.creakAccent(dice: &dice))
         for _ in 0..<6 { cues.append(FeelSoundBook.glimmerTwinkle(dice: &dice)) }
         for cue in cues {
             for command in cue { synth.send(command) }
@@ -1313,15 +1319,274 @@ struct FeelTests {
 
     @Test func preferredFPSDropsUnderLowPowerOrHeat() {
         #expect(FeedbackDirector.fps(lowPower: false, thermal: .nominal) == 120)
-        #expect(FeedbackDirector.fps(lowPower: false, thermal: .fair) == 120)
+        // R3 (REVIEW-2-duo P2-7): `.fair` already drops to 60.
+        #expect(FeedbackDirector.fps(lowPower: false, thermal: .fair) == 60)
         #expect(FeedbackDirector.fps(lowPower: false, thermal: .serious) == 60)
         #expect(FeedbackDirector.fps(lowPower: false, thermal: .critical) == 60)
         #expect(FeedbackDirector.fps(lowPower: true, thermal: .nominal) == 60)
         let director = FeedbackDirector()
         let info = ProcessInfo.processInfo
-        #expect(director.preferredFPS == FeedbackDirector.fps(lowPower: info.isLowPowerModeEnabled,
-                                                              thermal: info.thermalState))
-        #expect([60, 120].contains(FeedbackDirector.preferredFPS))
+        let ceiling: Int = director.preferredFPS
+        let expected = FeedbackDirector.fps(lowPower: info.isLowPowerModeEnabled, thermal: info.thermalState)
+        #expect(ceiling == expected)
+        let shared: Int = FeedbackDirector.preferredFPS
+        #expect([60, 120].contains(shared))
+    }
+
+    // MARK: - R3: 120 fps only while something moves (REVIEW-2-duo P2-7)
+
+    @Test func frameRateIsFastOnlyWhileSomethingMoves() {
+        var rule = FeelFrameRate()
+        // Idle from the start.
+        let idle = rule.fps(ceiling: 120, lidSpeed: 0, animating: false, at: 10)
+        #expect(idle == 60)
+        // The lid moves: the ceiling, held for a second after it stops.
+        let moving = rule.fps(ceiling: 120, lidSpeed: 8, animating: false, at: 11)
+        #expect(moving == 120)
+        let justAfter = rule.fps(ceiling: 120, lidSpeed: 0.5, animating: false, at: 11.9)
+        #expect(justAfter == 120)
+        let later = rule.fps(ceiling: 120, lidSpeed: 0, animating: false, at: 12.2)
+        #expect(later == 60)
+        // A tremor under 1°/s never counts as moving.
+        let tremor = rule.fps(ceiling: 120, lidSpeed: 0.9, animating: false, at: 14)
+        #expect(tremor == 60)
+        // Something animating (a held item, a moment, flying loot) with the lid still.
+        let animating = rule.fps(ceiling: 120, lidSpeed: 0, animating: true, at: 20)
+        #expect(animating == 120)
+        let settled = rule.fps(ceiling: 120, lidSpeed: 0, animating: false, at: 21.5)
+        #expect(settled == 60)
+        // Low Power or heat (a ceiling of 60) always wins.
+        let hot = rule.fps(ceiling: 60, lidSpeed: 40, animating: true, at: 30)
+        #expect(hot == 60)
+        // Garbage in: never a crash, never above the ceiling.
+        let nan = rule.fps(ceiling: 120, lidSpeed: Double.nan, animating: false, at: Double.nan)
+        #expect(nan == 60 || nan == 120)
+        let zero = rule.fps(ceiling: 0, lidSpeed: 50, animating: true, at: 40)
+        #expect(zero == 1)
+        #expect(FeelFrameRate.idleFPS == 60)
+        // Through the director: the same rule under its own ceiling.
+        let director = FeedbackDirector()
+        let ceiling: Int = director.preferredFPS
+        let fast = director.preferredFPS(lidSpeed: 20, animating: false, at: 100)
+        #expect(fast == ceiling)
+        let still = director.preferredFPS(lidSpeed: 0, animating: false, at: 102)
+        #expect(still == min(60, ceiling))
+    }
+
+    // MARK: - R3: the CREAK accent (the slam)
+
+    @Test func aSlamCracksOnceAndAScriptedJumpNever() {
+        var detector = FeelCreakDetector()
+        let frame = 1.0 / 120
+        var t = 50.0
+        var cracks: [Double] = []
+        // A careful open: the noise creeps up, no crack.
+        for k in 0..<240 {
+            t += frame
+            let fired = detector.update(noise: 0.05 + 0.1 * Double(k) / 240, lidSpeed: 14, dragSpeed: 0,
+                                        playing: true, at: t)
+            if fired { cracks.append(t) }
+        }
+        #expect(cracks.isEmpty)
+        // A slam: 120°/s and the noise climbing 1.6 a second (Tuning's slam rate).
+        let slamStart = t
+        for _ in 0..<36 {
+            t += frame
+            let noise = min(0.15 + 1.6 * (t - slamStart), 0.99)
+            let fired = detector.update(noise: noise, lidSpeed: 120, dragSpeed: 0, playing: true, at: t)
+            if fired { cracks.append(t) }
+        }
+        #expect(cracks.count == 1)
+        // It cracked as the rise passed 0.25 (about 0.16 s in), well inside the 0.3 s window.
+        let latency = (cracks.first ?? 99) - slamStart
+        #expect(latency > 0.1)
+        #expect(latency < FeelCreakDetector.window)
+        let firstCrack = detector.lastFired
+        #expect(firstCrack == cracks.first)
+        // The refractory: a claim right after is refused; after it, a fresh rise of 0.25 is needed.
+        let refused = detector.claim(at: t + 0.01)
+        #expect(refused == false)
+        for _ in 0..<120 {
+            t += frame
+            let fired = detector.update(noise: 0.99, lidSpeed: 0, dragSpeed: 0, playing: true, at: t)
+            if fired { cracks.append(t) }
+        }
+        #expect(cracks.count == 1)
+
+        // A scripted jump (the lesson's stir, a demo preset) with a still lid: never a crack.
+        var scripted = FeelCreakDetector()
+        var s = 10.0
+        for k in 0..<60 {
+            s += frame
+            let noise = k < 30 ? 0.05 : Tuning.lessonStirNoise
+            let fired = scripted.update(noise: noise, lidSpeed: 3, dragSpeed: 100, playing: true, at: s)
+            #expect(fired == false)
+        }
+        // Not playing (a pause, the bank or bite moment): no crack, and the history is forgotten.
+        var paused = FeelCreakDetector()
+        let a = paused.update(noise: 0.1, lidSpeed: 90, dragSpeed: 0, playing: false, at: 1)
+        let b = paused.update(noise: 0.9, lidSpeed: 90, dragSpeed: 0, playing: false, at: 1.1)
+        #expect(a == false)
+        #expect(b == false)
+        let c = paused.update(noise: 0.9, lidSpeed: 90, dragSpeed: 0, playing: true, at: 1.2)
+        #expect(c == false)
+        // A slow rise of 0.3 over 0.6 s is never "a jump within 0.3 s".
+        var slow = FeelCreakDetector()
+        var u = 0.0
+        var slowCracks = 0
+        for k in 0..<72 {
+            u += frame
+            let fired = slow.update(noise: 0.1 + 0.3 * Double(k) / 72, lidSpeed: 40, dragSpeed: 0, playing: true,
+                                    at: u)
+            if fired { slowCracks += 1 }
+        }
+        #expect(slowCracks == 0)
+        // A flicked drag counts as loud input too.
+        var flick = FeelCreakDetector()
+        let f0 = flick.update(noise: 0.1, lidSpeed: 0, dragSpeed: 3_000, playing: true, at: 5)
+        let f1 = flick.update(noise: 0.4, lidSpeed: 0, dragSpeed: 3_000, playing: true, at: 5.2)
+        #expect(f0 == false)
+        #expect(f1)
+        // NaN never fires or crashes.
+        var weird = FeelCreakDetector()
+        let w = weird.update(noise: Double.nan, lidSpeed: Double.nan, dragSpeed: Double.nan, playing: true,
+                             at: Double.nan)
+        #expect(w == false)
+    }
+
+    @Test func theCreakAccentIsSharpAndPlaysThroughTheDirector() {
+        var dice = FeelDice(seed: 21)
+        let crack = FeelSoundBook.creakAccent(dice: &dice)
+        #expect(!crack.isEmpty)
+        for command in crack {
+            #expect(command.gain > 0)
+            #expect(command.gain <= 0.4)
+            #expect(command.delay >= 0)
+            #expect(command.delay < 0.1)
+        }
+        // Louder than a coin, smaller than the CHOMP.
+        let crackPeak = crack.map { $0.gain }.max() ?? 0
+        let chompPeak = FeelSoundBook.chomp(dice: &dice).map { $0.gain }.max() ?? 0
+        let coinPeak = FeelSoundBook.coinClink(dice: &dice).map { $0.gain }.max() ?? 1
+        #expect(crackPeak < chompPeak)
+        #expect(crackPeak > coinPeak * 2)
+        // It renders cleanly over a loud creak.
+        let synth = FeelSynth(sampleRate: 48_000)
+        var bed = FeelSoundBook.heistBed(telemetry: play(speed: 90, noise: 0.6, stage: .stirring),
+                                         master: FeelAudioEngine.masterGain, ambience: 1)
+        bed.glide = 0.01
+        synth.send(.bed(bed))
+        for command in crack { synth.send(command) }
+        let result = feelRender(synth, seconds: 0.5)
+        #expect(result.finite)
+        #expect(result.peak < 1)
+        // Its haptic is keen, short, and under the bite.
+        let tap = FeelHapticBook.creakAccent
+        #expect(tap.length < 0.1)
+        #expect((tap.notes.first?.sharpness ?? 0) >= 0.9)
+        let bitePeak = FeelHapticBook.bite.notes.map { $0.intensity }.max() ?? 0
+        #expect((tap.notes.map { $0.intensity }.max() ?? 2) <= bitePeak)
+
+        // Through the director (sound and haptics off, so nothing starts): the live path is `handle`.
+        let director = FeedbackDirector()
+        director.soundOn = false
+        director.hapticsOn = false
+        var heard = 0
+        director.onCreakAccent = { heard += 1 }
+        // A scripted jump with a still lid: silent.
+        director.handle([], telemetry: play(speed: 0, noise: 0.05))
+        director.handle([], telemetry: play(speed: 0, noise: 0.6, stage: .stirring))
+        #expect(director.creakAccents == 0)
+        // Out of play: silent.
+        director.handle([], telemetry: play(speed: 90, noise: 0.05, playing: false))
+        director.handle([], telemetry: play(speed: 90, noise: 0.7, playing: false))
+        #expect(director.creakAccents == 0)
+        // A slam in play: one crack.
+        director.handle([], telemetry: play(speed: 90, noise: 0.1))
+        director.handle([], telemetry: play(speed: 110, noise: 0.5, stage: .stirring))
+        #expect(director.creakAccents == 1)
+        #expect(heard == 1)
+        // A bite on the same frame keeps the CHOMP alone (the detector still takes the slam).
+        let biter = FeedbackDirector()
+        biter.soundOn = false
+        biter.hapticsOn = false
+        biter.handle([], telemetry: play(speed: 90, noise: 0.2))
+        biter.handle([.bitten(lostValue: 40)], telemetry: play(speed: 120, noise: 1, stage: .biting))
+        #expect(biter.creakAccents == 0)
+        // The manual call shares the refractory: right after a crack it is refused (or, if this test stalled for
+        // over half a second, it plays). Either way the count and the callback agree.
+        let played = director.creakAccent()
+        #expect(director.creakAccents == (played ? 2 : 1))
+        #expect(heard == director.creakAccents)
+        director.silence()
+    }
+
+    // MARK: - R3: the stage cues (VoiceOver players hear them)
+
+    @Test func everyStageChangeHasItsCue() {
+        var dice = FeelDice(seed: 4)
+        let stages: [MimicStage] = [.asleep, .stirring, .waking, .biting]
+        for from in stages {
+            for to in stages {
+                let sound = FeelSoundBook.stageCue(from: from, to: to, dice: &dice)
+                let touch = FeelHapticBook.stageCue(from: from, to: to)
+                if to == from || to == .biting && from < to {
+                    // No change, or a bite (the `bitten` event speaks).
+                    #expect(sound.isEmpty)
+                    #expect(touch == nil)
+                } else if to > from {
+                    #expect(!sound.isEmpty)
+                    #expect(touch != nil)
+                } else {
+                    // Any step down: the sigh (sound only).
+                    #expect(!sound.isEmpty)
+                    #expect(touch == nil)
+                }
+            }
+        }
+        let wake = FeelSoundBook.stageCue(from: .stirring, to: .waking, dice: &dice)
+        #expect(wake == FeelSoundBook.wakeSting())
+        #expect(FeelHapticBook.stageCue(from: .asleep, to: .waking) == FeelHapticBook.waking)
+        #expect(FeelHapticBook.stageCue(from: .asleep, to: .stirring) == FeelHapticBook.stirring)
+    }
+
+    // MARK: - R3: the resume angle after a cover trip (REVIEW-2-duo P1-3)
+
+    @Test func aCoverTripCanLowerTheResumeAngle() {
+        #expect(HingeLidSource.coverResumeAngle(relight: nil) == 95)
+        #expect(HingeLidSource.coverResumeAngle(relight: Double.nan) == 95)
+        #expect(HingeLidSource.coverResumeAngle(relight: 80) == 90)
+        #expect(HingeLidSource.coverResumeAngle(relight: 88) == 91)
+        #expect(HingeLidSource.coverResumeAngle(relight: 100) == 95)
+        let source = HingeLidSource()
+        #expect(source.requiredResumeAngle == HingeLidSource.resumeAngle)
+        source.requiredResumeAngle = Double.nan
+        #expect(source.effectiveResumeAngle == 95)
+        source.requiredResumeAngle = 10
+        #expect(source.effectiveResumeAngle == 90)
+        source.requiredResumeAngle = 500
+        #expect(source.effectiveResumeAngle == 150)
+        // Held still at 92°: not resumable at 95°, resumable once the App lowers the angle to 91°.
+        source.requiredResumeAngle = HingeLidSource.resumeAngle
+        let hinge = FakeHinge(source: source)
+        hinge.run(0.5) { _ in 120 }
+        hinge.run(0.4) { t in 120 - 60 * min(t / 0.3, 1) }
+        hinge.run(0.6) { _ in 60 }
+        hinge.run(0.4) { t in 60 + 32 * min(t / 0.3, 1) }
+        var resumed = false
+        for _ in 0..<180 {
+            if feelHold(hinge, 92) { resumed = true }
+        }
+        #expect(resumed == false)
+        source.requiredResumeAngle = HingeLidSource.coverResumeAngle(relight: 88)
+        var lowered = false
+        for _ in 0..<120 {
+            if feelHold(hinge, 92) { lowered = true }
+        }
+        #expect(lowered)
+        // `reset()` leaves the App's angle alone.
+        source.reset()
+        #expect(source.requiredResumeAngle == 91)
     }
 
     // MARK: - Logging
