@@ -77,7 +77,7 @@ final class ChestScene: SKScene {
     var creakShowing: Bool { moments.creakShowing }
     var creakCount: Int { moments.creakCount }
     var meterFlash: CGFloat { hud.meterFlashLevel }
-    /// R3: the chain tab's words ("GOLD ×1.2"), the bank stack's third line, the relic card fully up.
+    /// R3: the chain tab's words (R5: "CHAIN ×1.2"), the bank stack's third line, the relic card fully up.
     var chainTabText: String { hud.chainValueText }
     var bankSubline: String { moments.bankSubText }
     var relicCardFullyShown: Bool { moments.relicCardFullyShown }
@@ -144,8 +144,23 @@ final class ChestScene: SKScene {
     /// The meter's stage word ("NOISE" / "STIRRING" / "WAKING!") and its drawn width.
     var meterWord: String { hud.meterWordText }
     var meterWordWidth: CGFloat { hud.meterWordWidth }
-    /// The chain tab's two lines' drawn widths ("CHAIN", "GOLD ×1.2").
+    /// The chain tab's line's drawn width (R5: one line, "CHAIN ×1.2").
     var chainTextWidths: [CGFloat] { hud.chainTextWidths }
+
+    // MARK: R5 read-outs
+
+    /// The chain tab's type size as drawn (canvas pt).
+    var chainDrawnFontSize: CGFloat { hud.chainDrawnFontSize }
+    /// The "IN BAG" and "BANKED" labels as drawn (canvas).
+    var plateLabelFrames: [CGRect] { hud.plateLabelFrames }
+    /// The pause seat's alpha (0.3 during the bite).
+    var pauseSeatAlpha: CGFloat { hud.seatAlpha }
+    /// Every bank flyer drawn this frame is clear of the plates' labels (it fades out before it reaches them).
+    var flyersClearOfLabels: Bool { moments.flyersClearOfLabels }
+    /// The bank flyers drawn (alpha > 0.01) this frame.
+    var visibleFlyers: Int { moments.visibleFlyers }
+    /// The first held item's alpha (it fades as it nears a plate's label; nil when nothing is held).
+    var heldItemAlpha: CGFloat? { lootView.heldAlpha }
     /// The bank stack's chain line is drawn (never in the First Chest lesson).
     var bankSublineShowing: Bool { moments.bankSubShowing }
     /// "Next chest…" in the dimmed interior between chests (the App hides its hint while `bankActive || nextChestShowing`).
@@ -364,6 +379,7 @@ final class ChestScene: SKScene {
         floor.update(dt: dt, snapshot: s, light: light, reduceMotion: reduceMotion, cover: mf.interiorCover)
         lootView.update(dt: dt, loot: s.loot, hideBagged: mf.hideBagged, light: light, openness: s.openness)
         hud.update(dt: dt, snapshot: s, light: light, reduceMotion: reduceMotion)
+        hud.dimSeat(moments.biteActive, dt: dt)
         lid.update(dt: dt, snapshot: s, light: light, wakeOverride: mf.wakeOverride, teethOverride: mf.teethOverride,
                    lookAt: lookTarget(), usesSlider: leverShowing, reduceMotion: reduceMotion)
         fx.update(CGFloat(dt))
@@ -470,7 +486,8 @@ final class ChestScene: SKScene {
                         let text = ChestCopy.goldenPop(c)
                         lastGoldenPop = text
                         // (Kept under the App's hint band at the back edge.)
-                        moments.popup(text, at: CGPoint(x: p.x, y: min(p.y + 30, 372)), color: ScenePaint.ui(pal.gold),
+                        // R5: 372 → 356, so it also stays under a hint plate kept 20 pt clear of the fold.
+                        moments.popup(text, at: CGPoint(x: p.x, y: min(p.y + 30, 356)), color: ScenePaint.ui(pal.gold),
                                       rise: 14)
                     }
                 }

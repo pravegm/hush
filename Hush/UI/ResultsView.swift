@@ -15,6 +15,39 @@ struct ResultsView: View {
     @State private var shownGold: Double = 0
     @State private var rankFill: Double = 0
     @State private var appeared = false
+    /// R5 (UX P2-7): the phone column's measured scroll height, the strip's bottom in it, and the hero portrait's
+    /// fitted height (nil: the full height).
+    @State private var scrollHeight: CGFloat = 0
+    @State private var stripBottom: CGFloat = 0
+    @State private var portraitFit: CGFloat? = nil
+
+    /// The phone column's coordinate space (the scroll's content, so scrolling never moves what's measured in it).
+    static let columnSpace = "hush.results.column"
+    /// The hero portrait never shrinks below this (it is still the mimic).
+    static let minPortrait: CGFloat = 60
+
+    private var phonePortraitMax: CGFloat { min(info.safeRect.height * 0.2, 150) }
+
+    /// R5 (UX P2-7): the portrait height that puts the strip's bottom `fade` above the viewport's foot, within
+    /// `minimum…maximum`. One step settles it: the strip moves by exactly the change. Pure; tested.
+    static func fittedPortrait(current: CGFloat, stripBottom: CGFloat, viewport: CGFloat, fade: CGFloat,
+                               minimum: CGFloat, maximum: CGFloat) -> CGFloat {
+        guard stripBottom > 0, viewport > 0, current.isFinite, stripBottom.isFinite, viewport.isFinite else {
+            return current
+        }
+        let spare = viewport - fade - stripBottom
+        return min(max(current + spare, minimum), max(maximum, minimum))
+    }
+
+    private func refitPortrait() {
+        guard !info.hasFold else { return }
+        let current = portraitFit ?? phonePortraitMax
+        let fitted = Self.fittedPortrait(current: current, stripBottom: stripBottom,
+                                         viewport: scrollHeight - FadingScroll<EmptyView>.chevronStrip,
+                                         fade: FadingScroll<EmptyView>.fadeHeight, minimum: Self.minPortrait,
+                                         maximum: phonePortraitMax)
+        if abs(fitted - current) > 0.5 { portraitFit = fitted }
+    }
 
     var body: some View {
         let c = info.isCompact
@@ -45,12 +78,21 @@ struct ResultsView: View {
                 VStack(spacing: 10) {
                     FadingScroll {
                         VStack(spacing: c ? 12 : 18) {
-                            hero(c, portrait: min(safe.height * 0.2, 150))
+                            hero(c, portrait: portraitFit ?? phonePortraitMax)
                             details(c, width: width)
                         }
                         .padding(.top, 12)
+                        .coordinateSpace(.named(Self.columnSpace))
                         .frame(width: width)
                         .frame(maxWidth: .infinity)
+                    }
+                    // R5 (UX P2-7, frames 20 and 38): the hero's mimic gives way so the strip's two rows (the
+                    // second ending in "+N more") sit above the scroll's fade.
+                    .onGeometryChange(for: CGFloat.self) { proxy in
+                        proxy.size.height
+                    } action: { height in
+                        scrollHeight = height
+                        refitPortrait()
                     }
                     buttons(c)
                         .frame(width: width)
@@ -80,7 +122,7 @@ struct ResultsView: View {
             }
             .accessibilityElement(children: .combine)
             MimicPortraitView(scene: controller.portraits.results, fps: min(controller.preferredFPS, 60))
-                .frame(height: max(portrait, 70))
+                .frame(height: max(portrait, Self.minPortrait))
             HStack(alignment: .center, spacing: 12) {
                 CoinGlyph(size: c ? 36 : 48)
                 CountingNumber(value: shownGold, font: HushType.hero(c))
@@ -142,6 +184,12 @@ struct ResultsView: View {
             .fixedSize(horizontal: false, vertical: true)
             if !r.chestLog.isEmpty {
                 ChestStrip(log: r.chestLog, compact: c, width: width)
+                    .onGeometryChange(for: CGFloat.self) { proxy in
+                        proxy.frame(in: .named("hush.results.column")).maxY   // = ResultsView.columnSpace
+                    } action: { bottom in
+                        stripBottom = bottom
+                        refitPortrait()
+                    }
             }
             if r.bestChain >= 2 {
                 Text(AppRules.chainLine(r.bestChain))
@@ -206,7 +254,14 @@ struct ResultsView: View {
 /// Content that fits doesn't scroll, fade or show the chevron.
 struct FadingScroll<Content: View>: View {
     @ViewBuilder let content: () -> Content
+    /// R5: where the scroll starts (nil: the top). The lesson's final card starts at the bottom, so "Got it" shows.
+    var anchor: UnitPoint?
     @State private var state = ScrollState()
+
+    init(anchor: UnitPoint? = nil, @ViewBuilder content: @escaping () -> Content) {
+        self.anchor = anchor
+        self.content = content
+    }
 
     struct ScrollState: Equatable {
         var overflows = false
@@ -221,6 +276,8 @@ struct FadingScroll<Content: View>: View {
 
     /// R4 (QA-3 P2-8, frames 41/45): the chevron's own strip under the scroll, so it never sits on the totals.
     static var chevronStrip: CGFloat { 18 }   // computed: a generic type can't store a static
+    /// R5: the height of the fade at the foot of an overflowing scroll (the mask below).
+    static var fadeHeight: CGFloat { 36 }
 
     var body: some View {
         let fades = state.overflows && !state.atEnd
@@ -242,6 +299,7 @@ struct FadingScroll<Content: View>: View {
         ScrollView(showsIndicators: false) {
             content()
         }
+        .defaultScrollAnchor(anchor)
         .scrollBounceBehavior(.basedOnSize)
         .onScrollGeometryChange(for: ScrollState.self) { g in
             Self.state(contentHeight: g.contentSize.height, viewHeight: g.containerSize.height,
@@ -251,7 +309,7 @@ struct FadingScroll<Content: View>: View {
         }
         .mask {
             GeometryReader { g in
-                let fade = fades ? min(36 / max(g.size.height, 1), 0.3) : 0
+                let fade = fades ? min(Self.fadeHeight / max(g.size.height, 1), 0.3) : 0
                 LinearGradient(stops: [.init(color: .black, location: 0), .init(color: .black, location: 1 - fade),
                                        .init(color: .black.opacity(fades ? 0 : 1), location: 1)],
                                startPoint: .top, endPoint: .bottom)

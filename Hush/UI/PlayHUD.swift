@@ -89,8 +89,9 @@ struct PlayLayer: View {
 
     var body: some View {
         let fit = info.fit
-        // R4 (UX P1-1): the hint plate never reaches the pause stud (16 pt clear).
-        let band = fit.viewRect(canvas: HUDLayout.hintPlateRect)
+        // R4 (UX P1-1): the hint plate never reaches the pause stud (16 pt clear). R5: measured against the seat as
+        // drawn at this scale, 20 pt off the fold.
+        let band = fit.viewRect(canvas: HUDLayout.hintPlateRect(viewScale: fit.scale))
         let paused = controller.isMenuOpen || controller.isClosingPaused
         ZStack {
             accessibilityHooks(fit)
@@ -100,26 +101,37 @@ struct PlayLayer: View {
                                   reduceMotion: controller.reduceMotion)
                 }
             } else if !paused {
-                HintLine(hint: hud.hint, banner: hud.banner, slider: controller.sliderWording, scale: fit.textScale,
-                         reduceMotion: controller.reduceMotion)
-                    .frame(width: band.width, height: band.height)
-                    .position(x: band.midX, y: band.midY)
-                    .allowsHitTesting(false)
+                // R5 (juror P2-1, tester 9): on the chest's centre line (not the band's middle), 20 pt off the fold.
+                let axis = fit.viewPoint(canvas: CGPoint(x: HUDLayout.chestAxisX, y: 0)).x
+                AxisCentredLayout(axisX: axis - band.minX) {
+                    HintLine(hint: hud.hint, banner: hud.banner, slider: controller.sliderWording,
+                             scale: fit.textScale, reduceMotion: controller.reduceMotion)
+                }
+                .frame(width: band.width, height: band.height)
+                .position(x: band.midX, y: band.midY)
+                .allowsHitTesting(false)
             }
             if let marker = controller.dailyMarker, controller.route == .playing, !paused {
+                // R5 (juror P2-2, frame 26): centred on the chest, 12 pt clear above the phone's plaque.
+                let spot = HUDLayout.dailyMarkerCenter(info)
                 Text(marker.uppercased())
                     .font(.system(size: 12, weight: .heavy, design: .rounded))
                     .kerning(0.8)
                     .foregroundStyle(PlateArt.text(.parchment))
                     .lineLimit(1)
                     .hushPlate(.parchment, padding: 6, radius: 10)
-                    .position(x: info.safeRect.minX + AppCanvas.pauseInset + 100,
-                              y: info.safeRect.minY + AppCanvas.pauseInset + 16)
+                    .frame(maxWidth: max(info.safeRect.width - 2 * AppCanvas.pauseInset, 120))
+                    .position(x: spot.x, y: spot.y)
                     .allowsHitTesting(false)
             }
             if !(controller.lessonDisplay?.isFinal ?? false) && !paused {
                 let pause = info.pauseCenter()
+                // R5 (juror P2-3, frame 13): the bite's teeth own the screen; the coin steps away for the moment.
                 BrassCoinButton(label: "Pause") { controller.openMenu() }
+                    .opacity(hud.biting ? 0 : 1)
+                    .allowsHitTesting(!hud.biting)
+                    .accessibilityHidden(hud.biting)
+                    .animation(.easeOut(duration: 0.15), value: hud.biting)
                     .position(x: pause.x, y: pause.y)
             }
             if controller.isMenuOpen {
@@ -361,6 +373,7 @@ struct LessonOverlay: View {
     let info: AppCanvas
     let reduceMotion: Bool
     @State private var glow = false
+    @Environment(\.dynamicTypeSize) private var typeSize
 
     var body: some View {
         let band = fit.viewRect(canvas: HUDLayout.lessonBand)
@@ -390,12 +403,19 @@ struct LessonOverlay: View {
                     .allowsHitTesting(false)
             }
             if lesson.isFinal {
-                // R4 (founder): at the accessibility cap the card scrolls inside the floor half, never clipped.
+                // R5 (UX P1-1, juror P1-1, frame 39): a short fold floor gets the compact card, which fits at the
+                // default size; only the accessibility sizes (or a last resort) scroll, fading, anchored on "Got it".
                 let card = LessonFinalCard(controller: controller, compact: info.isCompact,
-                                           width: min(info.size.width - 32, 400))
-                ViewThatFits(in: .vertical) {
-                    card
-                    ScrollView(showsIndicators: false) { card }
+                                           width: LessonFinalCard.width(info), tight: info.tightFloor)
+                Group {
+                    if typeSize.isAccessibilitySize {
+                        FadingScroll(anchor: .bottom) { card }
+                    } else {
+                        ViewThatFits(in: .vertical) {
+                            card
+                            FadingScroll(anchor: .bottom) { card }
+                        }
+                    }
                 }
                 .frame(maxHeight: info.floorHalf.height)
                 .position(x: info.floorHalf.midX, y: info.floorHalf.midY)
@@ -543,18 +563,24 @@ struct LessonFinalCard: View {
     @ObservedObject var controller: GameController
     let compact: Bool
     let width: CGFloat
+    /// R5 (UX P1-1): a short fold floor's compact metrics (`AppCanvas.tightFloor`): the compact title, closer rows,
+    /// a 56 pt "Got it" (still ≥ the tap minimum) and less padding.
+    var tight = false
+
+    /// The width the card is laid out for on `info`. Pure; tested.
+    static func width(_ info: AppCanvas) -> CGFloat { min(info.size.width - 32, 400) }
 
     var body: some View {
-        VStack(spacing: 14) {
+        VStack(spacing: tight ? 8 : 14) {
             Text(LessonDisplay.finalTitle)
-                .font(HushType.title(compact))
+                .font(HushType.title(compact || tight))
                 .foregroundStyle(HushTheme.parchment)
                 .multilineTextAlignment(.center)
                 .fixedSize(horizontal: false, vertical: true)
-            VStack(alignment: .leading, spacing: 10) {
+            VStack(alignment: .leading, spacing: tight ? 6 : 10) {
                 ForEach(HushCopy.stakes(slider: controller.sliderWording), id: \.text) { row in
                     HStack(spacing: 12) {
-                        PlateGlyphView(glyph: row.icon, side: 28)
+                        PlateGlyphView(glyph: row.icon, side: tight ? 24 : 28)
                             .frame(width: 30)
                         Text(row.text)
                             .font(HushType.body(compact))
@@ -565,7 +591,8 @@ struct LessonFinalCard: View {
                     .accessibilityElement(children: .combine)
                 }
             }
-            HushButton(kind: .primary, compact: compact, confirm: true, action: { controller.finishLesson() }) {
+            HushButton(kind: .primary, height: tight ? HushTheme.minTap : HushTheme.primaryHeight, compact: compact,
+                       confirm: true, action: { controller.finishLesson() }) {
                 Text("Got it")
             }
             HushButton(kind: .leather, height: HushTheme.minTap, compact: compact,
@@ -574,6 +601,6 @@ struct LessonFinalCard: View {
             }
         }
         .frame(width: max(width - 60, 200))
-        .hushPlate(padding: 20, radius: 26)
+        .hushPlate(padding: tight ? 14 : 20, radius: 26)
     }
 }

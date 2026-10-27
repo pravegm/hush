@@ -90,8 +90,66 @@ enum HUDLayout {
     static let pauseGap: CGFloat = 16
 
     /// R4: where the hint plate may go: the hint band, kept `pauseGap` clear of the pause stud (centred while it can
-    /// be). The plate hugs its text inside this rect.
-    static var hintPlateRect: CGRect { hintPlateRect(band: hintBand, pause: pauseRect) }
+    /// be). The plate hugs its text inside this rect. R5 (juror P2, tester 9): and kept `foldClearance` clear of the
+    /// floor's fold edge (the crease can distort the band right next to the hinge).
+    static var hintPlateRect: CGRect { clearOfFold(hintPlateRect(band: hintBand, pause: pauseRect)) }
+
+    /// R5 (juror P2-1, Scene R5 note): the plate's band at the scene's `viewScale` (view points per canvas point): from
+    /// the hint band's left end to `pauseGap` short of the pause seat AS DRAWN at that scale (≈ 574 on the Duo, ≈ 528
+    /// on a 402 pt phone), and clear of the fold. Wide enough to centre most lines on the chest's axis. Pure; tested.
+    static func hintPlateRect(viewScale: CGFloat) -> CGRect {
+        let band = hintBand
+        let maxX = ChestLayout.pauseSeat(viewScale: viewScale).minX - pauseGap
+        guard maxX.isFinite, maxX > band.minX + 100 else { return hintPlateRect }
+        return clearOfFold(CGRect(x: band.minX, y: band.minY, width: maxX - band.minX, height: band.height))
+    }
+
+    /// R5: canvas points kept between a plate and the floor half's fold edge (`ScreenLayout.foldMinY`).
+    static let foldClearance: CGFloat = 20
+
+    /// R5: `r` moved down (canvas y up: away from the fold) until it keeps `foldClearance` from the fold edge. Pure;
+    /// tested.
+    static func clearOfFold(_ r: CGRect) -> CGRect {
+        let maxY = ScreenLayout.foldMinY - foldClearance
+        guard r.maxY > maxY else { return r }
+        return r.offsetBy(dx: 0, dy: maxY - r.maxY)
+    }
+
+    /// R5 (juror P2-1): the chest's centre line (the eye, the name plate and the lock share it), from the Scene.
+    static var chestAxisX: CGFloat { ChestLayout.chestCenterX }
+
+    /// R5: where a plate `width` wide starts in `band`: centred on `axis` while it fits, else pushed in just far enough
+    /// to stay inside the band (so a long line keeps its size and only the short ones are truly centred). Any units,
+    /// as long as they agree. Pure; tested.
+    static func plateMinX(width: CGFloat, axis: CGFloat, band: CGRect) -> CGFloat {
+        let w = min(max(width.isFinite ? width : 0, 0), band.width)
+        return min(max(axis - w / 2, band.minX), band.maxX - w)
+    }
+
+    /// R5 (juror P2-2, UX P2-8, frame 26): the Daily marker's centre (view points): on the chest's axis at the lid's far
+    /// end, inside the safe area, and at least `markerGap` above the phone's carved plaque ("Wooden · Chest 1") when
+    /// the scene draws one. `markerHeight` is the marker plate's height. Pure; tested.
+    static let markerGap: CGFloat = 12
+
+    /// The marker may reach this far into the top inset (the Dynamic Island ends well above the safe edge; turned
+    /// round, that edge is the home indicator's).
+    static let markerInsetAllowance: CGFloat = 6
+
+    static func dailyMarkerCenter(_ info: AppCanvas, markerHeight: CGFloat = 36) -> CGPoint {
+        let layout = ScreenLayout.make(hasFold: info.hasFold, viewSize: info.size)
+        let fit = CanvasFit(viewSize: info.size, layout: layout)
+        let x = fit.viewPoint(canvas: CGPoint(x: chestAxisX, y: 0)).x
+        let safe = info.safeRect
+        let half = markerHeight / 2
+        let preferred = safe.minY + AppCanvas.pauseInset + 16
+        let lowest = safe.minY + half - markerInsetAllowance
+        let t = ChestLayout.topExtension(layout)
+        guard t >= ChestLayout.plaqueMinExtension else { return CGPoint(x: x, y: max(preferred, lowest)) }
+        let plaqueTop = ChestLayout.lidBottom + ChestLayout.plaqueCenterY(topExtension: t)
+            + ChestLayout.plaqueSize.height / 2
+        let plaqueTopView = fit.viewPoint(canvas: CGPoint(x: chestAxisX, y: plaqueTop)).y
+        return CGPoint(x: x, y: max(min(preferred, plaqueTopView - markerGap - half), lowest))
+    }
 
     /// Pure; tested.
     static func hintPlateRect(band: CGRect, pause: CGRect, gap: CGFloat = pauseGap) -> CGRect {
@@ -196,4 +254,34 @@ struct AppCanvas: Equatable {
 
     /// A readable column width.
     var columnWidth: CGFloat { min(size.width - 40, 520) }
+
+    /// R5 (UX P1-1, juror P1-1, frames 30 and 39): a fold whose floor half is short (a phone emulating the fold: ~345 pt
+    /// on a 393 pt phone, turned round) lays Home and the lesson's final card out with compact metrics, so the plain
+    /// (non-scrolling) version fits at the default text size. The Duo's own floor half (~440 pt) keeps the full ones.
+    static let tightFloorBelow: CGFloat = 420
+    var tightFloor: Bool { hasFold && floorHalf.height < Self.tightFloorBelow }
+}
+
+/// R5 (juror P2-1): lays its child (a hugging plate) centred on `axisX` (its own coordinates, 0 = its left edge) while
+/// the plate fits, else pushed in just far enough to stay inside (`HUDLayout.plateMinX`). It fills the frame it is
+/// given, so the plate's vertical placement is unchanged.
+struct AxisCentredLayout: Layout {
+    var axisX: CGFloat
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let w = proposal.width ?? subviews.map { $0.sizeThatFits(.unspecified).width }.max() ?? 0
+        let h = proposal.height ?? subviews.map { $0.sizeThatFits(ProposedViewSize(width: w, height: nil)).height }
+            .max() ?? 0
+        return CGSize(width: w.isFinite ? w : 0, height: h.isFinite ? h : 0)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        for child in subviews {
+            let size = child.sizeThatFits(ProposedViewSize(width: bounds.width, height: bounds.height))
+            let w = min(size.width.isFinite ? size.width : bounds.width, bounds.width)
+            let x = HUDLayout.plateMinX(width: w, axis: bounds.minX + axisX, band: bounds)
+            child.place(at: CGPoint(x: x, y: bounds.midY), anchor: .leading,
+                        proposal: ProposedViewSize(width: w, height: bounds.height))
+        }
+    }
 }

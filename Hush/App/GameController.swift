@@ -42,7 +42,7 @@ final class GameController: ObservableObject, SceneDriver {
     static let homeLidInterval: Double = 1.0 / 30.0
     static let toastSeconds: Double = 2.4
     /// R3: an in-run callout (a one-time tip, the golden banner) stays up this long (wall s).
-    static let calloutSeconds: Double = 2.4
+    static let calloutSeconds: Double = AppRules.calloutSecondsDefault
     /// Portrait requests are throttled to one per this many seconds.
     static let portraitAskInterval: Double = 1.0
     /// Held camera-end-up this long while turned round: "Other way round" (P1-7).
@@ -149,10 +149,16 @@ final class GameController: ObservableObject, SceneDriver {
     /// R3: the in-run callout (a one-time tip, the golden banner) and until when it shows (wall clock).
     private var callout: String?
     private var calloutUntil: TimeInterval = 0
+    /// R5 (ROUND-5 App 7): until then (wall clock) only "Freeze!" or nothing may replace the callout (the first Hush
+    /// Chain tip's 3 s).
+    private var calloutHoldUntil: TimeInterval = 0
     /// R4: a callout that arrived during the bank beat or the relic card (shown once the next chest is live).
     private var pendingCallout: String?
-    /// R4: the relic card is on screen until then (frame clock).
+    /// R4: the relic card is on screen until then. R5 (QA-4 P2-D): on SESSION time (`HeistSnapshot.time`), like the
+    /// card itself, so a pause (the menu) can't run the gate out while the card is frozen on screen.
     private var relicCardUntil: TimeInterval = 0
+    /// R5 (QA-4 P2-E): VoiceOver's lesson lines ("Slower…" once a step, nothing repeated within 3 s).
+    private var lessonSpeech = LessonSpeechGate()
     /// R4 (QA-3 P2-4/5): VoiceOver's stage lines: once per chest for Stirring, and the late one cancellable.
     private var announceGate = AnnounceGate()
     private var stageAnnounceTask: Task<Void, Never>?
@@ -334,7 +340,7 @@ final class GameController: ObservableObject, SceneDriver {
             if case let .banked(value, _, _) = event { bankedSum += value }
             if case .chestArrived = event, snapshot.chest?.golden == true { feedback.goldenArrived() }
             if case .torchOut = event { watchTheEnd() }
-            if case .relicFound = event { noteRelicCard(now: now) }
+            if case .relicFound = event { noteRelicCard(at: snapshot.time) }
             AppTrace.t("HUSH-T event " + traceLine(event, snapshot: snapshot))
             callouts(for: event, snapshot: snapshot, now: now)
             announce(event)
@@ -436,24 +442,31 @@ final class GameController: ObservableObject, SceneDriver {
         showCallout(tip.text, now: now)
     }
 
-    /// R4 (ROUND-4 App 2): one prompt at a time. A callout that lands during the bank beat or under the relic card
-    /// (the first Hush Chain tip arrives WITH the bank) waits until the next chest is live, then shows its full time.
+    /// R4 (ROUND-4 App 2): one prompt at a time. A callout that lands under the relic card (or, R5, in the bank beat,
+    /// unless it is the bank's own Hush Chain tip) waits until the next chest is live, then shows its full time. R5
+    /// (ROUND-5 App 7): the first Hush Chain tip shows AT the bank that earns it and is held 3 s (`AppRules.calloutHold`):
+    /// a callout arriving meanwhile waits for it.
     private func showCallout(_ text: String, now: TimeInterval) {
-        guard let session, !AppRules.promptBlocked(phase: session.snapshot.phase, relicCardUp: now < relicCardUntil)
+        guard let session else { return }
+        let s = session.snapshot
+        let heldByAnother = callout != nil && callout != text && now < calloutHoldUntil
+        guard !AppRules.calloutBlocked(text, phase: s.phase, relicCardUp: s.time < relicCardUntil), !heldByAnother
         else {
-            pendingCallout = text
+            if pendingCallout == nil { pendingCallout = text }
             return
         }
-        pendingCallout = nil
+        if pendingCallout == text { pendingCallout = nil }
         callout = text
-        calloutUntil = now + Self.calloutSeconds
+        calloutUntil = now + AppRules.calloutSeconds(text)
+        calloutHoldUntil = now + AppRules.calloutHold(text)
         AppTrace.t("HUSH-T callout \(text)")
         announceNow(text)
     }
 
     /// The relic card shows after the bank's stack, one per relic (`SceneMoments`): hints and callouts wait for it.
-    private func noteRelicCard(now: TimeInterval) {
-        let start = max(relicCardUntil, now + SceneMoments.bankGroupEnd)
+    /// R5 (QA-4 P2-D): `time` is the session's, the clock the card itself runs on.
+    private func noteRelicCard(at time: TimeInterval) {
+        let start = max(relicCardUntil, time + SceneMoments.bankGroupEnd)
         relicCardUntil = start + SceneMoments.bannerTime
     }
 
@@ -996,13 +1009,15 @@ final class GameController: ObservableObject, SceneDriver {
         frozen = false
         sceneHeld = false
         callout = nil
+        calloutHoldUntil = 0
         pendingCallout = nil
         cancelStageAnnouncement()
         setGlimmer(false)
         lockForLiveRun(false)
         feedback.silence()
         feedback.idle = true
-        hud.update(hint: nil, banner: nil, stage: .asleep, bagCount: 0, debugLoot: nil, spoken: SpokenHUD())
+        hud.update(hint: nil, banner: nil, stage: .asleep, bagCount: 0, debugLoot: nil, spoken: SpokenHUD(),
+                   biting: false)
         setRoute(.home)
         refreshIdleTimer()
     }
@@ -1042,6 +1057,7 @@ final class GameController: ObservableObject, SceneDriver {
     func startLesson(replay: Bool, at step: LessonScript.Step = .pose) {
         lessonReplay = replay
         start(.lesson)
+        lessonSpeech = LessonSpeechGate()
         let script = LessonScript(start: step, replay: replay)
         lessonScript = script
         publishLesson(script, hint: nil, now: 0, force: true)
@@ -1090,7 +1106,11 @@ final class GameController: ObservableObject, SceneDriver {
                 AppTrace.t("HUSH-T lesson step \(display.step) praise=\(display.praise ? 1 : 0) line '\(display.line)'")
             }
             // R4 (QA-3 P2, UX P2-9): VoiceOver hears each step, praise and warning, and the final card.
-            if let said = LessonDisplay.announcement(from: lessonDisplay, to: display) { announceNow(said) }
+            // R5 (QA-4 P2-E): "Slower…" once a step, and no line again within 3 s (it used to alternate).
+            if let said = LessonDisplay.announcement(from: lessonDisplay, to: display),
+               lessonSpeech.allows(said, step: display.step, now: now) {
+                announceNow(said)
+            }
             lessonDisplay = display
         }
     }
@@ -1110,6 +1130,7 @@ final class GameController: ObservableObject, SceneDriver {
         noiseReleased = false
         callout = nil
         calloutUntil = 0
+        calloutHoldUntil = 0
         pendingCallout = nil
         relicCardUntil = 0
         announceGate = AnnounceGate()
@@ -1154,7 +1175,8 @@ final class GameController: ObservableObject, SceneDriver {
             hinge.reset()
             hinge.requiredResumeAngle = HingeLidSource.resumeAngle
         }
-        hud.update(hint: nil, banner: bannerText, stage: .asleep, bagCount: 0, debugLoot: nil, spoken: SpokenHUD())
+        hud.update(hint: nil, banner: bannerText, stage: .asleep, bagCount: 0, debugLoot: nil, spoken: SpokenHUD(),
+                   biting: false)
         setRoute(m == .lesson ? .lesson : .playing)
         // R3 (P1-4): a Duo run with no hinge report yet waits, shut and paused, for the lid to move.
         if input == .hinge && !hinge.hasHinge {
@@ -1314,29 +1336,34 @@ final class GameController: ObservableObject, SceneDriver {
         }
         // R4 (ROUND-4 App 2, juror P1-5): one prompt at a time. The bank beat and the relic card hide the hint at
         // once (a live warning still shows), and a callout that waited for them shows now.
-        let relicUp = now < relicCardUntil
+        // R5 (QA-4 P2-D): the relic card's gate runs on session time, like the card.
+        let relicUp = s.time < relicCardUntil
         if let h = wanted, AppRules.hintSuppressed(h, phase: s.phase, relicCardUp: relicUp) { wanted = nil }
-        if AppRules.promptBlocked(phase: s.phase, relicCardUp: relicUp) {
-            if let h = hintGate.shown, AppRules.hintSuppressed(h, phase: s.phase, relicCardUp: relicUp) {
-                hintGate.clear()
-            }
-            if callout != nil && now < calloutUntil {
-                // A callout caught by the bank beat or the relic card finishes later, in full.
-                pendingCallout = callout
-                callout = nil
-                calloutUntil = 0
-            }
-        } else if let waiting = pendingCallout, !isPaused, route != .lesson, AppRules.isLive(s.phase) {
+        let blocked = AppRules.promptBlocked(phase: s.phase, relicCardUp: relicUp)
+        if blocked, let h = hintGate.shown, AppRules.hintSuppressed(h, phase: s.phase, relicCardUp: relicUp) {
+            hintGate.clear()
+        }
+        if let text = callout, now < calloutUntil,
+           AppRules.calloutBlocked(text, phase: s.phase, relicCardUp: relicUp) {
+            // A callout caught by the bank beat or the relic card finishes later, in full (R5: the bank's own Hush
+            // Chain tip stays through its bank beat; only the relic card defers it).
+            pendingCallout = text
+            callout = nil
+            calloutUntil = 0
+            calloutHoldUntil = 0
+        } else if !blocked, let waiting = pendingCallout, !isPaused, route != .lesson, AppRules.isLive(s.phase),
+                  !(callout != nil && now < calloutUntil) {
             showCallout(waiting, now: now)
         }
         var shown = hintGate.update(wanted, now: now)
         if isPaused { shown = nil }
         setGlimmer(shown == .relicDeeper)
         // One prompt at a time: a warning hint wins; then a callout (a tip, the golden banner); then the hint; then the
-        // run-start banner.
+        // run-start banner. R5: during the first Hush Chain tip's 3 s hold only "Freeze!" wins.
         var banner: String?
-        if let text = callout, now < calloutUntil, !isPaused, !(shown.map(AppRules.isWarning) ?? false),
-           route != .lesson {
+        let held = now < calloutHoldUntil
+        if let text = callout, now < calloutUntil, !isPaused,
+           !(shown.map({ AppRules.calloutYields(to: $0, held: held) }) ?? false), route != .lesson {
             banner = text
             shown = nil
         } else if shown == nil && s.time < bannerUntil && !isPaused {
@@ -1344,11 +1371,13 @@ final class GameController: ObservableObject, SceneDriver {
         }
         var bagged = 0
         for item in s.loot where item.place == .inBag { bagged += 1 }
-        let urgent = shown != hud.hint || banner != hud.banner || bagged != hud.bagCount
+        // R5 (juror P2-3): the pause coin hides on the scene's own bite flag (its seat dims on it too).
+        let biting = scene?.biteActive ?? AppRules.isBiteMoment(s.phase)
+        let urgent = shown != hud.hint || banner != hud.banner || bagged != hud.bagCount || biting != hud.biting
         guard urgent || now - lastHUD >= Self.hudInterval else { return }
         lastHUD = now
         hud.update(hint: shown, banner: banner, stage: s.stage, bagCount: bagged,
-                   debugLoot: isDemo ? Self.mostLit(s) : nil, spoken: SpokenHUD(s))
+                   debugLoot: isDemo ? Self.mostLit(s) : nil, spoken: SpokenHUD(s), biting: biting)
     }
 
     /// The most-lit item that can be grabbed now (CI's turned-drag UI test aims at it). Pure.

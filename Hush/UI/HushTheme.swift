@@ -169,10 +169,12 @@ struct HushButtonStyle: ButtonStyle {
                     .frame(maxWidth: .infinity)
                     .onPlate(.leather, minHeight: h, radius: HushTheme.buttonRadius, pressed: pressed)
             } else {
+                // R5 (QA-4 P1-A): the background grows with a label taller than `h` (Home's Daily tile at the
+                // accessibility sizes, status under its title); at every other size it is exactly `h`, as before.
                 label
                     .frame(maxWidth: .infinity, minHeight: h)
                     .padding(.horizontal, 14)
-                    .background(HushButtonBackground(kind: kind, pressed: pressed).frame(height: h))
+                    .background(HushButtonBackground(kind: kind, pressed: pressed).frame(minHeight: h))
             }
         }
         .contentShape(Rectangle())

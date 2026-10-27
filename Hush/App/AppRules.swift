@@ -541,3 +541,69 @@ extension AppRules {
         ]
     }
 }
+
+// MARK: - R5: the release candidate
+
+extension AppRules {
+    /// R5 (ROUND-5 App 7, UX P2-5): the first Hush Chain tip belongs to the bank that earns it. It shows AT that bank
+    /// (the one callout the bank beat allows), stays up `chainTipSeconds`, and for its first `chainTipHold` seconds no
+    /// hint replaces it ("Freeze!" alone still does) and no other callout pushes it off.
+    static let chainTipSeconds: Double = 3.5
+    static let chainTipHold: Double = 3.0
+    /// Every other callout (a tip, the golden banner).
+    static let calloutSecondsDefault: Double = 2.4
+
+    static func isBankTip(_ text: String) -> Bool { text == RunTip.chain.text }
+
+    /// How long a callout stays up (wall s). Pure; tested.
+    static func calloutSeconds(_ text: String) -> Double {
+        isBankTip(text) ? chainTipSeconds : calloutSecondsDefault
+    }
+
+    /// How long nothing but "Freeze!" may replace a callout (0: a warning hint or a newer callout may). Pure; tested.
+    static func calloutHold(_ text: String) -> Double { isBankTip(text) ? chainTipHold : 0 }
+
+    /// A callout waits while this is true: under the relic card always; in the bank beat unless it is the bank's own
+    /// tip. Pure; tested.
+    static func calloutBlocked(_ text: String, phase: RunPhase, relicCardUp: Bool) -> Bool {
+        if relicCardUp { return true }
+        if case .banked = phase { return !isBankTip(text) }
+        return false
+    }
+
+    /// Whether the hint on screen takes the band from a callout: a warning does, except during a held tip, where only
+    /// "Freeze!" does. Pure; tested.
+    static func calloutYields(to hint: HeistHint, held: Bool) -> Bool {
+        held ? hint == .freeze : isWarning(hint)
+    }
+
+    /// R5 (juror P2-3, frame 13): the bite moment, when the pause coin steps aside for the teeth. Pure; tested.
+    static func isBiteMoment(_ phase: RunPhase) -> Bool {
+        if case .bitten = phase { return true }
+        return false
+    }
+}
+
+/// R5 (QA-4 P2-E): what VoiceOver hears in the lesson. "Slower… it's grumbling." is said at most once a step (a fast
+/// lid re-arms it every frame, and it used to alternate with the step line), and no line is said again within
+/// `repeatWindow` seconds. Pure; tested.
+struct LessonSpeechGate: Equatable {
+    static let repeatWindow: Double = 3
+
+    private var slowerStep: Int?
+    private var lastSaid: [String: Double] = [:]
+
+    init() {}
+
+    static func isSlower(_ line: String) -> Bool { line.hasPrefix("Slower") }
+
+    mutating func allows(_ line: String, step: Int, now: Double) -> Bool {
+        if Self.isSlower(line) {
+            if slowerStep == step { return false }
+            slowerStep = step
+        }
+        if let at = lastSaid[line], now - at < Self.repeatWindow, now >= at { return false }
+        lastSaid[line] = now
+        return true
+    }
+}

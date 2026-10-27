@@ -322,7 +322,7 @@ final class SceneLid {
         knobN.zPosition = 3.5
 
         var zs: [SceneLabel] = []
-        for (i, size) in [CGFloat(24), 30, 38].enumerated() {
+        for (i, size) in SceneLid.zzzSizes.enumerated() {
             let z = SceneLabel(size: size, color: ScenePaint.ui(pal.candle))
             z.set(i == 0 ? "z" : "Z")
             z.node.zPosition = 10
@@ -569,6 +569,18 @@ final class SceneLid {
         }
     }
 
+    /// R5 (juror P2, tester 10: "the straps run behind the Zzz"): Z number `index` (0 small … 2 big) at `phase`
+    /// (0 … 1 of its drift), lid-local. Upper-left of the eye, drifting up and a little left INSIDE `ChestLayout.zzzLane`
+    /// (the velvet between the lid's left border and its left band), so no Z ever crosses a band. Pure; tested.
+    static func zzzPoint(index i: Int, phase: CGFloat, eye: CGPoint) -> CGPoint {
+        let k = min(max(phase.isFinite ? phase : 0, 0), 1)
+        let x = ChestLayout.zzzLane.upperBound - 21 - CGFloat(min(max(i, 0), 2)) * 6 - 22 * k
+        return CGPoint(x: x, y: eye.y + 36 + 88 * k)
+    }
+
+    /// The Zzz's type sizes (index 0 … 2).
+    static let zzzSizes: [CGFloat] = [24, 30, 38]
+
     /// The fangs sprite's top (lid-local) for how far they are bared (`shown` is clamped to `teethAsleep … 1`).
     static func teethTop(shown: CGFloat) -> CGFloat {
         let k = min(max(shown, ChestLayout.teethAsleep), 1)
@@ -702,8 +714,8 @@ final class SceneLid {
         for (i, z) in zzz.enumerated() {
             let ph = (time / 3.2 + Double(i) / 3).truncatingRemainder(dividingBy: 1)
             let k = CGFloat(ph)
-            // R3: upper-LEFT of the eye (the lever lives on the right).
-            z.node.position = CGPoint(x: ec.x - 186 - 24 * k - CGFloat(i) * 8, y: ec.y + 36 + 88 * k)
+            // R3: upper-LEFT of the eye (the lever lives on the right). R5: in the velvet lane left of the band.
+            z.node.position = SceneLid.zzzPoint(index: i, phase: k, eye: ec)
             z.node.alpha = sleepy * min(k * 4, 1) * (1 - k) * 1.4
         }
 

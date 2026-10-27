@@ -21,9 +21,10 @@ struct DailyRecord: Codable, Equatable {
     /// Tolerant: a field added later never drops the Daily history.
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
-        gold = max((try? c.decodeIfPresent(Int.self, forKey: .gold)) ?? 0, 0)
+        // R5 (QA-4 P2-F): clamped, so a hand-edited save can never overflow a sum later.
+        gold = ProgressRules.clampTotal((try? c.decodeIfPresent(Int.self, forKey: .gold)) ?? 0)
         finished = (try? c.decodeIfPresent(Bool.self, forKey: .finished)) ?? true
-        practiceBest = max((try? c.decodeIfPresent(Int.self, forKey: .practiceBest)) ?? 0, 0)
+        practiceBest = ProgressRules.clampTotal((try? c.decodeIfPresent(Int.self, forKey: .practiceBest)) ?? 0)
     }
 }
 
@@ -104,18 +105,23 @@ struct ProgressData: Codable, Equatable {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         let storedVersion = (try? c.decodeIfPresent(Int.self, forKey: .version)) ?? 0
         version = ProgressData.currentVersion
-        bestRun = max((try? c.decodeIfPresent(Int.self, forKey: .bestRun)) ?? 0, 0)
-        bestDaily = max((try? c.decodeIfPresent(Int.self, forKey: .bestDaily)) ?? 0, 0)
-        lifetimeGold = max((try? c.decodeIfPresent(Int.self, forKey: .lifetimeGold)) ?? 0, 0)
-        runs = max((try? c.decodeIfPresent(Int.self, forKey: .runs)) ?? 0, 0)
-        chestsOpened = max((try? c.decodeIfPresent(Int.self, forKey: .chestsOpened)) ?? 0, 0)
-        chestsBanked = max((try? c.decodeIfPresent(Int.self, forKey: .chestsBanked)) ?? 0, 0)
-        hushed = max((try? c.decodeIfPresent(Int.self, forKey: .hushed)) ?? 0, 0)
-        bites = max((try? c.decodeIfPresent(Int.self, forKey: .bites)) ?? 0, 0)
-        itemsBagged = max((try? c.decodeIfPresent(Int.self, forKey: .itemsBagged)) ?? 0, 0)
-        bestChest = max((try? c.decodeIfPresent(Int.self, forKey: .bestChest)) ?? 0, 0)
-        mostChestsInRun = max((try? c.decodeIfPresent(Int.self, forKey: .mostChestsInRun)) ?? 0, 0)
-        mostHushedInRun = max((try? c.decodeIfPresent(Int.self, forKey: .mostHushedInRun)) ?? 0, 0)
+        // R5 (QA-4 P2-F): every total is clamped to 0…`ProgressRules.maxTotal` (a hand-edited `lifetimeGold` near
+        // Int.max used to trap in the next `+=`).
+        let total = { (key: CodingKeys) -> Int in
+            ProgressRules.clampTotal((try? c.decodeIfPresent(Int.self, forKey: key)) ?? 0)
+        }
+        bestRun = total(.bestRun)
+        bestDaily = total(.bestDaily)
+        lifetimeGold = total(.lifetimeGold)
+        runs = total(.runs)
+        chestsOpened = total(.chestsOpened)
+        chestsBanked = total(.chestsBanked)
+        hushed = total(.hushed)
+        bites = total(.bites)
+        itemsBagged = total(.itemsBagged)
+        bestChest = total(.bestChest)
+        mostChestsInRun = total(.mostChestsInRun)
+        mostHushedInRun = total(.mostHushedInRun)
         foundRelics = (try? c.decodeIfPresent(Set<RelicID>.self, forKey: .foundRelics)) ?? []
         relicOrder = (try? c.decodeIfPresent([RelicID].self, forKey: .relicOrder)) ?? []
         achievements = (try? c.decodeIfPresent(Set<String>.self, forKey: .achievements)) ?? []
@@ -123,7 +129,7 @@ struct ProgressData: Codable, Equatable {
         dailyAttempted = (try? c.decodeIfPresent(Set<Int>.self, forKey: .dailyAttempted)) ?? []
         lastDailyDay = (try? c.decodeIfPresent(Int.self, forKey: .lastDailyDay)) ?? Int.min
         lessonDone = (try? c.decodeIfPresent(Bool.self, forKey: .lessonDone)) ?? false
-        pendingRun = (try? c.decodeIfPresent(RunResult.self, forKey: .pendingRun)) ?? nil
+        pendingRun = ((try? c.decodeIfPresent(RunResult.self, forKey: .pendingRun)) ?? nil).map(ProgressRules.sanitized)
         seenTips = (try? c.decodeIfPresent(Set<String>.self, forKey: .seenTips)) ?? []
         ProgressRules.migrate(&self, fromVersion: storedVersion)
     }
@@ -137,6 +143,33 @@ struct ProgressData: Codable, Equatable {
 // MARK: - Rules (pure; tested)
 
 enum ProgressRules {
+    /// R5 (QA-4 P2-F): no stored total goes past this (a billion gold is ~50,000 record runs), so no sum can overflow.
+    static let maxTotal = 1_000_000_000
+
+    /// `v` within 0…`maxTotal`. Pure; tested.
+    static func clampTotal(_ v: Int) -> Int { min(max(v, 0), maxTotal) }
+
+    /// `a + b` (b ≥ 0 as filed), saturating at `maxTotal`, never trapping. Pure; tested.
+    static func adding(_ a: Int, _ b: Int) -> Int {
+        let (sum, overflow) = clampTotal(a).addingReportingOverflow(clampTotal(b))
+        return overflow ? maxTotal : clampTotal(sum)
+    }
+
+    /// A run read back from a save (the pending checkpoint), its counts clamped like the totals. Pure; tested.
+    static func sanitized(_ r: RunResult) -> RunResult {
+        var r = r
+        r.gold = clampTotal(r.gold)
+        r.chestsOpened = clampTotal(r.chestsOpened)
+        r.chestsBanked = clampTotal(r.chestsBanked)
+        r.hushed = clampTotal(r.hushed)
+        r.bites = clampTotal(r.bites)
+        r.itemsBagged = clampTotal(r.itemsBagged)
+        r.bestChestValue = clampTotal(r.bestChestValue)
+        r.lostToBites = clampTotal(r.lostToBites)
+        r.goldenBanked = clampTotal(r.goldenBanked)
+        return r
+    }
+
     /// Brings an older save up to `ProgressData.currentVersion`.
     /// - v0 → v1: a player with runs on record has met the mimic, so the First Chest lesson isn't forced on them;
     ///   relics found before `relicOrder` existed are given a stable (sorted) order.
@@ -213,7 +246,7 @@ enum ProgressRules {
                            Achievements.earned(after: $0, lifetimeGold: $1, relicsFound: $2, alreadyEarned: $3)
                        }) -> RecordOutcome {
         var outcome = RecordOutcome()
-        let gold = max(result.gold, 0)
+        let gold = clampTotal(result.gold)
         switch result.mode {
         case .attract, .lesson:
             outcome.ignored = true
@@ -256,18 +289,19 @@ enum ProgressRules {
         }
         outcome.lifetimeBefore = data.lifetimeGold
         outcome.rankBefore = rankFor(data.lifetimeGold)
-        data.lifetimeGold += gold
+        // R5 (QA-4 P2-F): saturating sums, so even a tampered save never traps here.
+        data.lifetimeGold = adding(data.lifetimeGold, gold)
         outcome.lifetimeAfter = data.lifetimeGold
         outcome.rankAfter = rankFor(data.lifetimeGold)
-        data.runs += 1
-        data.chestsOpened += max(result.chestsOpened, 0)
-        data.chestsBanked += max(result.chestsBanked, 0)
-        data.hushed += max(result.hushed, 0)
-        data.bites += max(result.bites, 0)
-        data.itemsBagged += max(result.itemsBagged, 0)
-        data.bestChest = max(data.bestChest, result.bestChestValue)
-        data.mostChestsInRun = max(data.mostChestsInRun, result.chestsBanked)
-        data.mostHushedInRun = max(data.mostHushedInRun, result.hushed)
+        data.runs = adding(data.runs, 1)
+        data.chestsOpened = adding(data.chestsOpened, result.chestsOpened)
+        data.chestsBanked = adding(data.chestsBanked, result.chestsBanked)
+        data.hushed = adding(data.hushed, result.hushed)
+        data.bites = adding(data.bites, result.bites)
+        data.itemsBagged = adding(data.itemsBagged, result.itemsBagged)
+        data.bestChest = max(data.bestChest, clampTotal(result.bestChestValue))
+        data.mostChestsInRun = max(data.mostChestsInRun, clampTotal(result.chestsBanked))
+        data.mostHushedInRun = max(data.mostHushedInRun, clampTotal(result.hushed))
         data.lessonDone = true
         for relic in result.relics where !data.foundRelics.contains(relic) {
             data.foundRelics.insert(relic)

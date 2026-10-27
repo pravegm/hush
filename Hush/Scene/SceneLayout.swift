@@ -43,15 +43,20 @@ enum ChestLayout {
     /// R3: every HUD piece keeps at least this far from the canvas edges (the canvas edges ARE the screen edges).
     static let edgeInset: CGFloat = 16
 
+    /// R5: the chest's centre line (canvas x): the eye, the brow, the name plate, the lock, the pouch and the mouth all
+    /// sit on it. The App centres its hint plates on it (not on the hint band's own middle).
+    static let chestCenterX: CGFloat = ScreenLayout.canvasWidth / 2
+
     /// The noise meter plate on the front rim (the stage word at the left, the teeth at the full end), its segment
     /// well, and the segment count. Drawn over everything on the floor. R3: shortened so the Hush Chain tab sits on
     /// the same rim. R4 (UX P1-2): shortened again (it ends at x 460, was 520) so the tab sits LEFT of the front-right
-    /// bracket, ≥ 16 screen pt from the edge on a phone.
-    static let meterRect = CGRect(x: 56, y: 104, width: 404, height: 32)
-    static let meterWell = CGRect(x: 142, y: 109, width: 270, height: 22)
+    /// bracket, ≥ 16 screen pt from the edge on a phone. R5 (UX P2-4, testers 9 and 10): 46 pt shorter again (ends at
+    /// x 414) so the tab can read "CHAIN ×1.2" on one line at ≥ 11 screen pt; the well keeps its 20 segments.
+    static let meterRect = CGRect(x: 56, y: 104, width: 358, height: 32)
+    static let meterWell = CGRect(x: 142, y: 109, width: 224, height: 22)
     static let meterSegments = 20
     static let meterLabelCenter = CGPoint(x: 99, y: 120)
-    static let meterTeethCenter = CGPoint(x: 436, y: 120)
+    static let meterTeethCenter = CGPoint(x: 390, y: 120)
     /// R4 (UX P2-6): the meter's word follows the stage, so it never relies on colour alone (`ChestCopy.meterWord`).
     static let meterLabelWidth: CGFloat = 72
 
@@ -109,19 +114,23 @@ enum ChestLayout {
     /// R3: the candle-low countdown ("0:12") hangs BESIDE the candle's brass dish, never over the candle.
     static let countdownRect = CGRect(x: 58, y: 146, width: 78, height: 40)
 
-    /// R3: the Hush Chain tab on the front rim, right of the meter, inside the frame. R4 (UX P1-2, juror P1-2): it
-    /// reads "CHAIN" over "GOLD ×1.2", sized to that text (the longest is "GOLD ×1.5"), and sits LEFT of the
-    /// front-right bracket (x ≤ 590 < 594): 80 canvas pt (≈ 48 screen pt on a phone) from the edge. The linked-rings
+    /// R3: the Hush Chain tab on the front rim, right of the meter, inside the frame. R4: LEFT of the front-right
+    /// bracket (x ≤ 590 < 594): 80 canvas pt (≈ 48 screen pt on a phone) from the edge. R5 (UX P2-4, testers 9 and
+    /// 10): ONE line, "CHAIN ×1.2" (no "GOLD": it never reads as a second gold multiplier beside the plate's seal), at
+    /// `chainFontSize`; the tab grew leftwards (x 424…590) into the room the shorter meter left. The linked-rings
     /// medallion sits over the tab's left clasp.
-    static let chainRect = CGRect(x: 470, y: 98, width: 120, height: 44)
+    static let chainRect = CGRect(x: 424, y: 98, width: 166, height: 44)
     /// The medallion (over the tab's left clasp).
-    static let chainCenter = CGPoint(x: 479, y: 120)
+    static let chainCenter = CGPoint(x: 433, y: 120)
     static let chainRadius: CGFloat = 15
-    /// The tab's text column (between the medallion and the right clasp + 8 pt) and its two lines.
-    static let chainTextRect = CGRect(x: 497, y: 106, width: 66, height: 30)
+    /// The tab's text column (between the medallion and the right clasp + 8 pt) and its one line.
+    static let chainTextRect = CGRect(x: 451, y: 106, width: 112, height: 30)
     static var chainTextX: CGFloat { chainTextRect.midX }
-    static let chainCaptionY: CGFloat = 128
-    static let chainValueY: CGFloat = 112
+    static let chainTextY: CGFloat = 120
+    /// R5: the tab's type (canvas pt): 20 pt is ≥ 11 screen pt at the smallest phone scale (0.55); it may shrink to
+    /// `chainMinFontSize` (≥ 11 screen pt on every phone 390 pt wide and up) only if a line would overflow.
+    static let chainFontSize: CGFloat = 20
+    static let chainMinFontSize: CGFloat = 19
     /// The front-right corner bracket's arm along the front rim starts here (frame art).
     static let frontRightBracketMinX: CGFloat = 594
 
@@ -140,6 +149,13 @@ enum ChestLayout {
     static let counterRect = CGRect(x: 424, y: 12, width: 230, height: 80)
     static let counterCoin = CGPoint(x: 626, y: 46)
     static let counterRight: CGFloat = 596
+
+    /// R5 (UX P2-8, testers 9 and 10, frames 07 and 14): where the plates' small-caps labels are drawn ("IN BAG" from
+    /// x 106, "BANKED" right-aligned at x 594, both centred on y 78), with a little room round them. Loot moving over
+    /// the strip fades out before it reaches these (`SceneLootView.labelClearAlpha`), so the words always read.
+    static let bagLabelRect = CGRect(x: 100, y: 64, width: 100, height: 28)
+    static let bankLabelRect = CGRect(x: 494, y: 64, width: 106, height: 28)
+    static var plateLabelRects: [CGRect] { [bagLabelRect, bankLabelRect] }
 
     /// R2: the leather pouch between the plates (the drop target; bagged loot piles in its mouth).
     static let pouchRect = CGRect(x: 264, y: 4, width: 142, height: 104)
@@ -187,6 +203,12 @@ enum ChestLayout {
     /// R3: the gold-multiplier seal over the plate's left end ("GOLD ×1.5"), clear of the name.
     static let sealCenter = CGPoint(x: 112, y: 131)
     static let sealRadius: CGFloat = 31
+    /// R5 (juror P2, tester 10): the lid's iron / gilt bands (iron-bound tier and up): their centre lines and half
+    /// width (lid art), and the Zzz's lane: the velvet between the lid's left border (x 34) and the left band, so a Z
+    /// never crosses a band.
+    static let lidBandXs: [CGFloat] = [140, 530]
+    static let lidBandHalfWidth: CGFloat = 15
+    static let zzzLane: ClosedRange<CGFloat> = 38...121
     /// The brass brow plate over the eye (it tilts angry as the mimic wakes).
     static let browCenter = CGPoint(x: 335, y: 384)
     static let browHalf = CGSize(width: 132, height: 26)

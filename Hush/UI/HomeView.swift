@@ -9,6 +9,10 @@ struct HomeView: View {
     @ObservedObject var controller: GameController
     @ObservedObject var store: ProgressStore
     let info: AppCanvas
+    @Environment(\.dynamicTypeSize) private var typeSize
+
+    /// The menu column's width on `info`. Pure; tested.
+    static func menuWidth(_ info: AppCanvas) -> CGFloat { min(info.floorHalf.width - 32, 520) }
 
     var body: some View {
         let c = info.isCompact
@@ -38,14 +42,20 @@ struct HomeView: View {
             .position(x: lid.midX, y: lid.midY)
 
             if info.hasFold {
-                // R4 (founder): at the accessibility cap the menu scrolls rather than clip at the fold.
-                ViewThatFits(in: .vertical) {
-                    HomeMenu(controller: controller, store: store, compact: c)
-                    ScrollView(showsIndicators: false) {
-                        HomeMenu(controller: controller, store: store, compact: c)
+                // R5 (UX P1-1, juror P1-1, frame 30): a short fold floor gets compact metrics, so the plain menu fits
+                // at the default size (tested); only the accessibility sizes (or a last resort) scroll, with the fade.
+                let menu = HomeMenu(controller: controller, store: store, compact: c, tight: info.tightFloor)
+                Group {
+                    if typeSize.isAccessibilitySize {
+                        FadingScroll { menu }
+                    } else {
+                        ViewThatFits(in: .vertical) {
+                            menu
+                            FadingScroll { menu }
+                        }
                     }
                 }
-                    .frame(width: min(floor.width - 32, 520))
+                    .frame(width: HomeView.menuWidth(info))
                     .frame(height: floor.height, alignment: .center)
                     .position(x: floor.midX, y: floor.midY)
             } else {
@@ -61,12 +71,12 @@ struct HomeView: View {
                         Spacer(minLength: 0)
                         HomeMenu(controller: controller, store: store, compact: c)
                     }
-                    // R4 (founder): at the accessibility cap the menu scrolls rather than clip.
-                    ScrollView(showsIndicators: false) {
+                    // R4 (founder): at the accessibility cap the menu scrolls rather than clip (R5: with the fade).
+                    FadingScroll {
                         HomeMenu(controller: controller, store: store, compact: c)
                     }
                 }
-                .frame(width: min(floor.width - 32, 520))
+                .frame(width: HomeView.menuWidth(info))
                 .frame(height: floor.height)
                 .position(x: floor.midX, y: floor.midY)
             }
@@ -218,6 +228,15 @@ struct HomeMenu: View {
     @ObservedObject var store: ProgressStore
     let compact: Bool
     var showsRank = true
+    /// R5 (UX P1-1): a short fold floor's compact metrics (`AppCanvas.tightFloor`): closer rows and a 60 pt Play.
+    var tight = false
+    /// R5 (QA-4 P1-A, frame 44): at the accessibility sizes the Daily status goes under its title and the paired
+    /// buttons stack one per row, so no label is truncated or broken mid-word.
+    @Environment(\.dynamicTypeSize) private var typeSize
+
+    /// The row spacing and Play's height. Pure; tested.
+    static func spacing(compact: Bool, tight: Bool) -> CGFloat { tight ? 8 : (compact ? 10 : 14) }
+    static func playHeight(compact: Bool, tight: Bool) -> CGFloat { compact || tight ? 60 : 70 }
 
     /// "Codex 9/24" / "Badges 7/12": the same numbers the Codex and Badges pages show (one preset, one source). Pure;
     /// tested.
@@ -229,12 +248,23 @@ struct HomeMenu: View {
     var body: some View {
         let data = store.data
         let rank = store.rank
-        VStack(spacing: compact ? 10 : 14) {
+        let ax = typeSize.isAccessibilitySize
+        // R5 (QA-4 P1-A): the pairs side by side, or one per row at the accessibility sizes.
+        let pair = ax ? AnyLayout(VStackLayout(spacing: Self.spacing(compact: compact, tight: tight)))
+            : AnyLayout(HStackLayout(spacing: 10))
+        let status = Text(Self.dailyStatus(scoredReady: controller.dailyScoredAvailable,
+                                           todayGold: data.dailyRecord(day: controller.today)?.gold))
+            .font(HushType.caption(compact))
+            .foregroundStyle(controller.dailyScoredAvailable ? HushTheme.goldLight : HushTheme.mist)
+            .lineLimit(2)
+            .minimumScaleFactor(0.8)
+            .fixedSize(horizontal: false, vertical: true)
+        VStack(spacing: Self.spacing(compact: compact, tight: tight)) {
             if showsRank {
                 RankRow(rank: rank, lifetime: data.lifetimeGold, best: data.bestRun, compact: compact)
             }
-            HushButton(kind: .primary, height: compact ? 60 : 70, compact: compact, confirm: true,
-                       action: { controller.play() }) {
+            HushButton(kind: .primary, height: Self.playHeight(compact: compact, tight: tight), compact: compact,
+                       confirm: true, action: { controller.play() }) {
                 HStack(spacing: 10) {
                     Image(systemName: "key.fill")
                     Text("Play")
@@ -245,21 +275,24 @@ struct HomeMenu: View {
                        action: { controller.show(.daily) }) {
                 HStack(spacing: 10) {
                     Image(systemName: "sun.max.fill").foregroundStyle(HushTheme.gold)
-                    Text("Daily Dungeon")
-                        .layoutPriority(1)
-                    Spacer(minLength: 6)
-                    // R4 (UX P2-7, frame 44): never "Today's try…": it wraps onto a second line (the row grows).
-                    Text(Self.dailyStatus(scoredReady: controller.dailyScoredAvailable,
-                                          todayGold: data.dailyRecord(day: controller.today)?.gold))
-                        .font(HushType.caption(compact))
-                        .foregroundStyle(controller.dailyScoredAvailable ? HushTheme.goldLight : HushTheme.mist)
-                        .multilineTextAlignment(.trailing)
-                        .lineLimit(2)
-                        .minimumScaleFactor(0.8)
-                        .fixedSize(horizontal: false, vertical: true)
+                    if ax {
+                        // R5 (QA-4 P1-A, frame 44): the status under the title, never squeezed beside it.
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Daily Dungeon")
+                            status.multilineTextAlignment(.leading)
+                        }
+                        .padding(.vertical, 8)
+                        Spacer(minLength: 0)
+                    } else {
+                        Text("Daily Dungeon")
+                            .layoutPriority(1)
+                        Spacer(minLength: 6)
+                        // R4 (UX P2-7, frame 44): never "Today's try…": it wraps onto a second line (the row grows).
+                        status.multilineTextAlignment(.trailing)
+                    }
                 }
             }
-            HStack(spacing: 10) {
+            pair {
                 HushButton(kind: .secondary, height: HushTheme.secondaryHeight, compact: compact,
                            action: { controller.show(.codex) }) {
                     CountLabel(icon: "book.closed.fill", word: "Codex", count: data.foundRelics.count,
@@ -274,7 +307,7 @@ struct HomeMenu: View {
                 .accessibilityLabel("Badges, \(data.achievements.count) of \(Achievements.all.count) earned")
             }
             // R3 (UX P2-12, testers 4 and 6): every button says what it is (no unlabelled icons).
-            HStack(spacing: 10) {
+            pair {
                 IconTile(systemName: "gearshape.fill", label: "Settings") { controller.show(.settings) }
                 IconTile(systemName: "trophy.fill", label: "Game Center") { controller.showGameCenter() }
             }

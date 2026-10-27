@@ -87,7 +87,6 @@ final class SceneFloorHUD {
     private let chainRoot: SKNode
     private let medal: SKSpriteNode
     private let chainValue: SceneLabel
-    private let chainCaption: SceneLabel
     private let chainTab: SKSpriteNode
     private let crack: SKSpriteNode
     private var chainPopAge: Double = 10
@@ -117,12 +116,18 @@ final class SceneFloorHUD {
     /// The meter's word now ("NOISE" / "STIRRING" / "WAKING!"; tests) and its drawn width.
     var meterWordText: String { noiseLabel.text }
     var meterWordWidth: CGFloat { noiseLabel.node.frame.width }
-    /// The chain tab's two lines as drawn (widths, tests: never past the tab's text column).
-    var chainTextWidths: [CGFloat] { [chainCaption.node.frame.width, chainValue.node.frame.width] }
+    /// The chain tab's line as drawn (width, tests: never past the tab's text column). R5: one line.
+    var chainTextWidths: [CGFloat] { [chainValue.node.frame.width] }
+    /// R5: the chain tab's type size as drawn (canvas pt, after any fit-to-width scale; tests: ≥ 11 screen pt).
+    var chainDrawnFontSize: CGFloat { chainValue.size * chainValue.node.xScale }
+    /// R5: the plates' "IN BAG" and "BANKED" labels as drawn (canvas; tests: inside `ChestLayout.plateLabelRects`).
+    var plateLabelFrames: [CGRect] { [bagTag.node.frame, bankTag.node.frame] }
+    /// R5: the pause seat's alpha now (it dims during the bite, as the App's coin should).
+    var seatAlpha: CGFloat { seat.alpha }
     /// Whether the chain badge is showing (tests).
     var chainShowing: Bool { !chainRoot.isHidden && chainRoot.alpha > 0.05 }
     var chainCracking: Bool { crackAge < 0.8 }
-    /// The chain tab's words now ("GOLD ×1.2"; tests).
+    /// The chain tab's words now ("CHAIN ×1.2"; tests).
     var chainValueText: String { chainValue.text }
     /// The meter's red slam flash now (0 … 1; tests).
     var meterFlashLevel: CGFloat { meterFlash.isHidden ? 0 : meterFlash.alpha }
@@ -311,16 +316,11 @@ final class SceneFloorHUD {
         medalN.position = CGPoint(x: ChestLayout.chainCenter.x - chr.midX, y: ChestLayout.chainCenter.y - chr.midY)
         medalN.zPosition = 1
         chainN.addChild(medalN)
-        // R4 (UX P1-2): "CHAIN" over "GOLD ×1.2", inside the tab's text column (never past its clasp).
-        let cap = SceneLabel(size: 12, color: ScenePaint.ui(pal.gold), outline: nil, minimumSize: 12, kern: 1.4)
-        cap.maxWidth = ChestLayout.chainTextRect.width
-        cap.set("CHAIN")
-        cap.node.position = CGPoint(x: ChestLayout.chainTextX - chr.midX, y: ChestLayout.chainCaptionY - chr.midY)
-        cap.node.zPosition = 1
-        chainN.addChild(cap.node)
-        let cv = SceneLabel(size: 15, color: ScenePaint.ui(pal.text), minimumSize: 12, strokeWidth: -3)
+        // R5 (UX P2-4, testers 9 and 10): ONE line, "CHAIN ×1.2", at ≥ 11 screen pt, inside the tab's text column.
+        let cv = SceneLabel(size: ChestLayout.chainFontSize, color: ScenePaint.ui(pal.text),
+                            minimumSize: ChestLayout.chainMinFontSize, strokeWidth: -3, kern: 0.4)
         cv.maxWidth = ChestLayout.chainTextRect.width
-        cv.node.position = CGPoint(x: ChestLayout.chainTextX - chr.midX, y: ChestLayout.chainValueY - chr.midY)
+        cv.node.position = CGPoint(x: ChestLayout.chainTextX - chr.midX, y: ChestLayout.chainTextY - chr.midY)
         cv.node.zPosition = 1
         chainN.addChild(cv.node)
         let crackN = SKSpriteNode(texture: SceneTextures.chainCrack, size: CGSize(width: medalSide, height: medalSide))
@@ -373,10 +373,17 @@ final class SceneFloorHUD {
         chainRoot = chainN
         medal = medalN
         chainValue = cv
-        chainCaption = cap
         chainTab = tabN
         crack = crackN
         seat = seatN
+    }
+
+    /// R5 (juror P2-3, frame 13): the seat dims to 0.3 during the bite (the CHOMP reads; the App hides or dims its coin
+    /// on `ChestScene.biteActive` too), easing back after it.
+    func dimSeat(_ dim: Bool, dt: Double) {
+        let target: CGFloat = dim ? 0.3 : 1
+        let k = CGFloat(min(max(dt.isFinite ? dt : 0, 0) * 10, 1))
+        seat.alpha += (target - seat.alpha) * k
     }
 
     /// The seat under the App's coin at the current `viewScale`.
@@ -432,10 +439,10 @@ final class SceneFloorHUD {
         return m
     }
 
-    /// "GOLD ×1.2" for a multiplier (tenths).
+    /// R5: "CHAIN ×1.2" for a multiplier (tenths). No "GOLD": the plate's seal is the only "GOLD ×n" on screen.
     static func chainText(_ m: Double) -> String {
         let tenths = Int((m.isFinite ? m * 10 : 10).rounded())
-        return "GOLD ×\(tenths / 10).\(tenths % 10)"
+        return "CHAIN ×\(tenths / 10).\(tenths % 10)"
     }
 
     /// R3: a slam ("CREAK!"): the meter flashes red and jolts.
@@ -687,7 +694,6 @@ final class SceneFloorHUD {
         let popK: CGFloat = chainPopAge < 0.35 ? 1 + 0.3 * CGFloat(sin(chainPopAge / 0.35 * Double.pi)) : 1
         medal.setScale(popK)
         chainTab.setScale(1 + (popK - 1) * 0.25)
-        _ = chainCaption
         _ = noiseLabel
     }
 

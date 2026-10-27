@@ -624,7 +624,7 @@ struct SceneTests {
             #expect(scene.relicCardFullyShown)
         }
         #expect(scene.chainBadgeShowing)
-        #expect(scene.chainTabText == "GOLD ×1.2")
+        #expect(scene.chainTabText == "CHAIN ×1.2")
         SceneFakeDriver.run(scene, frames: 150, clock: &clock)
         #expect(scene.shownBanked == 640)
         // R3 (P0-1): between chests only the interior is dark; the frame, front wall and lock stay.
@@ -1061,9 +1061,9 @@ struct SceneTests {
         #expect(abs(k - CGFloat(0.6)) < CGFloat(0.01))
     }
 
-    /// Item 2 (UX P1-2, testers 7 and 8): the chain tab reads "CHAIN" over "GOLD ×1.1", fits its text column, sits
-    /// left of the bracket with ≥ 16 screen pt to the edge, and shows the LAST bank's multiplier (the bank stack's
-    /// number) from that bank's frame. Not in the lesson.
+    /// Item 2 (UX P1-2, testers 7 and 8): the chain tab fits its text column, sits left of the bracket with ≥ 16 screen
+    /// pt to the edge, and shows the LAST bank's multiplier (the bank stack's number) from that bank's frame. Not in
+    /// the lesson. R5: one line, "CHAIN ×1.1".
     @Test @MainActor func chainTabShowsTheLastBanksMultiplierInsideTheFrame() {
         let tab = ChestLayout.chainRect
         #expect(tab.maxX <= ChestLayout.frontRightBracketMinX)
@@ -1073,7 +1073,7 @@ struct SceneTests {
         #expect(ChestLayout.chainTextRect.minX >= ChestLayout.chainCenter.x + ChestLayout.chainRadius)
         let inPlate = ChestArt.plateTextRect(in: tab.size, style: .leather)
         #expect(ChestLayout.chainTextRect.maxX <= tab.minX + inPlate.maxX + 0.001)
-        #expect(SceneFloorHUD.chainText(1.2) == "GOLD ×1.2")
+        #expect(SceneFloorHUD.chainText(1.2) == "CHAIN ×1.2")
         #expect(SceneFloorHUD.chainShown(chain: 0, lastBank: 1.4) == nil)
         let derived = SceneFloorHUD.chainShown(chain: 3, lastBank: nil) ?? 0
         #expect(abs(derived - Noise.chainMultiplier(3)) < 0.001)
@@ -1104,21 +1104,21 @@ struct SceneTests {
                 #expect(!scene.bankSublineShowing)
                 continue
             }
-            #expect(scene.chainTabText == "GOLD ×1.1")
+            #expect(scene.chainTabText == "CHAIN ×1.1")
             SceneFakeDriver.run(scene, frames: 70, clock: &clock)
             #expect(scene.bankSublineShowing)
             #expect(scene.bankSubline == "Hush Chain ×1.1")
-            #expect(scene.chainTabText == "GOLD ×1.1")
+            #expect(scene.chainTabText == "CHAIN ×1.1")
             #expect(scene.chainBadgeShowing)
             let widths = scene.chainTextWidths
-            #expect(widths.count == 2)
+            #expect(widths.count == 1)
             for w in widths { #expect(w <= ChestLayout.chainTextRect.width + 0.5) }
             // The next bank: ×1.2, in the same frame for both.
             driver.snap.chain = 2
             driver.snap.chainMultiplier = 1.3
             driver.pending = [.banked(value: 60, items: 1, hushed: true), .chainUp(count: 2, multiplier: 1.2)]
             SceneFakeDriver.run(scene, frames: 1, clock: &clock)
-            #expect(scene.chainTabText == "GOLD ×1.2")
+            #expect(scene.chainTabText == "CHAIN ×1.2")
             #expect(scene.bankSubline == "Hush Chain ×1.2")
         }
     }
@@ -1390,6 +1390,190 @@ struct SceneTests {
         #expect(p.contains(CGPoint(x: c.x - 0.8 * r, y: c.y - 2.6 * r)))
         #expect(!p.contains(CGPoint(x: c.x, y: c.y - 3.0 * r)))
         #expect(!p.contains(CGPoint(x: c.x, y: c.y + 1.1 * r)))
+    }
+
+    // MARK: R5
+
+    /// Item 3: the chest's centre line, for the App's hint plates: the eye, brow, plate, pouch, mouth and lid all share it.
+    @Test func chestCenterXIsTheChestsAxis() {
+        let cx = ChestLayout.chestCenterX
+        #expect(abs(cx - ScreenLayout.canvasWidth / 2) < CGFloat(0.001))
+        for x in [ChestLayout.plateCenter.x, ChestLayout.browCenter.x, ChestLayout.eyeCenter.x, ChestLayout.mouthPoint.x,
+                  ChestLayout.pouchMouth.x, ChestLayout.pouchRect.midX, ChestLayout.titlePoint.x,
+                  ChestLayout.relicBannerPoint.x, ChestLayout.lidLabelSlot.midX] {
+            #expect(abs(x - cx) < CGFloat(0.5))
+        }
+        // A hint plate centred on it still fits left of the pause seat (≥ 8 pt) at every scale, ≥ 300 pt wide.
+        for s in [CGFloat(0.55), 0.6, 0.8, 1] {
+            let half = min(cx - ChestLayout.hintBand.minX, ChestLayout.pauseSeat(viewScale: s).minX - 8 - cx)
+            #expect(half * 2 >= CGFloat(300))
+        }
+    }
+
+    /// Item 1 (UX P2-4, testers 9 and 10): the chain tab is one line, "CHAIN ×1.5" (no "GOLD"), at ≥ 11 screen pt on a
+    /// phone, inside the tab's text column; the shorter meter keeps its 20 segments and ends in its teeth.
+    @Test @MainActor func chainTabIsOneLineAtElevenPoints() {
+        #expect(SceneFloorHUD.chainText(1.5) == "CHAIN ×1.5")
+        #expect(!SceneFloorHUD.chainText(1.1).contains("GOLD"))
+        #expect(ChestLayout.chainFontSize * ChestLayout.minViewScale >= CGFloat(11))
+        #expect(ChestLayout.chainMinFontSize * (390 / ScreenLayout.canvasWidth) >= CGFloat(11))
+        let tab = ChestLayout.chainRect
+        #expect(tab.minX >= ChestLayout.meterRect.maxX + 8)
+        #expect(ChestLayout.chainCenter.x - ChestLayout.chainRadius - 2 >= ChestLayout.meterRect.maxX)
+        #expect(tab.maxX <= ChestLayout.frontRightBracketMinX)
+        let inPlate = ChestArt.plateTextRect(in: tab.size, style: .leather)
+        #expect(ChestLayout.chainTextRect.maxX <= tab.minX + inPlate.maxX + 0.001)
+        #expect(ChestLayout.chainTextRect.minX >= ChestLayout.chainCenter.x + ChestLayout.chainRadius)
+        #expect(ChestLayout.meterWell.width / CGFloat(ChestLayout.meterSegments) >= CGFloat(10))
+        #expect(ChestLayout.meterWell.minX > ChestLayout.meterLabelCenter.x + ChestLayout.meterLabelWidth / 2)
+
+        let scene = ChestScene(layout: SceneTests.phone)
+        let driver = SceneFakeDriver()
+        scene.driver = driver
+        driver.startChest(SceneFakeDriver.chest(tier: .iron, index: 4))
+        var clock = 0.0
+        driver.openTo(0.9)
+        driver.bag([0, 1])
+        driver.snap.bagValue = 100
+        SceneFakeDriver.run(scene, frames: 30, clock: &clock)
+        driver.openTo(0)
+        driver.snap.phase = .banked(elapsed: 0)
+        driver.snap.banked = 150
+        driver.snap.bagValue = 0
+        driver.snap.chain = 5
+        driver.snap.chainMultiplier = 1.5
+        driver.pending = [.banked(value: 150, items: 2, hushed: true), .chainUp(count: 5, multiplier: 1.5)]
+        SceneFakeDriver.run(scene, frames: 60, clock: &clock)
+        #expect(scene.chainTabText == "CHAIN ×1.5")
+        #expect(scene.chainBadgeShowing)
+        let widths = scene.chainTextWidths
+        #expect(widths.count == 1)
+        for w in widths { #expect(w <= ChestLayout.chainTextRect.width + 0.5) }
+        // ≥ 11 screen pt on the CI phone (402 pt: scale 0.6) and every 390 pt phone.
+        let drawn = scene.chainDrawnFontSize
+        #expect(drawn >= ChestLayout.chainMinFontSize - 0.01)
+        #expect(drawn * 0.582 >= CGFloat(11))
+    }
+
+    /// Item 2 (UX P2-8, testers 9 and 10, frames 07 and 14): loot moving over the bag strip never sits on "IN BAG" or
+    /// "BANKED": the bank flyers fade out before they touch a label; a held item fades to 0.3 over one.
+    @Test @MainActor func flyingLootNeverCoversThePlateLabels() {
+        // The label rects hold the labels as drawn.
+        let scene0 = ChestScene(layout: ScreenLayout(hasFold: true))
+        let frames = scene0.plateLabelFrames
+        let rects = ChestLayout.plateLabelRects
+        #expect(frames.count == 2 && rects.count == 2)
+        for (f, r) in zip(frames, rects) {
+            #expect(f.width > CGFloat(20))
+            #expect(r.contains(f))
+        }
+        // Pure: the fade never leaves anything visible that touches a label.
+        #expect(SceneLootView.labelClearAlpha(at: CGPoint(x: 335, y: 84), radius: 20, minAlpha: 0) > CGFloat(0.99))
+        let onBag = CGPoint(x: ChestLayout.bagLabelRect.midX, y: ChestLayout.bagLabelRect.midY)
+        #expect(SceneLootView.labelClearAlpha(at: onBag, radius: 10, minAlpha: 0) < CGFloat(0.001))
+        #expect(abs(SceneLootView.labelClearAlpha(at: onBag, radius: 10, minAlpha: 0.3) - 0.3) < CGFloat(0.001))
+        for k in 0..<10 {
+            let from = SceneLootView.pilePoint(k)
+            for radius in [CGFloat(18), 24, 34] {
+                // Leaving the pouch it is fully drawn.
+                let r0 = SceneLootView.drawnRadius(radius) * SceneMoments.flyerScale(0)
+                #expect(SceneLootView.labelClearAlpha(at: from, radius: r0, minAlpha: 0) > CGFloat(0.99))
+                for step in 0...50 {
+                    let t = CGFloat(step) / 50
+                    let p = SceneMoments.flightPoint(from: from, t: t)
+                    let vr = SceneLootView.drawnRadius(radius) * SceneMoments.flyerScale(t)
+                    let a = SceneLootView.labelClearAlpha(at: p, radius: vr, minAlpha: 0)
+                    if a > 0.01 {
+                        for r in rects { #expect(!SceneMoments.circle(p, vr, touches: r)) }
+                    }
+                }
+            }
+        }
+
+        // The scene: a bank's flyers are drawn, and never over a label in any frame.
+        for layout in [ScreenLayout(hasFold: true), SceneTests.phone] {
+            let scene = ChestScene(layout: layout)
+            let driver = SceneFakeDriver()
+            scene.driver = driver
+            driver.startChest(SceneFakeDriver.chest(tier: .wooden, index: 1))
+            var clock = 0.0
+            driver.openTo(0.95)
+            driver.bag([0, 1, 2, 4])
+            driver.snap.bagValue = 428
+            SceneFakeDriver.run(scene, frames: 60, clock: &clock)
+            driver.openTo(0)
+            driver.snap.phase = .banked(elapsed: 0)
+            driver.snap.banked = 428
+            driver.snap.bagValue = 0
+            driver.pending = [.banked(value: 428, items: 4, hushed: true)]
+            var maxFlyers = 0
+            var clear = true
+            for _ in 0..<160 {
+                SceneFakeDriver.run(scene, frames: 1, clock: &clock)
+                maxFlyers = max(maxFlyers, scene.visibleFlyers)
+                if !scene.flyersClearOfLabels { clear = false }
+            }
+            #expect(maxFlyers >= 1)
+            #expect(clear)
+        }
+
+        // A held item over "IN BAG" is drawn faint (the word reads); back over the loot it is whole.
+        let scene = ChestScene(layout: SceneTests.phone)
+        let driver = SceneFakeDriver()
+        scene.driver = driver
+        driver.startChest(SceneFakeDriver.chest(tier: .wooden, index: 0))
+        var clock = 0.0
+        driver.openTo(0.95)
+        driver.hold(2)
+        SceneFakeDriver.run(scene, frames: 10, clock: &clock)
+        #expect((scene.heldItemAlpha ?? 0) > CGFloat(0.99))
+        if let i = driver.snap.loot.firstIndex(where: { $0.id == 2 }) {
+            driver.snap.loot[i].position = ChestLayout.floor(fromCanvas: onBag)
+        }
+        SceneFakeDriver.run(scene, frames: 4, clock: &clock)
+        #expect((scene.heldItemAlpha ?? 1) <= SceneLootView.heldOverLabelAlpha + 0.01)
+    }
+
+    /// Item 4 (juror P2, tester 10): the Zzz drift in the velvet lane between the lid's left border and its left band,
+    /// so none crosses an iron or gilt band.
+    @Test @MainActor func zzzStayBetweenTheBorderAndTheBand() {
+        let lane = ChestLayout.zzzLane
+        #expect(lane.lowerBound >= SceneTextures.lidBorder + 4)
+        #expect(lane.upperBound <= ChestLayout.lidBandXs[0] - ChestLayout.lidBandHalfWidth - 4 + 0.001)
+        let eye = ChestLayout.eyeCenter
+        for (i, size) in SceneLid.zzzSizes.enumerated() {
+            for step in 0...20 {
+                let p = SceneLid.zzzPoint(index: i, phase: CGFloat(step) / 20, eye: eye)
+                let half = size * 0.45
+                #expect(p.x - half >= lane.lowerBound - 0.001)
+                #expect(p.x + half <= lane.upperBound + 0.001)
+                // Above the name plate and its seal, below the lid's top.
+                #expect(p.y - size / 2 > ChestLayout.plateCenter.y + ChestLayout.plateSize.height / 2)
+                #expect(p.y + size / 2 < ChestLayout.lidSize.height)
+            }
+        }
+    }
+
+    /// App item 5 (juror P2-3, frame 13): the pause seat dims during the bite and comes back after it.
+    @Test @MainActor func pauseSeatDimsDuringTheBite() {
+        let scene = ChestScene(layout: SceneTests.phone)
+        let driver = SceneFakeDriver()
+        scene.driver = driver
+        driver.startChest(SceneFakeDriver.chest(tier: .wooden, index: 0))
+        var clock = 0.0
+        SceneFakeDriver.run(scene, frames: 30, clock: &clock)
+        #expect(scene.pauseSeatAlpha > CGFloat(0.99))
+        driver.snap.phase = .bitten(elapsed: 0)
+        driver.snap.stage = .biting
+        driver.pending = [.bitten(lostValue: 40)]
+        SceneFakeDriver.run(scene, frames: 60, clock: &clock)
+        #expect(scene.biteActive)
+        #expect(scene.pauseSeatAlpha < CGFloat(0.4))
+        driver.snap.phase = .ready
+        driver.snap.stage = .asleep
+        SceneFakeDriver.run(scene, frames: 360, clock: &clock)
+        #expect(!scene.biteActive)
+        #expect(scene.pauseSeatAlpha > CGFloat(0.95))
     }
 
     // MARK: Pixel helpers

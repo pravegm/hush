@@ -24,7 +24,8 @@ struct SceneMomentFrame {
 ///   twice, then the interior goes dark (1.45–1.8 s).
 /// - **Bank** (`banked`): the lid's shadow sweeps over the INTERIOR from the fold to the front (0.35 s) and stays
 ///   (R3, juror P0-1: the frame, front wall and lock stay lit at full alpha, every tier); the bagged loot flies out of
-///   the pouch in arcs and dives into the BANKED coin stack UNDER the plate's label (it never covers "BANKED"); one
+///   the pouch in arcs toward the BANKED coin stack, UNDER the plate's label, and (R5) fades out before it reaches
+///   the label (it never covers "BANKED"; the stack's sparks and pop mark each landing); one
 ///   centred stack pops: "Hushed!" over "BANKED +179" over "Hush Chain ×1.3" (`chainUp`).
 /// - **Arrival** (`chestArrived`): the interior's shadow lifts (0.5 s), the new dress fades in over the old one, the
 ///   chest bumps and dust flies. Its name, trait and tier are on the lid's name plate (never over the loot).
@@ -98,7 +99,20 @@ final class SceneMoments {
     private struct Flyer {
         var from: CGPoint
         var delay: Double
+        var radius: CGFloat = 20
+        var fade: CGFloat = 1
         var landed = false
+    }
+    /// R5: every bank flyer drawn this frame is clear of the plates' labels, and how many are drawn (tests).
+    private(set) var flyersClearOfLabels = true
+    private(set) var visibleFlyers = 0
+    /// R5: a bank flyer's scale at `k` (0 … 1 of its flight).
+    static func flyerScale(_ k: CGFloat) -> CGFloat { 0.66 - 0.3 * min(max(k, 0), 1) }
+    /// R5: a circle (centre `c`, radius `r`) overlaps `rect`.
+    static func circle(_ c: CGPoint, _ r: CGFloat, touches rect: CGRect) -> Bool {
+        let dx = max(rect.minX - c.x, 0, c.x - rect.maxX)
+        let dy = max(rect.minY - c.y, 0, c.y - rect.maxY)
+        return dx * dx + dy * dy < r * r
     }
     private var flights: [Flyer] = []
     private var relicQueue: [RelicID] = []
@@ -424,7 +438,7 @@ final class SceneMoments {
             s.position = it.point
             s.setScale(0.66)
             s.isHidden = true
-            flights.append(Flyer(from: it.point, delay: 0.12 + Double(i) * 0.07))
+            flights.append(Flyer(from: it.point, delay: 0.12 + Double(i) * 0.07, radius: it.radius))
         }
     }
 
@@ -628,6 +642,8 @@ final class SceneMoments {
 
         // The bank.
         bankAge += dt
+        flyersClearOfLabels = true
+        visibleFlyers = 0
         if bankAge < 2 {
             let a = bankAge
             // The lid's shadow sweeps over the interior, fold → front, and stays down.
@@ -647,8 +663,22 @@ final class SceneMoments {
                 let to = ChestLayout.counterCoin
                 node.isHidden = false
                 node.position = SceneMoments.flightPoint(from: fl.from, t: k)
-                node.setScale(0.66 - 0.3 * k)
+                let scale = SceneMoments.flyerScale(k)
+                node.setScale(scale)
                 node.zRotation = k * 4
+                // R5 (UX P2-8, testers 9 and 10, frame 14): gold under gold "BANKED" still hid the word, so a flyer
+                // fades out before its edge reaches a plate's label (the coin stack's sparks and pop mark its landing).
+                let vr = SceneLootView.drawnRadius(fl.radius) * scale
+                // (Once faded it stays faded: no flicker back in over the coin stack.)
+                let fade = min(fl.fade, SceneLootView.labelClearAlpha(at: node.position, radius: vr, minAlpha: 0))
+                flights[i].fade = fade
+                node.alpha = fade
+                if node.alpha > 0.01 {
+                    visibleFlyers += 1
+                    for r in ChestLayout.plateLabelRects where SceneMoments.circle(node.position, vr, touches: r) {
+                        flyersClearOfLabels = false
+                    }
+                }
                 if t >= 1 {
                     flights[i].landed = true
                     node.isHidden = true

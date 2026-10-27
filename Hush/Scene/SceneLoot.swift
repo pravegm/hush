@@ -140,6 +140,7 @@ final class SceneLootView {
         live.removeAll(keepingCapacity: true)
         states.removeAll(keepingCapacity: true)
         heldPoint = nil
+        heldAlpha = nil
         visibleCount = 0
         glimmerCount = 0
     }
@@ -196,6 +197,34 @@ final class SceneLootView {
     /// R4: a held item's z inside the loot root (z 25): above the moments' floor layer (27), under the HUD (30).
     static let heldZ: CGFloat = 3.5
 
+    /// R5 (UX P2-8, testers 9 and 10, frames 07 and 14): drawing an item UNDER the plates' labels was not enough (a
+    /// red ruby under cream "IN BAG", a gold coin under gold "BANKED" still hid the word). An item moving over the bag
+    /// strip fades as its edge (a circle of `radius` round `p`, canvas) nears a label rect, down to `minAlpha` once it
+    /// touches one: the bank flyers use 0 (they never pass over a label), a held or hopping item 0.3 (it stays under
+    /// the finger, but the word reads through it). Pure; tested.
+    static func labelClearAlpha(at p: CGPoint, radius: CGFloat, minAlpha: CGFloat,
+                                labels: [CGRect] = ChestLayout.plateLabelRects) -> CGFloat {
+        guard p.x.isFinite, p.y.isFinite else { return 1 }
+        let floorA = min(max(minAlpha, 0), 1)
+        var d = CGFloat.greatestFiniteMagnitude
+        for r in labels {
+            let dx = max(r.minX - p.x, 0, p.x - r.maxX)
+            let dy = max(r.minY - p.y, 0, p.y - r.maxY)
+            d = min(d, (dx * dx + dy * dy).squareRoot())
+        }
+        let edge = d - max(radius.isFinite ? radius : 0, 0)
+        return floorA + (1 - floorA) * smooth(0, labelFade, edge)
+    }
+
+    /// R5: an item's drawn radius at scale 1 (its art, outline included).
+    static func drawnRadius(_ radius: CGFloat) -> CGFloat { max(radius, 6) * 1.16 + 2 }
+    /// How far from a label an item starts to fade (canvas pt).
+    static let labelFade: CGFloat = 16
+    /// A held or hopping item's alpha over a label.
+    static let heldOverLabelAlpha: CGFloat = 0.3
+    /// The first held item's alpha this frame (nil: none held; tests).
+    private(set) var heldAlpha: CGFloat?
+
     /// How strongly a relic glimmers (0 … 1): it is within 0.25 of being lit and not yet revealed.
     /// R3 (QA-2 P2-6): on exactly when Core's hint and sound are (`HeistSession.relicGlimmers`), brightening toward
     /// the glint line.
@@ -217,6 +246,7 @@ final class SceneLootView {
         var visible = 0
         var glimmering = 0
         var held: CGPoint?
+        var heldA: CGFloat?
         let mouth = CGPoint(x: ChestLayout.mouthPoint.x - root.position.x, y: ChestLayout.mouthPoint.y - root.position.y)
 
         // Pass 1: a slot per item; collect the bag's order (Core fills its slots row by row, so (y, x) keeps the
@@ -357,6 +387,12 @@ final class SceneLootView {
                 // always read.
                 slot.node.zPosition = SceneLootView.heldZ
                 slot.node.setScale(1.15 * b)
+                // R5: and it fades as it nears a plate's label, so the word reads through it.
+                let fade = SceneLootView.labelClearAlpha(
+                    at: CGPoint(x: slot.node.position.x + root.position.x, y: slot.node.position.y + root.position.y),
+                    radius: SceneLootView.drawnRadius(r) * 1.15, minAlpha: SceneLootView.heldOverLabelAlpha)
+                slot.node.alpha = fade
+                if heldA == nil { heldA = fade }
                 slot.art.alpha = 1
                 slot.art.colorBlendFactor = 0
                 slot.halo.alpha = 0.35 * light
@@ -371,6 +407,14 @@ final class SceneLootView {
                 // In the pouch: the back row under the front row, all under the pouch's front lip (HUD z 30).
                 slot.node.zPosition = slot.bagIndex % 10 < 5 ? 1 : 1.2
                 slot.node.setScale(SceneLootView.pileScale * b)
+                // R5: the hop into the pouch from a drop by a label fades the same way (1 once in the pouch).
+                if let age = slot.bagAge, age < 0.18 {
+                    slot.node.alpha = SceneLootView.labelClearAlpha(
+                        at: CGPoint(x: slot.node.position.x + root.position.x,
+                                    y: slot.node.position.y + root.position.y),
+                        radius: SceneLootView.drawnRadius(r) * SceneLootView.pileScale,
+                        minAlpha: SceneLootView.heldOverLabelAlpha)
+                }
                 slot.art.alpha = 1
                 slot.art.colorBlendFactor = 0
                 slot.halo.alpha = 0
@@ -395,5 +439,6 @@ final class SceneLootView {
         visibleCount = visible
         glimmerCount = glimmering
         heldPoint = held
+        heldAlpha = heldA
     }
 }

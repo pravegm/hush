@@ -1711,3 +1711,229 @@ struct R4Tests {
         #expect(SettingsView.versionText.hasPrefix("Version "))
     }
 }
+
+// MARK: - R5: the release candidate
+
+@MainActor
+struct R5Tests {
+    private func makeController() -> GameController {
+        var data = ProgressData()
+        data.lessonDone = true
+        data.runs = 10
+        data.lifetimeGold = 4_200
+        data.bestRun = 5_200
+        return GameController(store: ProgressStore(inMemory: data), settings: SettingsStore(defaults: nil))
+    }
+
+    /// The ideal height of `view` laid out `width` wide, at `size` (the fonts follow the test host's own text size,
+    /// iOS's default, Large).
+    private func height<V: View>(_ view: V, width: CGFloat, size: DynamicTypeSize = .large) -> CGFloat {
+        let host = UIHostingController(rootView: AnyView(view.environment(\.dynamicTypeSize, size)))
+        return host.sizeThatFits(in: CGSize(width: width, height: 10_000)).height
+    }
+
+    /// The fold canvases: the Duo's inner display (turned round, no insets), and a 393 pt phone emulating the fold
+    /// (`fold=1`), turned round (the Dynamic Island's 59 pt inset at the floor's foot) and not.
+    private var duo: AppCanvas {
+        AppCanvas(size: CGSize(width: 669, height: 951), insets: EdgeInsets(), hasFold: true, turned: true)
+    }
+    private var phoneTurned: AppCanvas {
+        let raw = EdgeInsets(top: 59, leading: 0, bottom: 34, trailing: 0)
+        return AppCanvas(size: CGSize(width: 393, height: 852), insets: AppRules.insets(raw, turnedRound: true),
+                         hasFold: true, turned: true)
+    }
+    private var phoneUnturned: AppCanvas {
+        AppCanvas(size: CGSize(width: 393, height: 852), insets: EdgeInsets(top: 59, leading: 0, bottom: 34,
+                                                                             trailing: 0),
+                  hasFold: true, turned: false)
+    }
+
+    /// App 2 (UX P1-1, juror P1-1, frames 30 and 39): Home's menu and the lesson's final card fit the floor half at
+    /// the default text size on the Duo and on a 393 pt phone with `fold=1`, so the plain (never clipped, never
+    /// scrolling) version is the one shown.
+    @Test func foldLayoutsFitTheFloorHalf() {
+        let controller = makeController()
+        #expect(!duo.tightFloor)
+        #expect(phoneTurned.tightFloor && phoneUnturned.tightFloor)
+        for info in [duo, phoneTurned, phoneUnturned] {
+            let floor = info.floorHalf.height
+            let menu = HomeMenu(controller: controller, store: controller.store, compact: info.isCompact,
+                                tight: info.tightFloor)
+            let menuHeight = height(menu, width: HomeView.menuWidth(info))
+            #expect(menuHeight > 200)
+            #expect(menuHeight <= floor, "Home \(info.size): \(menuHeight) > \(floor)")
+            let card = LessonFinalCard(controller: controller, compact: info.isCompact,
+                                       width: LessonFinalCard.width(info), tight: info.tightFloor)
+            let cardHeight = height(card, width: info.size.width)
+            #expect(cardHeight > 200)
+            #expect(cardHeight <= floor, "Final card \(info.size): \(cardHeight) > \(floor)")
+        }
+        #expect(HomeMenu.spacing(compact: false, tight: true) < HomeMenu.spacing(compact: false, tight: false))
+        #expect(HomeMenu.playHeight(compact: false, tight: true) >= HushTheme.minTap)
+    }
+
+    /// App 1 (QA-4 P1-A, frame 44): at the accessibility sizes Home stacks the pairs one per row (and puts the Daily
+    /// status under its title), so the menu grows by at least two rows.
+    @Test func accessibilityHomeStacksOnePerRow() {
+        let controller = makeController()
+        let menu = HomeMenu(controller: controller, store: controller.store, compact: false)
+        let plain = height(menu, width: 370)
+        let stacked = height(menu, width: 370, size: .accessibility3)
+        #expect(stacked >= plain + 2 * HushTheme.secondaryHeight)
+    }
+
+    /// App 3 (UX P1-2, frames 32 and 13c): a fold layout, turned round or NOT ("Turn the chest round" off), never draws
+    /// or takes the lever: the controller hands the lid to the hinge and the scene hides the lever.
+    @Test func anUnturnedFoldNeverUsesTheLever() throws {
+        let controller = makeController()
+        controller.play()
+        controller.updateCanvas(CGSize(width: 402, height: 874), hasFold: false, turned: false)
+        let scene = try #require(controller.scene)
+        scene.update(100)
+        #expect(controller.usesSlider)
+        #expect(scene.leverShowing)
+
+        controller.updateCanvas(CGSize(width: 402, height: 874), hasFold: true, turned: false)
+        #expect(controller.layoutHasFold)
+        #expect(!controller.isTurned)
+        #expect(scene.layout.hasFold)
+        #expect(controller.input == .hinge)
+        #expect(!controller.usesSlider)
+        scene.update(100.02)
+        #expect(!scene.leverShowing)
+        let before = controller.slider.openness
+        controller.sliderTouch(began: true, ended: false, fraction: 0, time: 200)
+        controller.sliderTouch(began: false, ended: false, fraction: 0.8, time: 200.5)
+        #expect(controller.slider.openness == before)
+        controller.goHome()
+    }
+
+    /// App 5 (juror P2-1/2, tester 9): the hint plate centres on the chest's axis, keeps 16 pt from the pause seat as
+    /// drawn at each scale, and 20 pt from the fold; the Daily marker centres on the axis, 12 pt above the plaque.
+    @Test func platesSitOnTheChestsAxis() {
+        #expect(abs(HUDLayout.chestAxisX - ScreenLayout.canvasWidth / 2) < 0.001)
+        for scale in [CGFloat(1), 0.6, 0.55] {
+            let r = HUDLayout.hintPlateRect(viewScale: scale)
+            #expect(r.maxY <= ScreenLayout.foldMinY - HUDLayout.foldClearance + 0.001)
+            #expect(r.maxX <= ChestLayout.pauseSeat(viewScale: scale).minX - HUDLayout.pauseGap + 0.001)
+            #expect(r.minX >= HUDLayout.hintBand.minX - 0.001)
+            // A short plate is centred on the axis; a long one stays inside the band.
+            let short = HUDLayout.plateMinX(width: 240, axis: HUDLayout.chestAxisX, band: r)
+            #expect(abs(short + 120 - HUDLayout.chestAxisX) < 0.001)
+            let long = HUDLayout.plateMinX(width: r.width - 10, axis: HUDLayout.chestAxisX, band: r)
+            #expect(long >= r.minX - 0.001 && long + r.width - 10 <= r.maxX + 0.001)
+        }
+        #expect(HUDLayout.hintPlateRect.maxY <= ScreenLayout.foldMinY - HUDLayout.foldClearance + 0.001)
+        #expect(HUDLayout.clearOfFold(CGRect(x: 0, y: 100, width: 10, height: 10)).minY == 100)
+
+        // The Daily marker on a 402 pt phone: on the axis, inside the safe area, 12 pt above the plaque.
+        let phone = AppCanvas(size: CGSize(width: 402, height: 874),
+                              insets: EdgeInsets(top: 62, leading: 0, bottom: 34, trailing: 0), hasFold: false,
+                              turned: false)
+        let marker = HUDLayout.dailyMarkerCenter(phone, markerHeight: 36)
+        let layout = ScreenLayout.make(hasFold: false, viewSize: phone.size)
+        let fit = CanvasFit(viewSize: phone.size, layout: layout)
+        #expect(abs(marker.x - fit.viewPoint(canvas: CGPoint(x: HUDLayout.chestAxisX, y: 0)).x) < 0.5)
+        let t = ChestLayout.topExtension(layout)
+        #expect(t >= ChestLayout.plaqueMinExtension)
+        let plaqueTop = fit.viewPoint(canvas: CGPoint(x: 0, y: ChestLayout.lidBottom
+            + ChestLayout.plaqueCenterY(topExtension: t) + ChestLayout.plaqueSize.height / 2)).y
+        #expect(marker.y + 18 <= plaqueTop - HUDLayout.markerGap + 0.5)
+        #expect(marker.y - 18 >= phone.safeRect.minY - HUDLayout.markerInsetAllowance - 0.5)
+        // The Duo has no plaque: the marker sits at the lid's far end, centred.
+        let duoMarker = HUDLayout.dailyMarkerCenter(duo)
+        #expect(abs(duoMarker.x - 669 / 2) < 1)
+        #expect(duoMarker.y == duo.safeRect.minY + AppCanvas.pauseInset + 16)
+    }
+
+    /// App 5 (juror P2-3) and 7 (UX P2-5): the bite moment hides the pause coin; the first Hush Chain tip shows at
+    /// its bank, stays 3.5 s, and for 3 s only "Freeze!" may replace it; the relic card still defers every callout.
+    @Test func theFirstChainTipOwnsItsBank() {
+        #expect(AppRules.isBiteMoment(.bitten(elapsed: 0.2)))
+        #expect(!AppRules.isBiteMoment(.looting))
+        let chain = RunTip.chain.text
+        #expect(AppRules.isBankTip(chain))
+        #expect(!AppRules.calloutBlocked(chain, phase: .banked(elapsed: 0.1), relicCardUp: false))
+        #expect(AppRules.calloutBlocked(chain, phase: .banked(elapsed: 0.1), relicCardUp: true))
+        #expect(AppRules.calloutBlocked(RunTip.golden, phase: .banked(elapsed: 0.1), relicCardUp: false))
+        #expect(!AppRules.calloutBlocked(RunTip.golden, phase: .looting, relicCardUp: false))
+        #expect(AppRules.calloutSeconds(chain) >= 3.5)
+        #expect(AppRules.calloutHold(chain) >= 3)
+        #expect(AppRules.calloutHold(RunTip.golden) == 0)
+        #expect(AppRules.calloutSeconds(RunTip.golden) == GameController.calloutSeconds)
+        #expect(!AppRules.calloutYields(to: .dragToBag, held: true))
+        #expect(!AppRules.calloutYields(to: .slower, held: true))
+        #expect(AppRules.calloutYields(to: .freeze, held: true))
+        #expect(AppRules.calloutYields(to: .slower, held: false))
+        #expect(!AppRules.calloutYields(to: .dragToBag, held: false))
+    }
+
+    /// App 4 (QA-4 P2-E): VoiceOver hears "Slower…" once a lesson step, and no line again within 3 s.
+    @Test func lessonVoiceOverNeverRepeatsSlower() {
+        var gate = LessonSpeechGate()
+        let slower = "Slower… it's grumbling."
+        let step = "Slide the lever up… slowly. Watch the noise."
+        let first = gate.allows(step, step: 2, now: 10)
+        let slower1 = gate.allows(slower, step: 2, now: 11)
+        let back = gate.allows(step, step: 2, now: 12.5)
+        let slower2 = gate.allows(slower, step: 2, now: 20)
+        let later = gate.allows(step, step: 2, now: 20)
+        let nextStep = gate.allows(slower, step: 3, now: 30)
+        #expect(first && slower1)
+        #expect(!back)
+        #expect(!slower2)
+        #expect(later)
+        #expect(nextStep)
+    }
+
+    /// App 4 (QA-4 P2-F): a tampered save's totals are clamped on decode, and filing a run never overflows.
+    @Test func savedTotalsAreClamped() throws {
+        var tampered = ProgressData()
+        tampered.lifetimeGold = Int.max - 5
+        tampered.bestRun = Int.max
+        tampered.pendingRun = makeRun(gold: Int.max)
+        let raw = try #require(ProgressStore.encode(tampered))
+        var back = try #require(ProgressStore.decode(raw))
+        #expect(back.lifetimeGold == ProgressRules.maxTotal)
+        #expect(back.bestRun == ProgressRules.maxTotal)
+        #expect(back.pendingRun?.gold == ProgressRules.maxTotal)
+        let outcome = record(makeRun(gold: Int.max), &back)
+        #expect(outcome.lifetimeAfter == ProgressRules.maxTotal)
+        #expect(back.lifetimeGold == ProgressRules.maxTotal)
+        #expect(ProgressRules.adding(Int.max, Int.max) == ProgressRules.maxTotal)
+        #expect(ProgressRules.adding(5, -3) == 5)
+        #expect(ProgressRules.clampTotal(-9) == 0)
+    }
+
+    /// App 6 (UX P2-7, frames 20 and 38): the phone's hero portrait gives way so the strip's two rows end above the
+    /// fade, within its bounds, and one step settles it.
+    @Test func resultsStripClearsTheFade() {
+        let fitted = ResultsView.fittedPortrait(current: 150, stripBottom: 717, viewport: 678, fade: 36, minimum: 60,
+                                                maximum: 150)
+        #expect(abs(fitted - 75) < 0.001)
+        let settled = ResultsView.fittedPortrait(current: fitted, stripBottom: 717 - 75, viewport: 678, fade: 36,
+                                                 minimum: 60, maximum: 150)
+        #expect(abs(settled - fitted) < 0.001)
+        #expect(ResultsView.fittedPortrait(current: 150, stripBottom: 300, viewport: 678, fade: 36, minimum: 60,
+                                           maximum: 150) == 150)
+        #expect(ResultsView.fittedPortrait(current: 150, stripBottom: 2_000, viewport: 678, fade: 36, minimum: 60,
+                                           maximum: 150) == 60)
+        #expect(ResultsView.fittedPortrait(current: 120, stripBottom: 0, viewport: 678, fade: 36, minimum: 60,
+                                           maximum: 150) == 120)
+        #expect(ChestStrip.maxRows == 2)
+        #expect(FadingScroll<EmptyView>.fadeHeight > 0)
+        // The strip's measurement names the column's space by its literal.
+        #expect(ResultsView.columnSpace == "hush.results.column")
+    }
+
+    /// App 8 (tester 10, frame 40): each badge's motif matches its meaning (and no two are alike).
+    @Test func badgeArtMatchesItsMeaning() {
+        let index = { (def: AchievementDef) in Achievements.all.firstIndex(of: def) ?? -1 }
+        #expect(BadgePainter.motif(index: index(Achievements.fiveChests)) == .feather)
+        #expect(BadgePainter.motif(index: index(Achievements.heavyBag)) == .idol)
+        #expect(BadgePainter.motif(index: index(Achievements.hoard)) == .goblet)
+        #expect(BadgePainter.motif(index: index(Achievements.firstRelic)) == .lantern)
+        #expect(Set(BadgePainter.motifs).count == BadgePainter.motifs.count)
+        #expect(BadgePainter.motifs.count == Achievements.all.count)
+    }
+}

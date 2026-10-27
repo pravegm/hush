@@ -120,7 +120,10 @@ enum BadgePainter {
     enum Tier: Equatable { case bronze, silver, gold }
 
     /// The 12 motifs, one per achievement in `Achievements.all` order (first steps → the big ones). Pure; tested.
-    static let motifs: [RelicShape] = [.key, .bell, .lantern, .goblet, .crown, .musicBox, .idol, .compass, .hourglass,
+    /// R5 (tester 10, frame 40): each motif matches its badge's meaning. Light Fingers (5 chests in a run) is the
+    /// feather (light), Heavy Bag (3,000 gold in a run) the heavy golden idol, and Dragon's Hoard takes the jewelled
+    /// goblet (it had the idol). Was: goblet, music box, idol.
+    static let motifs: [RelicShape] = [.key, .bell, .lantern, .feather, .crown, .idol, .goblet, .compass, .hourglass,
                                        .scroll, .spyglass, .pocketWatch]
 
     static func motif(index: Int) -> RelicShape {

@@ -17,9 +17,12 @@ final class HUDState: ObservableObject {
 
     /// R3 (UX P1-9): what VoiceOver reads over the scene's HUD (the scene draws these; SwiftUI only names them).
     @Published private(set) var spoken = SpokenHUD()
+    /// R5 (juror P2-3, frame 13): the bite moment is on (the pause coin steps aside for the teeth).
+    @Published private(set) var biting = false
 
     func update(hint: HeistHint?, banner: String?, stage: MimicStage, bagCount: Int, debugLoot: DebugLoot?,
-                spoken: SpokenHUD? = nil) {
+                spoken: SpokenHUD? = nil, biting: Bool? = nil) {
+        if let biting, self.biting != biting { self.biting = biting }
         if self.hint != hint { self.hint = hint }
         if self.banner != banner { self.banner = banner }
         if self.stage != stage { self.stage = stage }

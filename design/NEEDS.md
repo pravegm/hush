@@ -200,3 +200,25 @@ No new demo key is needed: every R4 re-shoot uses keys that exist (`mode=attract
   - Every SLAM line records the slam's sample count.
   - INCONCLUSIVE never trips STRICT=1.
 - **Done for App R3's ask:** `duo.sh` `ui-codex` uses `progress=mid` now, the same preset as Home and Results.
+
+## App engineer (R5)
+Hooks called by exact name, all present at the end of the round: Scene `ChestLayout.chestCenterX` (335),
+`pauseSeat(viewScale:)`, `topExtension(_:)`, `plaqueCenterY(topExtension:)` / `plaqueSize` / `plaqueMinExtension`,
+`ChestScene.biteActive`. The App never assumed the meter's width (`meterRect` is read for its y, the VoiceOver element
+and the lesson ring only), so the new 56…414 meter and 424…590 chain tab need nothing from the App. Nothing blocking.
+- **CI (re-shoot and check):**
+  - **30 / 39 (and a Duo `ui-home`):** fold Home and the fold lesson's final card use compact metrics on a short fold
+    floor (`AppCanvas.tightFloor`: floor half < 420 pt). Expect no clip and no scroll at default type.
+  - **44 (AX-L Home):** the Daily status sits under its title; Codex / Badges and Settings / Game Center stack one per
+    row; the menu scrolls with the fade and chevron. Expect no "…" and no mid-word break. A **44b**
+    (`screen=home;fold=1;dynamicType=AX-L`) would cover the fold too.
+  - **12 / 13c / 16:** the hint plate is centred on the chest's axis (x 335) while it fits, and sits 16 pt lower
+    (canvas y 388…436, 20 pt off the fold). **13:** the pause coin is hidden during the bite (the Scene dims its seat).
+  - **26:** the Daily marker is centred on the chest, 12 pt above the plaque.
+  - **20 / 38:** the phone Results' hero mimic shrinks (to ≥ 60 pt) so both strip rows sit above the fade.
+  - **40 + badges/*.png:** Light Fingers is a feather, Heavy Bag the idol, Dragon's Hoard the goblet.
+  - **First Hush Chain tip:** it now shows AT the first chain bank (`HUSH-T callout Hush Chain! …` lands on the bank
+    frame, not chest 2's lidCracked) for 3.5 s. A frame of it: `freezeOn=bank` on the first hushed bank of a fresh
+    profile with `freezeDelay=1.0`.
+- **Founder:** the Game Center badge images for Light Fingers, Heavy Bag and Dragon's Hoard changed: re-upload those
+  three 1024 PNGs from the next `screen=badges` run if the old ones are already in App Store Connect.

@@ -1111,7 +1111,7 @@ extension SceneTextures {
     /// R3: the meter plate's shape in white (tint it: the slam's red flash).
     static var meterFlash: SKTexture {
         let m = ChestLayout.meterRect
-        return make("meter-flash-r4", width: m.width, height: m.height) { ctx, s in
+        return make("meter-flash-r5", width: m.width, height: m.height) { ctx, s in
             Painter.fill(ctx, Painter.roundRect(CGRect(origin: .zero, size: s).insetBy(dx: 1.5, dy: 1.5), s.height / 2),
                          RGBA(1, 1, 1))
         }
@@ -1119,7 +1119,7 @@ extension SceneTextures {
 
     static var meterPlate: SKTexture {
         let m = ChestLayout.meterRect
-        return make("meter-plate-r4", width: m.width, height: m.height) { ctx, s in
+        return make("meter-plate-r5", width: m.width, height: m.height) { ctx, s in
             let body = Painter.roundRect(CGRect(origin: .zero, size: s).insetBy(dx: 1.5, dy: 1.5), s.height / 2)
             Painter.chunky(ctx, body, ScenePaint.brass, outline: 1.5, light: 0.4, shade: 0.4,
                            from: CGPoint(x: 0, y: s.height), to: CGPoint(x: 0, y: 0))
