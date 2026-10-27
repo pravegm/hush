@@ -113,3 +113,24 @@ glowing half ↻" on both halves.
 - **The pose-step lid glow** covers the lid half of the canvas only (not the extension above it on phones; phones show
   the lever marker instead).
 - **Not done:** a "Use on-screen lever" option on a Duo (UX P2); VoiceOver lid control; the stage-change announcements.
+
+## P0 fix after Duo run 40506125012 (the 469 × 669 column)
+- **Root cause:** my R2 live-run lock (`mask` = portrait only while a run is live on the inner display) was applied
+  the moment a run started, while the Duo sim was still landscape (book pose, 951 × 669). iOS doesn't rotate a
+  landscape interface to satisfy a portrait-only mask. It runs the app as a letterboxed 469 × 669 compatibility column
+  (the window and `scene.screen` both read 469 × 669, so DemoOrientation logged "ok"), and the column stays all run.
+  - That column is cover-sized, so `AppRules.pose` said `.cover`: the run was paused under the cover card, and no
+    `HUSH-T lid` lines appeared.
+  - Every non-run launch (Home, Codex, Settings, POSE-BOOK) had no live run and reached 669 × 951. Results also
+    reached it, because its run finishes headless before the lock.
+- **Fix:**
+  1. `OrientationLock.mask(isDuo:liveRun:inner:interfacePortrait:)` locks portrait only once the interface already IS
+     portrait. While landscape it keeps every orientation but upside down and the App asks for portrait
+     (`requestGeometryUpdate`, the R1 path, which rotates properly). `interfaceChanged()` re-asks for the mask on each
+     canvas change, so the lock engages once portrait.
+  2. Belt and braces: a cover-sized PORTRAIT canvas with the hinge held ≥ 60° for 2.5 s is played, not shown as the
+     cover card (`AppRules.smallCanvasIsOpen`, `pose(…, smallCanvasOpen:)`). It also asks for portrait again.
+  3. Every pose change logs `HUSH-T pose <play|standUp|cover> reason=<portrait|landscape|cover-sized|small-canvas-open|
+     forced> <w>x<h> angle=<θ>`, and the column case logs `HUSH-T pose cover-open angle=<θ>`.
+- **Tests:** the 4-input mask (book pose + live run keeps the landscapes; never upside down; always portrait),
+  `smallCanvasIsOpen`, the column → play rule, and `poseReason`.

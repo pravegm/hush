@@ -74,17 +74,46 @@ enum AppRules {
 
     // MARK: Pose and the fold
 
-    static func pose(canvas: CGSize, hingeSeen: Bool, isShut: Bool) -> AppPose {
+    /// `smallCanvasOpen`: the canvas is cover-sized but the hinge has been held well open for a while (a compatibility
+    /// column on the inner display, Duo run 40506125012, not the cover display): then it is played, never left on the
+    /// cover card with nothing stepping.
+    static func pose(canvas: CGSize, hingeSeen: Bool, isShut: Bool, smallCanvasOpen: Bool = false) -> AppPose {
         let valid = canvas.width > 1 && canvas.height > 1
         guard valid else { return .play }
         let long = max(canvas.width, canvas.height)
         // Shut, iOS moves the app to the cover display (a small canvas). A stale "shut" latch never covers the lit
         // inner display (Swoop Duo R3 P2-7): there the closing card speaks instead.
-        if hingeSeen && long < coverMaxSide { return .cover }
+        if hingeSeen && long < coverMaxSide && !(smallCanvasOpen && canvas.height >= canvas.width) { return .cover }
         _ = isShut
         let duo = hingeSeen || OrientationLock.looksLikeDuo(canvas)
         if canvas.width > canvas.height && duo { return .standUp }
         return .play
+    }
+
+    /// A cover-sized canvas counts as "open" (not the cover display) once the hinge has stayed at or above this for
+    /// `smallCanvasOpenSeconds` (the real cover display only stays lit that open for the moment of a reopen).
+    static let smallCanvasOpenAngle: Double = 60
+    static let smallCanvasOpenSeconds: Double = 2.5
+
+    /// Whether a cover-sized canvas is really the cover display's: not once the hinge has been held open long enough.
+    /// Pure; tested.
+    static func smallCanvasIsOpen(angle: Double?, openSince: Double?, now: Double) -> Bool {
+        guard let a = angle, a.isFinite, a >= smallCanvasOpenAngle, let since = openSince else { return false }
+        return now - since >= smallCanvasOpenSeconds
+    }
+
+    /// Why the pose is what it is (`HUSH-T pose <pose> reason=<…>`, so CI can see why a card is up). Pure; tested.
+    static func poseReason(_ pose: AppPose, canvas: CGSize, forced: Bool, angle: Double?) -> String {
+        let size = "\(Int(canvas.width.rounded()))x\(Int(canvas.height.rounded()))"
+        let a = angle.map { AppTrace.fixed($0, 1) } ?? "-"
+        if forced { return "forced \(size)" }
+        switch pose {
+        case .cover: return "cover-sized \(size) angle=\(a)"
+        case .standUp: return "landscape \(size) angle=\(a)"
+        case .play:
+            return max(canvas.width, canvas.height) < coverMaxSide ? "small-canvas-open \(size) angle=\(a)"
+                : "portrait \(size)"
+        }
     }
 
     /// R2: a demo-forced pose card only shows where it could really happen: the book-pose card never on a phone

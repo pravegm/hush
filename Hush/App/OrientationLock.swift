@@ -34,7 +34,8 @@ enum OrientationLock {
     static func mask(screen: CGSize) -> UIInterfaceOrientationMask {
         let stored = trustsStoredHinge(UserDefaults.standard.bool(forKey: hingeKey), screen: screen)
         let inner = max(screen.width, screen.height) >= AppRules.coverMaxSide
-        return mask(isDuo: stored || hingeSeen || looksLikeDuo(screen), liveRun: liveRun, inner: inner)
+        return mask(isDuo: stored || hingeSeen || looksLikeDuo(screen), liveRun: liveRun, inner: inner,
+                    interfacePortrait: interfaceIsPortrait() && screen.height > screen.width)
     }
 
     /// Pure rule (tested): portrait + landscapes on a Duo, portrait only elsewhere. Never upside down.
@@ -42,11 +43,30 @@ enum OrientationLock {
         isDuo ? .allButUpsideDown : .portrait
     }
 
-    /// Pure rule (tested), R2: a live run on the Duo's inner display is held in portrait; the cover display keeps the
-    /// Duo mask (iOS carries the cover's answer through the handover, Brim run 40343397399). Never upside down.
-    nonisolated static func mask(isDuo: Bool, liveRun: Bool, inner: Bool) -> UIInterfaceOrientationMask {
+    /// Pure rule (tested), R2: a live run on the Duo's inner display is held in portrait, but ONLY once the interface
+    /// already IS portrait there. Duo run 40506125012: a portrait-only mask handed to a landscape (book-pose) inner
+    /// display doesn't rotate it; iOS runs the app as a letterboxed 469 × 669 compatibility column instead (cover-sized,
+    /// so it read as the cover display and play never stepped), and it stays there. While the interface is landscape
+    /// the mask keeps the landscapes and the App ASKS for portrait (`requestPortrait`), which rotates it properly. The
+    /// cover display keeps the Duo mask (Brim run 40343397399). Never upside down.
+    nonisolated static func mask(isDuo: Bool, liveRun: Bool, inner: Bool,
+                                 interfacePortrait: Bool) -> UIInterfaceOrientationMask {
         guard isDuo else { return .portrait }
-        return liveRun && inner ? .portrait : .allButUpsideDown
+        return liveRun && inner && interfacePortrait ? .portrait : .allButUpsideDown
+    }
+
+    /// The key window scene runs its interface in portrait now.
+    static func interfaceIsPortrait() -> Bool {
+        let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
+        let scene = scenes.first(where: { $0.windows.contains(where: \.isKeyWindow) }) ?? scenes.first
+        return scene?.effectiveGeometry.interfaceOrientation.isPortrait ?? false
+    }
+
+    /// The interface changed shape (RootView's canvas): a live run that has just reached portrait on the inner display
+    /// gets its portrait lock now (iOS only asks for the mask again after this).
+    static func interfaceChanged() {
+        guard liveRun else { return }
+        refreshSupportedOrientations()
     }
 
     /// Both Duo displays are ~0.7 short-to-long; other iPhones ~0.46. The inner display is ≥ 600 pt on its short side.

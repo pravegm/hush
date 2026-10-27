@@ -122,12 +122,13 @@ struct RootView: View {
 
     private func currentPose(_ canvas: CGSize) -> AppPose {
         if let forced = controller.forcedPose { return forced }
-        return AppRules.pose(canvas: canvas, hingeSeen: controller.hingeSeen, isShut: controller.isShut)
+        return AppRules.pose(canvas: canvas, hingeSeen: controller.hingeSeen, isShut: controller.isShut,
+                             smallCanvasOpen: controller.smallCanvasOpen)
     }
 
     private func handleCanvas(_ canvas: CGSize, fold: Bool, turned: Bool, pose: AppPose) {
         guard canvas.width > 1, canvas.height > 1 else { return }
-        controller.setPose(pose)
+        controller.setPose(pose, canvas: canvas)
         // Every layout change prints `HUSH-T canvas <w>x<h> fold=<0|1> turned=<0|1>` (GameController.updateCanvas).
         controller.updateCanvas(canvas, hasFold: fold, turned: turned)
     }

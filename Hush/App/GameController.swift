@@ -77,6 +77,10 @@ final class GameController: ObservableObject, SceneDriver {
     @Published private(set) var showsHoldHint = false
     /// Demo event freezes: the scene is paused too, so the moment stays on screen.
     @Published private(set) var sceneHeld = false
+    /// A cover-sized canvas while the hinge is held open: a compatibility column, played (`AppRules.pose`).
+    @Published private(set) var smallCanvasOpen = false
+    private var smallCanvasOpenSince: TimeInterval?
+    private var smallCanvasTask: Task<Void, Never>?
     /// The scene's frame rate (Feel: 60 under Low Power or a hot device, else 120).
     @Published private(set) var preferredFPS = 120
 
@@ -413,6 +417,8 @@ final class GameController: ObservableObject, SceneDriver {
         if line != lastCanvasLine {
             lastCanvasLine = line
             AppTrace.t(line)
+            // A live run that has just reached portrait gets its portrait lock now (never before: Duo run 40506125012).
+            OrientationLock.interfaceChanged()
         }
         isTurned = turned
         if !turned && showsHoldHint { showsHoldHint = false }
@@ -470,11 +476,14 @@ final class GameController: ObservableObject, SceneDriver {
         feedback.silence()
     }
 
-    /// The display's pose changed (book pose, the cover display).
-    func setPose(_ newPose: AppPose) {
+    /// The display's pose changed (book pose, the cover display). Every change logs `HUSH-T pose <pose> reason=<…>`.
+    func setPose(_ newPose: AppPose, canvas: CGSize = .zero) {
         guard newPose != pose else { return }
         let old = pose
         pose = newPose
+        AppTrace.t("HUSH-T pose \(newPose.rawValue) reason="
+                   + AppRules.poseReason(newPose, canvas: canvas, forced: forcedPose != nil, angle: hinge.angle))
+        if newPose == .cover { watchSmallCanvas() }
         if newPose == .standUp {
             standUpAngle = hinge.angle
             askPortrait()
@@ -552,6 +561,13 @@ final class GameController: ObservableObject, SceneDriver {
         } else if angle <= Self.shutBelow {
             isShut = true
         }
+        // A cover-sized canvas with the hinge held well open isn't the cover display (`AppRules.smallCanvasIsOpen`).
+        if angle >= AppRules.smallCanvasOpenAngle {
+            if smallCanvasOpenSince == nil { smallCanvasOpenSince = CACurrentMediaTime() }
+        } else {
+            smallCanvasOpenSince = nil
+            if smallCanvasOpen { smallCanvasOpen = false }
+        }
         // P0-1: the book card is up and the hinge moved into the play range: they lifted it. Ask for portrait.
         if pose == .standUp {
             if standUpAngle == nil { standUpAngle = angle }
@@ -565,6 +581,30 @@ final class GameController: ObservableObject, SceneDriver {
 
     /// After a hinge has been seen, a nil is a display handover, never "no hinge" (Brim research).
     func hingeUnavailable() {}
+
+    /// While the cover card is up: if the hinge stays well open (≥ 60° for 2.5 s; the Duo sends no reports while
+    /// still, so this is polled), the small canvas is a compatibility column on the inner display, not the cover
+    /// display. Ask for portrait again and play there rather than sit on the cover card with nothing stepping.
+    private func watchSmallCanvas() {
+        smallCanvasTask?.cancel()
+        smallCanvasTask = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 500_000_000)
+                guard let self, self.pose == .cover || self.smallCanvasOpen else { return }
+                let open = AppRules.smallCanvasIsOpen(angle: self.hinge.angle, openSince: self.smallCanvasOpenSince,
+                                                      now: CACurrentMediaTime())
+                if open != self.smallCanvasOpen {
+                    self.smallCanvasOpen = open
+                    if open {
+                        AppTrace.t("HUSH-T pose cover-open angle=\(AppTrace.fixed(self.hinge.angle ?? 0, 1)): "
+                                   + "a small canvas with the hinge open, asking for portrait")
+                        self.askPortrait()
+                    }
+                }
+                if !open && self.pose != .cover { return }
+            }
+        }
+    }
 
     /// The closing pause (`ClosingPause`): Feel's gate (θ < `Tuning.closingAngle`, 70° in R2, for 0.4 s) or shut
     /// pauses; it lifts only when `hinge.canResume` (open ≥ 95° and still).

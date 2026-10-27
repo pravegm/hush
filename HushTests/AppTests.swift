@@ -471,18 +471,59 @@ struct TurnedRoundTests {
         #expect(OrientationLock.looksLikeDuo(CGSize(width: 669, height: 951)))
         #expect(!OrientationLock.looksLikeDuo(CGSize(width: 402, height: 874)))
         #expect(!OrientationLock.trustsStoredHinge(true, screen: CGSize(width: 402, height: 874)))
-        // R2 P0-1: a live run holds the inner display in portrait; the cover keeps the Duo mask; never upside down.
-        #expect(OrientationLock.mask(isDuo: true, liveRun: true, inner: true) == .portrait)
-        #expect(OrientationLock.mask(isDuo: true, liveRun: false, inner: true) == .allButUpsideDown)
-        #expect(OrientationLock.mask(isDuo: true, liveRun: true, inner: false) == .allButUpsideDown)
-        #expect(OrientationLock.mask(isDuo: false, liveRun: false, inner: true) == .portrait)
+        // R2 P0-1: a live run holds the inner display in portrait once it IS portrait; the cover keeps the Duo mask.
+        #expect(OrientationLock.mask(isDuo: true, liveRun: true, inner: true, interfacePortrait: true) == .portrait)
+        #expect(OrientationLock.mask(isDuo: true, liveRun: false, inner: true, interfacePortrait: true)
+                == .allButUpsideDown)
+        #expect(OrientationLock.mask(isDuo: true, liveRun: true, inner: false, interfacePortrait: true)
+                == .allButUpsideDown)
+        #expect(OrientationLock.mask(isDuo: false, liveRun: false, inner: true, interfacePortrait: false) == .portrait)
+        // Duo run 40506125012: a run starting in book pose (landscape) must keep the landscapes, or iOS shows a
+        // 469 × 669 compatibility column instead of rotating. Portrait is then ASKED for, never forced by the mask.
+        let bookPose = OrientationLock.mask(isDuo: true, liveRun: true, inner: true, interfacePortrait: false)
+        #expect(bookPose == .allButUpsideDown)
+        #expect(bookPose.contains(.landscapeLeft) && bookPose.contains(.landscapeRight) && bookPose.contains(.portrait))
         for duo in [true, false] {
             for live in [true, false] {
                 for inner in [true, false] {
-                    #expect(!OrientationLock.mask(isDuo: duo, liveRun: live, inner: inner).contains(.portraitUpsideDown))
+                    for portrait in [true, false] {
+                        let m = OrientationLock.mask(isDuo: duo, liveRun: live, inner: inner,
+                                                     interfacePortrait: portrait)
+                        #expect(!m.contains(.portraitUpsideDown))
+                        #expect(m.contains(.portrait))
+                    }
                 }
             }
         }
+    }
+
+    /// Duo run 40506125012: a cover-sized portrait canvas with the hinge held open is a compatibility column on the
+    /// inner display, not the cover display: it is played (it never sits on the cover card with nothing stepping).
+    @Test func smallCanvasWithTheHingeOpenIsPlayed() {
+        let column = CGSize(width: 469, height: 669)
+        #expect(AppRules.pose(canvas: column, hingeSeen: true, isShut: false) == .cover)
+        #expect(AppRules.pose(canvas: column, hingeSeen: true, isShut: false, smallCanvasOpen: true) == .play)
+        // A landscape small canvas is never treated as play by this rule.
+        #expect(AppRules.pose(canvas: CGSize(width: 669, height: 469), hingeSeen: true, isShut: false,
+                              smallCanvasOpen: true) == .cover)
+        #expect(!AppRules.smallCanvasIsOpen(angle: 104, openSince: 0, now: 1))
+        #expect(AppRules.smallCanvasIsOpen(angle: 104, openSince: 0, now: AppRules.smallCanvasOpenSeconds + 0.1))
+        #expect(!AppRules.smallCanvasIsOpen(angle: 20, openSince: 0, now: 10))
+        #expect(!AppRules.smallCanvasIsOpen(angle: nil, openSince: 0, now: 10))
+        #expect(!AppRules.smallCanvasIsOpen(angle: 104, openSince: nil, now: 10))
+    }
+
+    @Test func poseReasonsSayWhy() {
+        #expect(AppRules.poseReason(.cover, canvas: CGSize(width: 469, height: 669), forced: false, angle: 104.2)
+                == "cover-sized 469x669 angle=104.2")
+        #expect(AppRules.poseReason(.standUp, canvas: CGSize(width: 951, height: 669), forced: false, angle: nil)
+                == "landscape 951x669 angle=-")
+        #expect(AppRules.poseReason(.play, canvas: CGSize(width: 669, height: 951), forced: false, angle: 120)
+                == "portrait 669x951")
+        #expect(AppRules.poseReason(.play, canvas: CGSize(width: 469, height: 669), forced: false, angle: 104)
+                .hasPrefix("small-canvas-open"))
+        #expect(AppRules.poseReason(.standUp, canvas: CGSize(width: 669, height: 951), forced: true, angle: nil)
+                .hasPrefix("forced"))
     }
 
     /// P0-1: a ≥ 15° lift into the play range under the book card asks iOS for portrait.
