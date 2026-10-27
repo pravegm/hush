@@ -164,6 +164,10 @@ enum Tuning {
     /// Random placement tries before a deterministic grid scan.
     static let placementTries: Int = 60
     static let placementGridStep: Double = 12
+    /// R4: no loot is dealt where its circle (radius + `lootGap`) touches this floor-space box: the interior's
+    /// back-right corner, under the phone's pause coin (≈ floor x 551–592, y 10–102), which takes the touch. Applied in
+    /// every mode and on every device (the Duo included) so a seed deals the same chest everywhere (the Daily).
+    static let lootKeepOut: CGRect = CGRect(x: 540, y: 0, width: 130, height: 112)
     /// Cosmetic rotation range (radians, ±).
     static let lootRotation: Double = 0.5
 

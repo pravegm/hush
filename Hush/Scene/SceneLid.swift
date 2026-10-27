@@ -36,12 +36,33 @@ enum ChestCopy {
         }
     }
 
-    /// R3: two tokens: "Light sleeper · Iron-bound"; golden: "GOLDEN MIMIC · Light sleeper". The multiplier is on the
-    /// seal (`plateSeal`), never in the line.
+    /// R3: two tokens: "Light sleeper · Iron-bound"; golden (R4, juror P2: one casing): "Golden · Light sleeper". The
+    /// multiplier is on the seal (`plateSeal`), never in the line.
     static func plateSubline(_ c: ChestSpec) -> String {
         let kind = ChestCopy.plateTrait(c.mimic)
-        if c.golden { return "GOLDEN MIMIC · \(kind)" }
+        if c.golden { return "Golden · \(kind)" }
         return "\(kind) · \(ChestCopy.tierShort(c.tier))"
+    }
+
+    /// R4 (golden, UX P2-3): the "×n" popped over each golden item as it's revealed: the SAME number as the seal
+    /// (the chest's real total multiplier), so one golden chest shows one number.
+    static func goldenPop(_ c: ChestSpec) -> String {
+        plateSeal(c) ?? multiplier(c.multiplier)
+    }
+
+    /// R4 (UX P2-6): the noise meter's word by stage, so it never relies on colour alone.
+    static func meterWord(_ s: MimicStage) -> String {
+        switch s {
+        case .asleep: return "NOISE"
+        case .stirring: return "STIRRING"
+        case .waking, .biting: return "WAKING!"
+        }
+    }
+
+    /// R4 (tester 8): the carved plaque above the lid on phones: "Iron-bound · Chest 4" ("Golden · Chest 4").
+    static func extensionPlaque(_ c: ChestSpec) -> String {
+        let tier = c.golden ? "Golden" : tierShort(c.tier)
+        return "\(tier) · Chest \(max(c.index, 0) + 1)"
     }
 
     /// R3: the seal's number ("×1.5", "×4" for a golden gilded chest: the real `multiplier`, QA-2 P2-8), nil at ×1.
@@ -122,6 +143,12 @@ final class SceneLid {
     private let knob: SKSpriteNode
     private let chevron: SKSpriteNode
     private let sparkles: [SKSpriteNode]
+    /// R4 (tester 8): the carved plaque in the extension above the lid ("Iron-bound · Chest 4"), phones only.
+    private let plaque: SKSpriteNode
+    private let plaqueLabel: SceneLabel
+    /// The plaque's words, and whether it is drawn (tests).
+    var plaqueText: String { plaqueLabel.text }
+    var plaqueShowing: Bool { !plaque.isHidden }
 
     private(set) var dress: ChestDress = .tier(.wooden)
     var tier: ChestTier {
@@ -202,7 +229,8 @@ final class SceneLid {
         lipN.anchorPoint = CGPoint(x: 0.5, y: 0)
         lipN.position = CGPoint(x: ls.width / 2, y: ChestLayout.lipBottom - 4)
         lipN.zPosition = 2
-        let teethN = SKSpriteNode(texture: SceneTextures.teeth, size: CGSize(width: ls.width, height: 72))
+        let teethN = SKSpriteNode(texture: SceneTextures.teeth,
+                                  size: CGSize(width: ls.width, height: ChestLayout.teethTextureHeight))
         teethN.anchorPoint = CGPoint(x: 0.5, y: 1)
         teethN.position = CGPoint(x: ls.width / 2, y: SceneLid.teethTop(shown: ChestLayout.teethAsleep))
         teethN.zPosition = 1
@@ -359,8 +387,18 @@ final class SceneLid {
             sp.append(s)
         }
 
-        let all: [SKNode] = [baseN, extN, capN, vigN, eyeRoot, browL, browR, knobN, dimN, glowN, plateN, sealN, jawN,
-                             sliderN]
+        // R4: the extension plaque (hidden until a tall enough extension asks for it).
+        let plaqueN = SKSpriteNode(texture: SceneTextures.lidPlaque, size: ChestLayout.plaqueSize)
+        plaqueN.zPosition = 0.5
+        plaqueN.isHidden = true
+        let plaqueL = SceneLabel(size: 22, color: ScenePaint.ui(RGBA(hex: 0xF2D9A6)), outline: nil, minimumSize: 16)
+        plaqueL.maxWidth = ChestLayout.plaqueSize.width - 64
+        plaqueL.node.position = CGPoint(x: 0, y: -1)
+        plaqueL.node.zPosition = 1
+        plaqueN.addChild(plaqueL.node)
+
+        let all: [SKNode] = [baseN, extN, capN, plaqueN, vigN, eyeRoot, browL, browR, knobN, dimN, glowN, plateN, sealN,
+                             jawN, sliderN]
         for n in all { rootN.addChild(n) }
         for z in zs { rootN.addChild(z.node) }
         for s in sp { rootN.addChild(s) }
@@ -400,6 +438,8 @@ final class SceneLid {
         knob = knobS
         chevron = chevN
         sparkles = sp
+        plaque = plaqueN
+        plaqueLabel = plaqueL
         rebuildEye(step: 0)
     }
 
@@ -425,6 +465,15 @@ final class SceneLid {
         let full = CGSize(width: ls.width, height: ls.height + t)
         vignette.size = full
         dim.size = full
+        // R4: the carved plaque fills the dead band on phones (never on the Duo: no extension there).
+        plaque.isHidden = t < ChestLayout.plaqueMinExtension || plaqueLabel.text.isEmpty
+        plaque.position = CGPoint(x: ls.width / 2, y: ChestLayout.plaqueCenterY(topExtension: t))
+    }
+
+    /// R4: the plaque's words ("Iron-bound · Chest 4", from `ChestCopy.extensionPlaque`).
+    func setPlaque(_ text: String) {
+        plaqueLabel.set(text)
+        plaque.isHidden = topExtension < ChestLayout.plaqueMinExtension || text.isEmpty
     }
 
     func setDress(_ d: ChestDress, tier t: ChestTier, animated: Bool) {

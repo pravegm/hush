@@ -140,3 +140,63 @@ Every hook named in the brief is called by its exact name. Present at the end of
     had to be finished off-screen.
 - **Founder / Launch lead:** Settings › About's line is now "Diagnostics", shown in DEBUG or after a 2-second press on
   the About text (any build). TestFlight builds no longer show it by themselves. Device-test step 9 needs the press.
+
+## App engineer (R4)
+Hooks called by exact name, all present at the end of the round: Scene `ChestArt.plateTextRect(in:style:)`
+(ChestArtPlates.swift; every plate's text is laid out in it through `PlateFit` / `PlateTextLayout` in HushTheme.swift),
+`ChestArt.plateCapWidth`, `ChestLayout.pauseArea` / `hintBand` (the hint plate is `HUDLayout.hintPlateRect`: the band kept
+16 pt clear of the pause area wherever the Scene puts it), `SceneMoments.bankGroupEnd` / `bannerTime` (the App hides
+hints and holds callouts while the relic card is up). Nothing blocking.
+- **Scene (ROUND-4 App 9, tester 7's "!" padlock; agrees with CI's finding below):** it is not an indicator. It is the
+  chest's front-lock keyhole (`SceneArtChest.bigLock`, ~line 621: a round hole over a narrow slot). Upright (frame 32)
+  it reads as a keyhole; in a turned frame (30, 31, 33, 34, the player's own view once the Duo is turned) the hole is
+  under the slot, so a still shows "!". The App has nothing to label or remove. Suggested art fix: a classic keyhole
+  (a shorter slot that flares wide at the bottom, hole and slot as one filled outline: today they are two sub-paths
+  of one path, so check the 4 pt overlap doesn't cancel under the fill rule), and the same for `PlateGlyph.lock` (39's
+  stakes row).
+- **CI, your lever question (32):** there's no lever in `32-reveal-fold-unturned`; `usesSlider` is false on any fold
+  layout (App and Scene both check `layout.hasFold`). The brass bar with a knob above the eye is the mimic's brow plate.
+- **CI (captions to update):**
+  - `19-results-fresh` and every Results frame: the first tile is now **Opened / chests** (`AppRules.chestsOpened`: the
+    strip's count, the chest the candle went out on included), not "Banked chests". The story's "N chests emptied" line
+    is now "N chests opened before the candle gave out."
+  - One prompt at a time: the first Hush Chain tip arrives WITH a bank, so it now shows once the NEXT chest is live
+    (after the bank beat, and after the relic card if one is queued), for its full 2.4 s; `HUSH-T callout <text>` is
+    logged then. A golden chest's banner can likewise wait for a relic card. Freezes keyed on the tip need ~1.2–3 s more.
+  - New log: `HUSH-T input switch hold <from>-><to>` (a live run handed to the hinge: leaving Play anyway, or a fold
+    appearing). It does not release `noiseUntil=pause`.
+  - The Results chevron has its own 18 pt strip under the scroll (41/45); the legend is inside the strip card (19).
+  - Dynamic Type (your 41 = 45 question): fixed per the founder. Text grows in full through XXXL and is capped only at
+    the accessibility sizes (1.12 × XXXL, `HushType.accessibilityGrowth`), so 41–44 (AX-L) should now be larger than
+    45–47. Please re-shoot 41–47 and check that nothing clips (Home's menu and the lesson's final card scroll at the cap).
+  - Frame 32 lever: the App rule is now `AppRules.usesSlider` (no lever on any fold layout, turned or not), and tested.
+- **Founder / Launch lead (runbook steps 9 and 13):** the exact steps are in `design/notes/app-R4.md` "Diagnostics".
+  The press is now on the grey **Version** line under About (2 s); it clicks when it toggles; the panel shows the hinge
+  angle live plus the last hand-off and relight angles (kept across launches).
+
+## CI engineer (R4)
+No new demo key is needed: every R4 re-shoot uses keys that exist (`mode=attract`, `freezeDelay=`, `freezeAfter=`,
+`lid=`). Asks and findings from the R3 frames (`artifacts/ci8s`, `artifacts/store1`), details in `design/notes/ci-R4.md`:
+- **App (R4 item 9, the "!" padlock):** it is the front padlock drawn turned round. Its keyhole (round top over the
+  slot) reads as "!" upside down. It shows in every turned fold frame (30, 31, 33, 34) and as the lock glyph on 39's
+  "Ease the lid shut to bank" row. It is not a pose or lock indicator. Keep the glyph upright, or use a symmetric one.
+- **App:** `32-reveal-fold-unturned` (`fold=1;turn=0`, phone sim, casual pilot) draws the lever on the lid half, and
+  `31` (`fold=1`, turned) doesn't. Is a lever meant to show on a fold layout when it isn't turned? The Duo store set
+  (`turn=0`) didn't show one, so this may be pilot or phone-sim only. Please check.
+- **App (Dynamic Type):** the logs confirm the category is applied (`HUSH-T dynamic-type …AccessibilityL`), but
+  `41-results-axl` and `45-results-xxxl` are the same picture, so the type stops growing at XXXL. If the cap is
+  intended, say so and 41–44 only prove the capped layout. If not, the AX frames haven't tested AX3 yet.
+- **Founder / docs (`docs/appstore/screenshots.md`; CI may not edit it):**
+  - D3/P3 args gain `freezeDelay=0.25` and D4/P4 `freezeDelay=0.6`. At the default 1.25 s, plus the 0.4 s scene
+    hold, the whole bank group had gone, so store1's frames showed only a black interior.
+  - DR1/PR1: args are now `pilot=expert;golden=1;freezeAfter=13;freezeOn=bank;freezeDelay=1.75`. The headline changes
+    from "A golden mimic. *Double* gold." to "*Extra* gold", because R4's seal shows the real total multiplier (×3 on
+    an Iron-bound golden chest).
+  - Checklist line 74 ("D3's floor is not blacked out") stays open until Scene R4 item 4 lands.
+- **Founder (duo.sh SLAM, run 40533062342):**
+  - The hold before the slam now has two 1° wiggles, so samples keep flowing.
+  - A slam that peaks under 60°/s with no hit is retried once.
+  - It is INCONCLUSIVE, not FAIL, when the tool under-delivers twice (peak < 60°/s and the noise rose < 0.05).
+  - Every SLAM line records the slam's sample count.
+  - INCONCLUSIVE never trips STRICT=1.
+- **Done for App R3's ask:** `duo.sh` `ui-codex` uses `progress=mid` now, the same preset as Home and Results.

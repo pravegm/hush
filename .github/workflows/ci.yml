@@ -131,6 +131,11 @@ jobs:
           WARN_ONLY: "1"
         run: bash ci/icon-check.sh
 
+      - name: App icon is RGB, no alpha (fatal)
+        # QA-3 P2-10: the committed AppIcon-1024.png is RGB (colour type 2) since R3, so an alpha channel is now a
+        # regression (ITMS-90717), not a warning. testflight.yml still flattens one for its own build (FIX_ALPHA=1).
+        run: bash ci/icon-check.sh --alpha-only
+
       - name: Capture screenshots
         if: success()
         timeout-minutes: 100

@@ -135,8 +135,9 @@ struct StandUpCard: View {
                 .overlay(RoundedRectangle(cornerRadius: 30, style: .continuous)
                     .stroke(HushTheme.gold, lineWidth: 5))
             VStack(spacing: 14) {
-                Image(systemName: "arrow.up")
-                    .font(.system(size: 64, weight: .black, design: .rounded))
+                // R4 (juror P1-4): the drawn lid, glowing, with the plate's own arrow (no SF Symbols).
+                DuoChestHalf(lid: true)
+                    .frame(width: min(page * 0.5, 200), height: min(page * 0.34, 130))
                 Text("Lift this half")
                     .font(.system(size: 36, weight: .heavy, design: .rounded))
                 Text("It's the chest's lid.")
@@ -206,7 +207,10 @@ struct StandUpCard: View {
                 .foregroundStyle(HushTheme.mist)
                 .fixedSize(horizontal: false, vertical: true)
             HushButton(kind: .primary, height: HushTheme.minTap, confirm: true, action: onStoodUp) {
-                Label("I've stood it up", systemImage: "checkmark")
+                HStack(spacing: 10) {
+                    TickGlyph().fill(HushTheme.ink).frame(width: 20, height: 20)
+                    Text("I've stood it up")
+                }
             }
             .accessibilityHint("Turns the screen upright for the chest")
             if Self.showsWayOut(refused: refused, waited: waited) {
@@ -265,16 +269,100 @@ struct TurnAndLiftDrawing: View {
 
     private static func ease(_ x: Double) -> Double { 1 - pow(1 - x, 3) }
 
+    /// R4 (juror P1-4): the Duo drawn as the chest, in the game's own art: the lid half is the wooden lid with the
+    /// sleeping mimic's eye and its teeth at the hinge, glowing gold; the floor half is the velvet with a coin.
     private func half(lid: Bool, width: CGFloat, height: CGFloat) -> some View {
-        let r = RoundedRectangle(cornerRadius: 10, style: .continuous)
-        return ZStack {
-            r.fill(lid ? HushTheme.gold.opacity(0.85) : HushTheme.surfaceRaised)
-            r.stroke(lid ? HushTheme.goldLight : HushTheme.haze, lineWidth: 2)
-            Image(systemName: lid ? "arrow.up" : "shippingbox.fill")
-                .font(.system(size: height * 0.32, weight: .black))
-                .foregroundStyle(lid ? HushTheme.ink : HushTheme.mist)
+        DuoChestHalf(lid: lid)
+            .frame(width: width, height: height)
+    }
+}
+
+/// R4 (juror P1-4): one half of the Duo drawn as the chest (`ChestArt` colours, outline, eye, teeth, loot and plate
+/// glyphs; no SF Symbols). `lid`: the half to lift (wood, the sleeping eye, a glowing rim, an up arrow); else the floor
+/// (velvet, a coin and a gem, the brass bag-strip edge).
+struct DuoChestHalf: View {
+    let lid: Bool
+
+    var body: some View {
+        GeometryReader { geo in
+            let s = geo.size
+            let outline = Color(hush: ChestArt.outline)
+            let shape = RoundedRectangle(cornerRadius: min(s.width, s.height) * 0.12, style: .continuous)
+            ZStack {
+                if lid {
+                    // The glow says "this one".
+                    shape.fill(HushTheme.gold.opacity(0.35)).blur(radius: 8).scaleEffect(1.08)
+                }
+                shape.fill(outline)
+                shape.inset(by: 3)
+                    .fill(LinearGradient(colors: lid ? [Color(hush: ChestArt.palette.wood),
+                                                        Color(hush: ChestArt.palette.woodDark)]
+                                                     : [Color(hush: ChestArt.palette.velvet),
+                                                        Color(hush: ChestArt.palette.velvet.mixed(with: RGBA(0, 0, 0),
+                                                                                                  0.45))],
+                                         startPoint: .top, endPoint: .bottom))
+                if lid { lidArt(s) } else { floorArt(s) }
+                shape.inset(by: 1.5)
+                    .stroke(lid ? HushTheme.goldLight : Color(hush: ChestArt.palette.woodDark), lineWidth: lid ? 3 : 2)
+            }
         }
-        .frame(width: width, height: height)
+        .accessibilityHidden(true)
+    }
+
+    /// Planks, a brass band, the closed eye (the in-game `mimicEye`, asleep) and the teeth along the hinge edge.
+    private func lidArt(_ s: CGSize) -> some View {
+        let flip = CGAffineTransform(a: 1, b: 0, c: 0, d: -1, tx: 0, ty: s.height)
+        let eye = ChestArt.mimicEye(wake: 0.06, size: s)
+        let bed = Path(ChestArt.mimicEyeBed(size: s)).applying(flip)
+        let teeth = Path(ChestArt.flippedVertically(ChestArt.teethRow(width: 40, height: 14, count: 5,
+                                                                        pointingDown: true)))
+        return ZStack {
+            ForEach(1..<3, id: \.self) { i in
+                Rectangle()
+                    .fill(Color(hush: ChestArt.palette.woodDark).opacity(0.55))
+                    .frame(width: s.width * 0.86, height: 1.5)
+                    .position(x: s.width / 2, y: s.height * CGFloat(i) / 3.4)
+            }
+            bed.fill(Color(hush: ChestArt.flesh))
+            Path(eye.white).applying(flip).fill(Color(hush: ChestArt.palette.text))
+            Path(eye.lidTop).applying(flip).fill(Color(hush: ChestArt.fleshDark))
+            bed.stroke(Color(hush: ChestArt.outline), lineWidth: 1.5)
+            // The teeth at the hinge edge (the bottom of the drawn lid).
+            FittedPathShape(path: teeth)
+                .fill(Color(hush: ChestArt.palette.text))
+                .overlay(FittedPathShape(path: teeth).stroke(Color(hush: ChestArt.outline), lineWidth: 1))
+                .frame(width: s.width * 0.7, height: s.height * 0.14)
+                .position(x: s.width / 2, y: s.height * 0.88)
+            PlateGlyphView(glyph: .arrowUp, side: max(min(s.height * 0.3, 30), 12))
+                .position(x: s.width * 0.86, y: s.height * 0.26)
+        }
+        .frame(width: s.width, height: s.height)
+    }
+
+    /// The velvet floor: a coin and a gem (the in-game loot art), the bag strip's brass edge nearest you.
+    private func floorArt(_ s: CGSize) -> some View {
+        let r = max(min(s.width, s.height) * 0.14, 6)
+        return ZStack {
+            lootImage(.copper, radius: r)
+                .position(x: s.width * 0.36, y: s.height * 0.42)
+            lootImage(.gem(.ruby), radius: r * 0.9)
+                .position(x: s.width * 0.62, y: s.height * 0.5)
+            Rectangle()
+                .fill(LinearGradient(colors: [HushTheme.goldLight, HushTheme.goldDeep], startPoint: .top,
+                                     endPoint: .bottom))
+                .frame(width: s.width * 0.8, height: max(s.height * 0.07, 3))
+                .position(x: s.width / 2, y: s.height * 0.84)
+        }
+        .frame(width: s.width, height: s.height)
+    }
+
+    @ViewBuilder
+    private func lootImage(_ kind: LootKind, radius: CGFloat) -> some View {
+        if let img = ChestArt.lootImage(kind, radius: radius) {
+            Image(decorative: img, scale: 3)
+                .resizable()
+                .frame(width: radius * 2.4, height: radius * 2.4)
+        }
     }
 }
 

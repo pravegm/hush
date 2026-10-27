@@ -11,7 +11,25 @@
 #      RGBA, fully opaque. With FIX_ALPHA=1 the file is flattened IN THE WORKSPACE (never committed) before the archive,
 #      losslessly through ImageIO (xcrun swift), else through a best-quality JPEG round trip; otherwise a warning.
 # Exit 1 when 1–3 fail (or 4 can't be fixed with FIX_ALPHA=1), unless WARN_ONLY=1 (then warnings, exit 0).
+# R4 (QA-3 P2-10): `ci/icon-check.sh --alpha-only [icon]` is the fatal RGB guard ci.yml runs: exit 1 if the PNG has an
+# alpha channel (IHDR colour type 4/6 or a tRNS chunk, read from the bytes, or sips hasAlpha), whatever WARN_ONLY says.
 set -uo pipefail
+
+if [[ "${1:-}" == --alpha-only ]]; then
+  shift
+  ICON="${1:-Hush/Assets.xcassets/AppIcon.appiconset/AppIcon-1024.png}"
+  [[ -f "$ICON" ]] || { echo "::error::app icon: $ICON not found"; exit 1; }
+  ctype=$(od -An -tu1 -j25 -N1 "$ICON" 2>/dev/null | tr -d ' ')
+  trns=$(head -c 65536 "$ICON" | grep -c "tRNS" 2>/dev/null || true)
+  salpha=$(sips -g hasAlpha "$ICON" 2>/dev/null | awk '/hasAlpha/ {print $2}')
+  line="App icon RGB check: \`$ICON\` colour type ${ctype:-?} (2 = RGB), tRNS chunks ${trns:-0}, sips hasAlpha=${salpha:-?}"
+  echo "$line"; [[ -n "${GITHUB_STEP_SUMMARY:-}" ]] && echo "$line" >> "$GITHUB_STEP_SUMMARY"
+  if [[ "$ctype" == 4 || "$ctype" == 6 || "${trns:-0}" != 0 || "$salpha" == yes ]]; then
+    echo "::error::app icon: $ICON has an alpha channel (App Store Connect refuses it: ITMS-90717). Commit an RGB PNG (DemoMode IconExport writes one)."
+    exit 1
+  fi
+  exit 0
+fi
 
 ICON="${1:-Hush/Assets.xcassets/AppIcon.appiconset/AppIcon-1024.png}"
 PLACEHOLDER_SHA256="a29bfd3dc05dacdf9a148b7b61725d972764d78e456c5fdf79c9302903a5ee70"

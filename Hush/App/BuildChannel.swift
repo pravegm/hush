@@ -8,6 +8,36 @@ import Foundation
 enum BuildChannel {
     static let diagnosticsKey = "hush.diagnostics"
 
+    /// R4 (ROUND-4 App 10): where this build came from, shown INSIDE Diagnostics only. It never decides whether any
+    /// UI shows (App Review installs carry a sandbox receipt too, so "TestFlight" also covers them; that is why the
+    /// panel itself needs the hidden press in every Release build).
+    enum Kind: String, Equatable {
+        case debug, testFlight, appStore
+
+        var label: String {
+            switch self {
+            case .debug: return "Debug"
+            case .testFlight: return "TestFlight (sandbox receipt)"
+            case .appStore: return "App Store"
+            }
+        }
+    }
+
+    /// Pure; tested.
+    static func kind(isDebug: Bool, receiptName: String?) -> Kind {
+        if isDebug { return .debug }
+        return receiptName == "sandboxReceipt" ? .testFlight : .appStore
+    }
+
+    static var current: Kind {
+        #if DEBUG
+        let debug = true
+        #else
+        let debug = false
+        #endif
+        return kind(isDebug: debug, receiptName: Bundle.main.appStoreReceiptURL?.lastPathComponent)
+    }
+
     /// DEBUG builds always; any other build only once the hidden gesture has unlocked it.
     static func showsDiagnostics(defaults: UserDefaults = .standard) -> Bool {
         #if DEBUG

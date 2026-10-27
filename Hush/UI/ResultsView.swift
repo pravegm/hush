@@ -130,7 +130,9 @@ struct ResultsView: View {
         let o = summary.outcome
         return VStack(spacing: c ? 10 : 12) {
             HStack(alignment: .top, spacing: 10) {
-                StatTile(value: r.chestsBanked, label: "Banked", detail: "chests", compact: c)
+                // R4 (tester 7): the chests OPENED, counted like the strip (the one the candle went out on too), so
+                // the tile and the strip never disagree ("14" next to 15 chips).
+                StatTile(value: AppRules.chestsOpened(r), label: "Opened", detail: "chests", compact: c)
                 StatTile(value: r.hushed, label: "Hushed", detail: "while it slept", tint: HushTheme.asleep,
                          compact: c)
                 StatTile(value: r.bites, label: r.bites == 1 ? "Bite" : "Bites",
@@ -140,13 +142,6 @@ struct ResultsView: View {
             .fixedSize(horizontal: false, vertical: true)
             if !r.chestLog.isEmpty {
                 ChestStrip(log: r.chestLog, compact: c, width: width)
-                if let legend = ChestStrip.legend(r.chestLog) {
-                    Text(legend)
-                        .font(HushType.caption(c))
-                        .foregroundStyle(HushTheme.mist)
-                        .multilineTextAlignment(.center)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
             }
             if r.bestChain >= 2 {
                 Text(AppRules.chainLine(r.bestChain))
@@ -224,8 +219,26 @@ struct FadingScroll<Content: View>: View {
         return ScrollState(overflows: overflows, atEnd: !overflows || offset + viewHeight >= contentHeight - 8)
     }
 
+    /// R4 (QA-3 P2-8, frames 41/45): the chevron's own strip under the scroll, so it never sits on the totals.
+    static var chevronStrip: CGFloat { 18 }   // computed: a generic type can't store a static
+
     var body: some View {
         let fades = state.overflows && !state.atEnd
+        VStack(spacing: 0) {
+            scroll(fades: fades)
+            if state.overflows {
+                Image(systemName: "chevron.compact.down")
+                    .font(.system(size: 22, weight: .bold))
+                    .foregroundStyle(HushTheme.goldLight.opacity(0.85))
+                    .frame(height: Self.chevronStrip)
+                    .opacity(fades ? 1 : 0)
+                    .allowsHitTesting(false)
+                    .accessibilityHidden(true)
+            }
+        }
+    }
+
+    private func scroll(fades: Bool) -> some View {
         ScrollView(showsIndicators: false) {
             content()
         }
@@ -242,16 +255,6 @@ struct FadingScroll<Content: View>: View {
                 LinearGradient(stops: [.init(color: .black, location: 0), .init(color: .black, location: 1 - fade),
                                        .init(color: .black.opacity(fades ? 0 : 1), location: 1)],
                                startPoint: .top, endPoint: .bottom)
-            }
-        }
-        .overlay(alignment: .bottom) {
-            if fades {
-                Image(systemName: "chevron.compact.down")
-                    .font(.system(size: 26, weight: .bold))
-                    .foregroundStyle(HushTheme.goldLight.opacity(0.85))
-                    .padding(.bottom, 2)
-                    .allowsHitTesting(false)
-                    .accessibilityHidden(true)
             }
         }
     }
@@ -335,6 +338,25 @@ struct ChestStrip: View {
         let per = Self.perRow(width: width, side: side)
         let vis = Self.visible(count: log.count, perRow: per)
         let columns = Array(repeating: GridItem(.fixed(side + 6), spacing: Self.spacing), count: per)
+        VStack(spacing: 6) {
+            // R4 (UX P2-5): the legend is INSIDE the strip's card, above the chips, so a phone sees it unscrolled.
+            if let legend = Self.legend(log) {
+                Text(legend)
+                    .font(.system(size: HushType.scaled(13, .footnote), weight: .medium, design: .rounded))
+                    .foregroundStyle(HushTheme.mist)
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            chips(vis: vis, columns: columns, side: side)
+        }
+        .padding(Self.padding)
+        .frame(maxWidth: .infinity)
+        .background(RoundedRectangle(cornerRadius: 16, style: .continuous).fill(HushTheme.surface.opacity(0.8)))
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(Self.spoken(log))
+    }
+
+    private func chips(vis: (shown: Int, more: Int), columns: [GridItem], side: CGFloat) -> some View {
         LazyVGrid(columns: columns, spacing: Self.spacing) {
             ForEach(0..<vis.shown, id: \.self) { i in
                 ChestChip(outcome: log[i], side: side, compact: compact, isLast: i == log.count - 1)
@@ -351,11 +373,6 @@ struct ChestStrip: View {
                         .fill(HushTheme.surfaceRaised))
             }
         }
-        .padding(Self.padding)
-        .frame(maxWidth: .infinity)
-        .background(RoundedRectangle(cornerRadius: 16, style: .continuous).fill(HushTheme.surface.opacity(0.8)))
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel(Self.spoken(log))
     }
 
     /// "8 chests: 5 banked, 2 hushed, 1 bitten". Pure; tested.

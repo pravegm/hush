@@ -250,14 +250,16 @@ final class SceneFloor {
         return CGFloat(0.55 * (1 - remaining / low))
     }
 
-    /// One frame. `light` is the candle flicker (≈ 1; lower = dimmer).
-    func update(dt: Double, snapshot s: HeistSnapshot, light: CGFloat, reduceMotion: Bool) {
+    /// One frame. `light` is the candle flicker (≈ 1; lower = dimmer). `cover` (R4) is how far the between-chests
+    /// shadow is down: the lid-shut darkness lifts under it, so the shadow alone dims the interior (to about 40 %).
+    func update(dt: Double, snapshot s: HeistSnapshot, light: CGFloat, reduceMotion: Bool, cover: CGFloat = 0) {
         let o = s.openness
         let d = SceneFloor.darknessLevels(openness: o)
         let flick = 1 + (1 - light) * 0.6
-        darknessAlpha = min(0.97, d.uniform * flick)
+        let keep = 1 - min(max(cover.isFinite ? cover : 0, 0), 1)
+        darknessAlpha = min(0.97, d.uniform * flick) * keep
         darkness.alpha = darknessAlpha
-        frontDark.alpha = min(1, d.front * flick)
+        frontDark.alpha = min(1, d.front * flick) * keep
         let reach = SceneFloor.washReach(openness: o)
         wash.yScale = max(reach * ChestLayout.rimInner.height / washHeight, 0.05)
         wash.alpha = (0.12 + 0.36 * CGFloat(min(max(o, 0), 1))) * light

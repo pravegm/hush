@@ -169,11 +169,11 @@ You don't need to make any certificate or profile. The build uses **Apple's clou
 | 6 | In a real **Run**, after you bank a chest, stand the lid upright and leave it there for 5 seconds | Note **which screen stays lit**: the inside screen (with no card on it), or the outside screen |
 | 7 | Lower the lid **slowly** until it's shut, taking about 5 seconds. Watch the outside screen | The outside screen shows **only the sleeping mimic**, never a small chest flashing up |
 | 8 | **Start recording.** Reopen **slowly**: stop for 1 second at upright, then again about halfway between upright and flat, then carry on | The inside screen lights up, a card says **"Hold still…"**, then the run carries on **with no bite**, and the candle **hasn't burned down** while the screen was dark |
-| 9 | Close and reopen once at a normal speed. Then go to Home (pause coin → **Home**; this ends the run) → **Settings** (the gear) → **About** | If a small grey **"Test build"** line appears under About, take a screenshot (it tells Claude the angles where the screens switch). If there's no such line, skip this step |
+| 9 | Close and reopen once at a normal speed. Then go to Home (pause coin → **Home**; this ends the run) → **Settings** (the gear) → **About**. Under it is a small grey line, **"Version 1.0 (N)"**: **press and hold it for 2 full seconds** | You feel a click and a **DIAGNOSTICS** box appears. Take a screenshot: it tells Claude the angles where the screens switch. Move the lid once and check the hinge angle changes. (The same 2 s press hides it again.) |
 | 10 | **Start recording.** In the middle of a run, pick the Duo up and tilt it sideways | The picture **stays the same way up**, and the book card does **not** appear |
 | 11 | Tap the pause coin, then tap **Resume** **while you're still moving the lid** | The run **waits until you hold the lid still** before it carries on |
 | 12 | Hold the Duo upright like a normal phone, camera at the top | A gold **"Other way round"** banner appears |
-| 13 | Stand it on the table again and lift the **wrong** half on purpose (the one that wasn't glowing) | Note whether anything tells you. If Settings → About has the grey line, screenshot it again |
+| 13 | Stand it on the table again and lift the **wrong** half on purpose (the one that wasn't glowing) | Note whether anything tells you. Then screenshot the DIAGNOSTICS box again (Settings → About; it stays open once shown) |
 | 14 | While you were easing the lid in all of the above | Did your fingers ever **tap the pause coin** by accident? |
 | 15 | Play **5 runs in a row** | Then note: is the Duo **warm**? Does the **creak** feel like the hinge itself? Is the buzz **in your fingers**, or a buzz on the table? |
 
@@ -188,7 +188,7 @@ Hush build [number from TestFlight], iPhone Duo, iOS [version]
 6  Screen lit when resting upright: [inside / outside]
 7  Outside screen showed only the sleeping mimic: [yes/no]
 8  "Hold still..." then carried on: [yes/no]   Bitten on reopening: [yes/no]   Candle burned down while dark: [yes/no]
-9  Grey "Test build" line: [screenshot sent / not there]
+9  DIAGNOSTICS box (2 s press on the Version line): [screenshot sent / didn't appear]
 10 Stayed the right way up when tilted: [yes/no]
 11 Resume waited for a still lid: [yes/no]
 12 "Other way round" banner: [yes/no]

@@ -195,6 +195,13 @@ while IFS='|' read -r -u 3 name args wait caption expect col6 col7; do
     c="${c#"${c%%[![:space:]]*}"}"
     [[ "$c" == -* ]] && extra="$extra $c"
   done
+  # R4: a "|" inside the expect regex (R3's 13b `(freeze |event )?creak`) splits it into a bogus 6th column and the
+  # expect can never match. Flag any 6th/7th column that is neither launch arguments nor a store `frame` value.
+  for c in "$col6" "$col7"; do
+    c="${c#"${c%%[![:space:]]*}"}"
+    [[ -z "$c" || "$c" == -* || "$c" == flat* || "$c" == tabletop* ]] && continue
+    echo "warning: $name: unexpected extra column '$c' (a '|' inside the caption or the expect regex?)"
+  done
   launch_extra=()
   read -r -a launch_extra <<< "$extra"
   echo "== $name ($args) wait ${wait}s${extra:+ launch:$extra}${caption:+ — $caption}"

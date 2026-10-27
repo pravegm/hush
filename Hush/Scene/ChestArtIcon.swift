@@ -140,21 +140,54 @@ extension ChestArt {
         drawIconLid(ctx, wood: wood, woodDark: woodDark, iron: iron, stud: stud, outlineHalf: ol)
         ctx.restoreGState()
 
-        // Star coins spilling from the seam, and one on the table.
-        let coins: [(CGPoint, CGFloat, Int, CGFloat)] = [(CGPoint(x: 252, y: 556), 50, 10, 0.12),
-                                                         (CGPoint(x: 800, y: 560), 44, 5, -0.2),
-                                                         (CGPoint(x: 884, y: 196), 40, 5, 0.5)]
-        for (c, r, v, rot) in coins {
-            ctx.saveGState()
-            ctx.translateBy(x: c.x, y: c.y)
-            ctx.rotate(by: rot)
-            drawArt(ctx, lootArt(.copper, radius: r, value: v), lootColors(.copper), radius: r)
-            ctx.restoreGState()
+        // Star coins spilling from the seam, and one leaning on the chest's front. R4 (tester 8): every coin and
+        // sparkle sits inside the iOS mask's safe area (`iconLooseBits`, tested).
+        for bit in iconLooseBits {
+            switch bit.kind {
+            case .coin(let v, let rot):
+                ctx.saveGState()
+                ctx.translateBy(x: bit.center.x, y: bit.center.y)
+                ctx.rotate(by: rot)
+                drawArt(ctx, lootArt(.copper, radius: bit.radius, value: v), lootColors(.copper), radius: bit.radius)
+                ctx.restoreGState()
+            case .sparkle:
+                drawIconSparkle(ctx, at: bit.center, radius: bit.radius)
+            }
         }
-        // A glint.
-        drawIconSparkle(ctx, at: CGPoint(x: 846, y: 668), radius: 30)
-        drawIconSparkle(ctx, at: CGPoint(x: 180, y: 640), radius: 18)
     }
+
+    /// R4: the icon's loose coins and sparkles (1024-unit space, y up) and how far each reaches (its art radius plus
+    /// its outline, or the sparkle's glow).
+    enum IconBitKind: Equatable {
+        case coin(value: Int, rotation: CGFloat)
+        case sparkle
+    }
+
+    struct IconBit: Equatable {
+        let center: CGPoint
+        let radius: CGFloat
+        let kind: IconBitKind
+        /// The farthest the drawn bit reaches from its centre.
+        var reach: CGFloat {
+            switch kind {
+            case .coin: return radius * 1.16 + 4
+            case .sparkle: return radius * 1.2
+            }
+        }
+    }
+
+    /// The safe circle the loose bits stay inside: 80 % of the icon, centred (inside the iOS squircle mask with room
+    /// to spare).
+    static let iconSafeRadius: CGFloat = 1024 * 0.4
+
+    static let iconLooseBits: [IconBit] = [
+        IconBit(center: CGPoint(x: 252, y: 556), radius: 50, kind: .coin(value: 10, rotation: 0.12)),
+        IconBit(center: CGPoint(x: 796, y: 560), radius: 44, kind: .coin(value: 5, rotation: -0.2)),
+        // Was (884, 196): the iOS mask could clip it. Now it leans on the chest's front, right of the lock.
+        IconBit(center: CGPoint(x: 694, y: 236), radius: 38, kind: .coin(value: 5, rotation: 0.5)),
+        IconBit(center: CGPoint(x: 818, y: 664), radius: 28, kind: .sparkle),
+        IconBit(center: CGPoint(x: 184, y: 640), radius: 18, kind: .sparkle),
+    ]
 
     private static func drawIconEye(_ ctx: CGContext, center: CGPoint, scale k: CGFloat) {
         let space = CGSize(width: 150, height: 150)

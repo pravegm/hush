@@ -733,18 +733,25 @@ enum ChestArt {
             s.shadePoly([(0.2, 0.5), (0.4, -0.3), (0.7, -0.58), (0.36, -0.58)])
             s.shinePoly([(-0.3, 0.4), (-0.16, 0.56), (-0.28, -0.2), (-0.42, -0.26)])
         case .lantern:
-            s.oval(0, 0.86, 0.17, 0.12)
-            s.holeOval(0, 0.86, 0.08, 0.05)
-            s.poly([(-0.48, 0.56), (0.48, 0.56), (0.24, 0.78), (-0.24, 0.78)])
-            s.rrect(-0.4, -0.62, 0.8, 1.2, 0.08)
-            s.rrect(-0.54, -0.88, 1.08, 0.28, 0.08)
-            s.line([(-0.14, 0.56), (-0.14, -0.6)])
-            s.line([(0.14, 0.56), (0.14, -0.6)])
-            s.line([(-0.4, -0.14), (0.4, -0.14)])
-            s.line([(-0.5, -0.74), (0.5, -0.74)])
-            s.shinePoly([(0, 0.3), (0.1, 0.04), (0, -0.22), (-0.1, 0.04)])
-            s.shineOval(-0.3, 0.24, 0.04, 0.2)
-            s.shadePoly([(0.14, 0.56), (0.4, 0.56), (0.4, -0.6), (0.14, -0.6)])
+            // R4 (tester 8: the Relic Hunter badge read as "a grey blob"): a lantern whose SILHOUETTE says lantern:
+            // a big carrying ring, a peaked roof with a finial, a caged body with two see-through panes either side of
+            // the candle post, and a flared foot.
+            s.oval(0, 0.8, 0.24, 0.17)
+            s.holeOval(0, 0.8, 0.13, 0.08)
+            s.rrect(-0.06, 0.58, 0.12, 0.1, 0.03)
+            s.poly([(-0.6, 0.38), (0.6, 0.38), (0.2, 0.64), (-0.2, 0.64)])
+            s.rrect(-0.5, -0.56, 1.0, 0.98, 0.06)
+            s.poly([(-0.7, -0.86), (0.7, -0.86), (0.54, -0.54), (-0.54, -0.54)])
+            // The panes (holes: the velvet shows through, so a locked badge still reads as a lantern).
+            s.holePoly([(-0.4, -0.44), (-0.12, -0.44), (-0.12, 0.3), (-0.4, 0.3)])
+            s.holePoly([(0.12, -0.44), (0.4, -0.44), (0.4, 0.3), (0.12, 0.3)])
+            // The candle's flame on the centre post, the roof's ridge and the foot's rim.
+            s.shinePoly([(0, 0.26), (0.08, 0.04), (0, -0.12), (-0.08, 0.04)])
+            s.line([(-0.6, 0.42), (0.6, 0.42)])
+            s.line([(-0.56, -0.6), (0.56, -0.6)])
+            s.line([(0, -0.18), (0, -0.44)])
+            s.shadeOval(0.0, -0.72, 0.5, 0.06)
+            s.shineOval(-0.3, 0.5, 0.12, 0.04)
         case .pocketWatch:
             s.oval(0, -0.14, 0.78, 0.78)
             s.rrect(-0.1, 0.6, 0.2, 0.18, 0.04)

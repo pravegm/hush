@@ -193,6 +193,8 @@ final class SceneLootView {
     }
 
     static let pileScale: CGFloat = 0.66
+    /// R4: a held item's z inside the loot root (z 25): above the moments' floor layer (27), under the HUD (30).
+    static let heldZ: CGFloat = 3.5
 
     /// How strongly a relic glimmers (0 … 1): it is within 0.25 of being lit and not yet revealed.
     /// R3 (QA-2 P2-6): on exactly when Core's hint and sound are (`HeistSession.relicGlimmers`), brightening toward
@@ -350,7 +352,10 @@ final class SceneLootView {
                 }
             case .held:
                 slot.node.isHidden = false
-                slot.node.zPosition = 20
+                // R4 (juror P2, tester 8: "IN E…"): a held item rides over the loot and the shutter but UNDER the
+                // HUD's labels and the pouch's front lip (loot root 25 + 3.5 < HUD 30 − 1), so "IN BAG" and "BANKED"
+                // always read.
+                slot.node.zPosition = SceneLootView.heldZ
                 slot.node.setScale(1.15 * b)
                 slot.art.alpha = 1
                 slot.art.colorBlendFactor = 0

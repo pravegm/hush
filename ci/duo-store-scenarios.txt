@@ -22,15 +22,21 @@
 # (golden=1 makes chest #3 golden; the doc's args froze on chest #1, as R2's frame 36 did).
 
 # ---- iPhone Duo inner display (2007 x 2853): six frames ----------------------------------------------------------
+# R4 (store1 frames, design/notes/ci-R4.md): P3/D3 and P4/D4 froze 1.25 s after the bank + 0.4 s scene hold, past the
+#   whole bank group (0.15–1.15 s), so the frame was a black interior and nothing else. freezeDelay=0.25 (bank: the
+#   toast and the loot in flight) and 0.6 (chain: "Hush Chain ×1.3" up) land on the moment. PR1/DR1: `ready` is never
+#   seen after a bank, so they freeze 1.75 s after bank #2 (0.35 s into the golden chest #3, banner up); "Double gold"
+#   became "Extra gold" (R4 App: the seal shows the real total multiplier, ×3 on an Iron-bound golden; screenshots.md
+#   to follow, design/NEEDS.md CI R4).
 D1-hero-open|screen=run;mode=run;seed=7;pilot=casual;turn=0;freezeOn=reveal|25|Open the lid. *Slowly.* / Your Duo is the treasure chest.|HUSH-T freeze reveal|tabletop
 D2-freeze|screen=run;mode=run;seed=7;pilot=novice;turn=0;freezeOn=waking|60|It's waking. *Freeze!* / Hold still and it settles.|HUSH-T freeze waking
-D3-bank|screen=run;mode=run;seed=7;pilot=casual;turn=0;freezeOn=bank|60|Ease it shut to *bank*. / Bank before the candle burns out.|HUSH-T event banked value=[1-9]
-D4-chain|screen=run;mode=run;seed=7;pilot=perfect;turn=0;freezeAfter=24;freezeOn=bank|90|Sleepy banks pay *more*. / Hush Chain: up to ×1.5 gold.|HUSH-T event chainUp count=[0-9]+ multiplier=1\.[2-5]
+D3-bank|screen=run;mode=run;seed=7;pilot=casual;turn=0;freezeOn=bank;freezeDelay=0.25|60|Ease it shut to *bank*. / Bank before the candle burns out.|HUSH-T event banked value=[1-9]
+D4-chain|screen=run;mode=run;seed=7;pilot=perfect;turn=0;freezeAfter=24;freezeOn=bank;freezeDelay=0.6|90|Sleepy banks pay *more*. / Hush Chain: up to ×1.5 gold.|HUSH-T event chainUp count=[0-9]+ multiplier=1\.[2-5]
 D5-chomp|screen=run;mode=run;seed=7;pilot=novice;turn=0;freezeOn=bite|60|Too loud? *CHOMP.* / Lose your bag and 10 seconds.|HUSH-T event bitten
 D6-codex|screen=codex;progress=mid;turn=0|8|Twenty-four relics. One *Codex*. / Daily Dungeon, ranks, Game Center.|HUSH-T canvas
 
 # reserves (Duo): not captured by default; run them with a filter like '^(D[0-9]|DR)'.
-DR1-golden|screen=run;mode=run;seed=7;pilot=expert;golden=1;turn=0;freezeAfter=18;freezeOn=ready|60|A golden mimic. *Double* gold. / But it sleeps lighter.|event chestArrived .*golden=1
+DR1-golden|screen=run;mode=run;seed=7;pilot=expert;golden=1;turn=0;freezeAfter=13;freezeOn=bank;freezeDelay=1.75|60|A golden mimic. *Extra* gold. / But it sleeps lighter.|event chestArrived .*golden=1
 DR2-relic|screen=run;mode=run;seed=7;pilot=expert;turn=0;skipTo=25;freezeOn=relic;freezeDelay=1.7|120|Open wide for *relics*. / The best loot sits deepest.|HUSH-T event relicFound
 DR3-results|screen=results;seed=7;progress=mid;pilot=casual;turn=0|10|One more *chest*? / No ads. No in-app purchases.|HUSH-T run gold=
 DR4-lesson|screen=lesson;lessonStep=2;lid=0.25;turn=0|8|A short lesson shows *how*. / Open, grab, freeze, bank.|HUSH-T canvas

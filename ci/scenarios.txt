@@ -4,14 +4,24 @@
 #  - wait: a freezeOn=<tag> scenario waits for the app's "HUSH-T freeze <tag>" line instead (up to max(wait, 60) s),
 #    then 2 s; it is captured anyway (and flagged no-freeze in captures.tsv) if the line never comes.
 #  - expect: optional extended regex the app log must contain at capture time (reported, never fatal).
-#  - No "|" inside a field. Names are zero-padded so the artifact sorts in reading order.
+#  - No "|" inside a field, the expect regex included: R3's 13b expect `(freeze |event )?creak` was split at its "|"
+#    and could never match (R4: screenshots.sh now warns about a stray extra column).
+#  - Names are zero-padded so the artifact sorts in reading order.
 #  - The app icon is not a scenario: ci.yml renders it in its own step (screen=icon → app-icon-1024.png).
 #  - R3: an optional 6th column that starts with "-" is extra launch arguments (ci/screenshots.sh), used by the Large
 #    Dynamic Type frames 41–47.
+# R4 timing notes (design/notes/ci-R4.md):
+#  - An event freeze (bite, bank, relic, torchLow, creak) stops the session `freezeDelay` s after the event (default 0.3,
+#    bank 1.25, relic 1.65), and the scene keeps drawing for GameController.sceneHoldDelay (0.4 s) more before it is
+#    paused. So the scene's moment age in the frame is about freezeDelay + 0.4 s. The bank group ("Hushed!", "BANKED
+#    +N", "Hush Chain ×1.N") shows 0.15–1.15 s and the loot flies 0.12–1.0 s (SceneMoments), so a bank frame that must
+#    show the toast and the flying loot uses freezeDelay=0.25 (age ≈ 0.65 s); the counter only equals the sum at the
+#    default 1.25 (14b). "CREAK!" shows 0–0.7 s and fades from 0.45 s, so the creak frames use freezeDelay=0 (age ≈ 0.4 s).
+#  - A state freeze (ready, reveal, stirring, waking) is the FIRST frame of that state; `freezeAfter=<s>` delays it.
 #
 # Home and the first launch
-01-home-fresh|screen=home;progress=fresh|6|Home, first launch: "Hush" title, live chest on the slider, Play / Daily Dungeon / Codex / Settings|HUSH-T canvas
-02-home-mid|screen=home;progress=mid|6|Home, returning: thief rank 4, best haul 2,400, daily status|HUSH-T canvas
+01-home-fresh|screen=home;progress=fresh|6|Home, first launch: "Hush" title, the sleeping title chest with the phone hint under it (R4 App: lever words, not "Drag its lid up"), Pickpocket rank 1 "No haul yet", Play / Daily Dungeon / Codex 0/24 / Badges 0/12 / Settings / Game Center|HUSH-T canvas
+02-home-mid|screen=home;progress=mid|6|Home, returning: Lockpick rank 4, Best 5,200, "Today's try ready", Codex 9/24, Badges 7/12|HUSH-T canvas
 # First Chest lesson (GAME-DESIGN §8), phone texts (no fold: the lever's words, ROUND-3 decision 4). lid= holds the lid
 # so a step is a still frame. R3 (REVIEW-2-ux P1-7: R2's 04 showed step 3, 06 and 07 showed step 5): each step's
 # args now keep LessonScript (Hush/App/LessonScript.swift) on that step at capture:
@@ -23,77 +33,98 @@
 #    the meter shows the script's own stir.
 #  - 07 step 5 needs a coin in the bag, which only a drag can do: the perfect pilot plays step 5 for real (opens at
 #    9°/s, bags the first coin ~2.7 s in, eases shut ~7.5 s), frozen at 4.5 s with IN BAG > 0 and the lid open.
-#  - 07b: the bank pay-off (BANKED > 0). The bank freeze holds 1.25 s (the counter's roll), past the 1.0 s praise, so
-#    until the App shortens it in a lesson (design/NEEDS.md CI R3) the frame is the final card over BANKED N.
-#  - expect `HUSH-T lesson step <n>` needs the App's lesson trace (NEEDS CI R3); an expect-miss is only a warning.
-03-lesson-1-pose|screen=lesson;lessonStep=1;lid=0|6|Lesson 1 (phone): the lever always drawn, "Slide the lever up… slowly" pointing at it|HUSH-T canvas
+#  - 07b: the bank pay-off (BANKED > 0). The lesson bank freeze is 0.5 s (App R3), so the praise is still up (R3 frame:
+#    "Banked! Gently does it." over "Hushed! BANKED +119", the counter still rolling).
+#  - expect `HUSH-T lesson step <n>` needs the App's lesson trace (landed in R3).
+03-lesson-1-pose|screen=lesson;lessonStep=1;lid=0|6|Lesson 1 (phone): the lever always drawn and ringed, "Slide the lever up… slowly" on the card, the arrow pointing at the lever|HUSH-T canvas
 04-lesson-2-open|screen=lesson;lessonStep=2;lid=0.25|6|Lesson 2 (phone): "Slide the lever up… slowly. Watch the noise." with the ring on the NOISE meter; lid cracked, the first coin glinting but not yet grabbable (so the step holds); the band never covers the meter|HUSH-T lesson step 2
-05-lesson-3-grab|screen=lesson;lessonStep=3;lid=0.6|6|Lesson 3: "Drag the coin into your bag.", coins lit, IN BAG 0|HUSH-T lesson step 3
-06-lesson-4-freeze|screen=lesson;lessonStep=4;lid=0.6;freezeAfter=1.6|6|Lesson 4: "It's stirring. Freeze!" on the red-edged card, the meter amber at the scripted 0.55 with its ring, tongue twitching (frozen 1.6 s in)|HUSH-T freeze after
-07-lesson-5-bank|screen=lesson;lessonStep=5;pilot=perfect;freezeAfter=4.5|8|Lesson 5: "Slide the lever down to bank it.", IN BAG 1+ (the coin the pilot dragged in), lid still open|HUSH-T event itemBagged
-07b-lesson-banked|screen=lesson;lessonStep=5;pilot=perfect;freezeOn=bank|30|Lesson banked: BANKED > 0 after easing shut; "Banked! Gently does it." once the App's lesson bank freeze is under the 1 s praise, else the final card over BANKED N|HUSH-T event banked value=[1-9]
-08-lesson-6-card|screen=lesson;lessonStep=6|6|Lesson final card (R2): 3 icon rows "Candle out = run over", "Too loud? It bites your bag", "Shut the lid to bank it", then "Got it"; fits a 393-pt phone|HUSH-T canvas
+05-lesson-3-grab|screen=lesson;lessonStep=3;lid=0.6|6|Lesson 3: "Drag a coin into your bag." (R4 App copy: several coins show), coins lit, IN BAG 0|HUSH-T lesson step 3
+06-lesson-4-freeze|screen=lesson;lessonStep=4;lid=0.6;freezeAfter=1.6|6|Lesson 4: "It's stirring. Freeze!" on the red-edged card, the meter amber at the scripted 0.55 with its ring, the eye half open (frozen 1.6 s in)|HUSH-T freeze after
+07-lesson-5-bank|screen=lesson;lessonStep=5;pilot=perfect;freezeAfter=4.5|8|Lesson 5: "Slide the lever down to bank it.", IN BAG 1+ (the coins the pilot dragged in), lid still open|HUSH-T event itemBagged
+07b-lesson-banked|screen=lesson;lessonStep=5;pilot=perfect;freezeOn=bank|30|Lesson banked: "Banked! Gently does it." on the card over the bank toast ("Hushed! BANKED +N"), BANKED > 0 and rolling; the final card must NOT be up yet|HUSH-T event banked value=[1-9]
+08-lesson-6-card|screen=lesson;lessonStep=6|6|Lesson final card (R2): "Lovely work, little thief.", 3 icon rows "Candle out = run over", "Too loud? It bites your bag", "Slide the lever down to bank", then "Got it" and "Not yet, take me home"; fits a 393-pt phone|HUSH-T canvas
 # A run, driven by a ThiefPilot (seed 7), frozen at its moments. skipTo=<s> plays the first s seconds headless (relics
 # only come from chest 3, the Iron-bound tier, on; torchLow is ~85 s in), so late moments don't cost real minutes.
-09-run-ready|screen=run;mode=run;seed=7;pilot=casual;freezeOn=ready|10|A chest has slid in, shut: "Open the lid… slowly"|HUSH-T input pilot
+#  - R4 09 (R3 frame: chest #2 with the "Hush Chain!" tip, because the pilot cracks chest #1 in its first step so its
+#    `ready` is never seen): lid=0 holds chest #1 shut in `ready` for good, so the frame is the shut chest with its hint.
+#  - R4 11 (R3 frame: the first stirring frame, one amber pip, eyes shut): the novice is Stirring from ~1.4 s to ~5.8 s
+#    (logs/13b-creak.txt: noise 0.44–0.64 from 2.2 s), so freezeAfter=4 freezes mid-stir with the meter well into amber.
+09-run-ready|screen=run;mode=run;seed=7;lid=0|6|Chest #1 has slid in and sits shut: "Slide the lever up… slowly" (phone words for HeistHint.openSlowly), IN BAG 0, BANKED 0, no tip over the hint|HUSH-T input fixed
 10-run-reveal|screen=run;mode=run;seed=7;pilot=casual;freezeOn=reveal|25|Lid three-quarters open, warm light from the back, 3+ items lit with glints, mimic asleep|HUSH-T freeze reveal
-11-stirring|screen=run;mode=run;seed=7;pilot=novice;freezeOn=stirring|45|Stirring: meter amber, tongue twitching, eye flickering on the lid|HUSH-T freeze stirring
-12-waking|screen=run;mode=run;seed=7;pilot=novice;freezeOn=waking|60|Waking: meter red, "Freeze!", tongue curling, teeth showing|HUSH-T freeze waking
+11-stirring|screen=run;mode=run;seed=7;pilot=novice;freezeAfter=4;freezeOn=stirring|45|Stirring, well in: meter amber (about 0.5), the eye cracked open, tongue twitching, IN BAG > 0; R4 Scene: the label reads STIRRING|HUSH-T freeze stirring
+12-waking|screen=run;mode=run;seed=7;pilot=novice;freezeOn=waking|60|Waking: meter into the red, "Freeze!", the eye wide open, teeth showing, the floor's red glow|HUSH-T freeze waking
 13-bite|screen=run;mode=run;seed=7;pilot=novice;freezeOn=bite|60|CHOMP: teeth slam across the fold, red flash, loot flying into the mouth; "Too loud!" and "−N" over the pouch, "−10s" off the candle, no "Freeze!" left (R2)|HUSH-T event bitten
-13b-creak|screen=run;mode=run;seed=7;pilot=novice;freezeOn=creak|60|CREAK (R3, tester 6): a slam that jumps the noise > 0.25 in 0.3 s shows a "CREAK!" shake and the meter flashing red, bite or not (freezeOn=creak is the App's R3 tag, NEEDS CI R3)|HUSH-T (freeze |event )?creak
-14-bank|screen=run;mode=run;seed=7;pilot=casual;freezeOn=bank|60|Banked: lid-shadow sweep, loot flying INTO the BANKED plate under its label; only the chest interior darkens (R3 P0: frame, front and lock at full alpha)|HUSH-T event banked
+# R4 13b (QA-3 P2-11: R3 froze on the bite, and the expect had a "|"): in a real run every novice slam bites (it slams
+# with a full bag, noise ~0.6, and a 70–120°/s slam adds 0.8+). In ATTRACT the session never bites (noise caps at 0.99,
+# SessionOptions.attract) and the pilot is the same, so seed 7's novice slams chest #1 shut ~5.8 s in exactly as in R3's
+# log (noise 0.59 → 0.91 in one 0.1 s sample: Feel's crack rule, > 0.25 in 0.3 s above 30°/s) and the CREAK fires with
+# no bite. freezeDelay=0: "CREAK!" is ~0.4 s old when the scene pauses (fully shown, before its 0.45 s fade).
+13b-creak|screen=run;mode=attract;seed=7;pilot=novice;freezeOn=creak;freezeDelay=0|60|CREAK on a phone (R3, tester 6): the lid slammed part-way shut, "CREAK!" tilted under the hint band, the meter flashing red, IN BAG > 0 and NO "CHOMP!" (attract never bites; the candle does not burn)|HUSH-T event creak
+13c-creak-fold|screen=run;mode=attract;seed=7;pilot=novice;fold=1;turn=0;freezeOn=creak;freezeDelay=0|60|CREAK in the Duo layout (fold=1, upright): the same slam, "CREAK!" on the floor half under the hint band, the meter flashing red, no bite (the Duo's own is duo.sh duo-h2c-slam-creak)|HUSH-T event creak
+# R4 14 (R3 frame: the 1.25 s hold had passed the whole bank group, so only a black interior showed): freezeDelay=0.25
+# lands mid-moment (toast up, loot in the air). 14b keeps the settled counter (BANKED = the sum of the banks, R2 tester 1).
+14-bank|screen=run;mode=run;seed=7;pilot=casual;freezeOn=bank;freezeDelay=0.25|60|Banked: "Hushed! BANKED +197" (and "Hush Chain ×1.1") over the interior, loot flying INTO the BANKED plate under its label, the counter rolling; R4 Scene: the interior dims to ~40 % with "Next chest…", never black|HUSH-T event banked
+14b-bank-settled|screen=run;mode=run;seed=7;pilot=casual;freezeOn=bank|60|Bank settled: the counter has rolled to the full total (BANKED 197 = the bank), the toast gone, the chain medal by BANKED|HUSH-T event banked
 # 15 (R3, juror "15 captured a bank"): the relic card only rises once the bank group has had its 1.15 s
-# (SceneMoments.bankGroupEnd), but an event freeze holds 0.3 s, so R2 froze on the bank. freezeDelay=1.7 holds until
-# the card is up; DemoMode ignores the key until the App adds it (or a longer relic hold), NEEDS CI R3.
+# (SceneMoments.bankGroupEnd); DemoMode's relic hold is now 1.65 s and the line passes 1.7 explicitly.
 15-relic|screen=run;mode=run;seed=7;pilot=expert;skipTo=25;freezeOn=relic;freezeDelay=1.7|120|Relic found: the big relic card on the floor (the relic's art, "Relic found!", its name) for ~1.2 s; the BANKED label stays clear|HUSH-T event relicFound
-16-torch-low|screen=run;mode=run;seed=7;pilot=casual;skipTo=75;freezeOn=torchLow|60|Candle low: the last 15 s, the flame gutters, a big "0:12" countdown by the candle, hint "Candle's low. Bank it!"|HUSH-T event torchLow
+# R4 16 (R3 frame: seed 7's casual banks 0.1 s after torchLow, so the frame was a "BANKED +975" moment and no hint):
+# freezeDelay=6.5 lets that bank and the next arrival (1.4 s) pass and the pilot bag a coin or two in the next chest,
+# so "Candle's low. Bank it!" (HeistHint.candleLow: <= 15 s and loot in the bag) is up at ~0:08.
+16-torch-low|screen=run;mode=run;seed=7;pilot=casual;skipTo=75;freezeOn=torchLow;freezeDelay=6.5|60|Candle low: under 15 s left (about 0:08), the flame guttering, the big countdown by the candle, IN BAG > 0 and the hint "Candle's low. Bank it!"|HUSH-T event torchLow
 # Static stage frames (no pilot): a fallback if a pilot never reaches the stage
-17-stage-stirring-static|screen=run;mode=attract;seed=7;lid=0.7;noise=0.5|6|Held at noise 0.5: the Stirring look on a still frame|HUSH-T canvas
-18-stage-waking-static|screen=run;mode=attract;seed=7;lid=0.7;noise=0.85|6|Held at noise 0.85: the Waking look on a still frame|HUSH-T canvas
+17-stage-stirring-static|screen=run;mode=attract;seed=7;lid=0.7;noise=0.5|6|Held at noise 0.5: the Stirring look on a still frame (eye cracked, amber meter)|HUSH-T canvas
+18-stage-waking-static|screen=run;mode=attract;seed=7;lid=0.7;noise=0.85|6|Held at noise 0.85: the Waking look on a still frame (eye wide, "Freeze!", meter into the red)|HUSH-T canvas
 # Results, Codex, Settings, pose, Daily, cover
-19-results-fresh|screen=results;seed=7;progress=fresh;pilot=novice|8|Results, first run: MimicPortraitScene, gold banked, the chest-by-chest strip (tier, value, 💤/teeth/gold), "Hushed: banked while it slept", Again / Home, no dead gap|HUSH-T canvas
-20-results-mid|screen=results;seed=7;progress=mid;pilot=casual|8|Results, mid progress: chest strip, "N short of your best" or "New best!", rank bar, achievements earned|HUSH-T canvas
-21-results-late|screen=results;seed=7;progress=late;pilot=expert|8|Results, late progress: rank 10, new best|HUSH-T canvas
+19-results-fresh|screen=results;seed=7;progress=fresh;pilot=novice|8|Results, first run: RUN OVER with its cause line, MimicPortraitScene, gold banked, "FIRST HAUL!" / "Now beat it.", the relic line, Banked / Hushed / Bites tiles, the chest strip (bit / +N per chest), Again / Home, no dead gap; R4 App: the legend inside the strip card|HUSH-T canvas
+20-results-mid|screen=results;seed=7;progress=mid;pilot=casual|8|Results, mid progress: "751 short of your best" (or "New best!"), the tiles, the chest strip with 💤 on the Hushed banks (the rank bar and achievements are below the fold)|HUSH-T canvas
+21-results-late|screen=results;seed=7;progress=late;pilot=expert|8|Results, late progress: "NEW BEST!", the gilded portrait, 3 relics, 13+ Hushed, the strip with "+N more"|HUSH-T canvas
 22-codex-mid|screen=codex;progress=mid|6|Codex: 9 of 24 relics (24 different shapes) on velvet tiles, the rest "???" silhouettes; Home says 9/24 too|HUSH-T canvas
 23-codex-late|screen=codex;progress=late|6|Codex: 22 of 24 relics|HUSH-T canvas
-24-settings|screen=settings|5|Settings: Sound, Haptics, Respect silent switch, Reduce motion, Replay First Chest, About, Credits|HUSH-T canvas
-25-pose|screen=pose;pose=book;fold=1|5|Pose card (R3) at a compact width: "Turn it sideways. Lift the glowing half.", the glowing half, "I've stood it up" and "Play anyway" (pose=book holds it; R2's frame showed Home). The real landscape card is the Duo's duo-ui-pose-card|HUSH-T pose standUp
-26-daily|screen=run;mode=daily;seed=7;progress=mid;pilot=expert;freezeOn=reveal|25|Daily Dungeon in play, today's best on the HUD|HUSH-T freeze reveal
-27-cover|screen=cover;progress=mid|5|Cover-display card: the sleeping mimic, "Open to carry on"|HUSH-T canvas
+24-settings|screen=settings|5|Settings: Sound, Haptics, Play sound on silent, Reduce motion, Replay First Chest, About, Credits, Done|HUSH-T canvas
+# R4 25: "Play anyway" appears after 8 s on the card (PoseCards, QA-2 P2-4), so the wait is 11 s.
+25-pose|screen=pose;pose=book;fold=1|11|Pose card (R3) at a compact width: "Turn it sideways. Lift the glowing half.", the glowing half (R4 App: a drawn Duo-shaped chest), "I've stood it up" and, after 8 s, "Play anyway". The real landscape card is the Duo's duo-ui-pose-card|HUSH-T pose standUp
+26-daily|screen=run;mode=daily;seed=7;progress=mid;pilot=expert;freezeOn=reveal|25|Daily Dungeon in play: the "DAILY DUNGEON · <date>" plaque on the lid, the day's chest open with its loot lit (today's best shows only after a first try)|HUSH-T freeze reveal
+27-cover|screen=cover;progress=mid|5|Cover-display card off a run: the sleeping mimic, "Open me… gently" / "There's gold in here. And something else." (mid-run it says "Open to carry on": the Duo's duo-h7 frame); no hairlines, no clipped "z" (juror P1-3)|HUSH-T canvas
 # The Duo layout on a phone (fold=1): the fold band at mid-height, no slider. turn defaults on with a fold, so 30/31
 # are drawn turned round (the lid is the blurring half) and 32 shows the same moment with turn=0 for comparison.
-30-home-fold|screen=home;progress=mid;fold=1|6|Duo Home: big buttons on the floor half, the hinge strip at mid-height|HUSH-T canvas [0-9]+x[0-9]+ fold=1
+# R4: the "!" padlock tester 7 saw in fold frames is the front padlock drawn turned round (its keyhole, round top over
+# the slot, reads as "!" upside down: 30, 31, 33, 34, 39's lock glyph). 32 (turn=0) still draws the lever on a fold
+# layout while 31 (turned) does not: flagged to the App in design/NEEDS.md (CI R4).
+30-home-fold|screen=home;progress=mid;fold=1|6|Duo Home, turned round (read it upside down on a phone sim): big buttons on the floor half, the hinge strip at mid-height, the title chest and "Lift the lid… slowly." on the lid half|HUSH-T canvas [0-9]+x[0-9]+ fold=1
 31-reveal-fold|screen=run;mode=run;seed=7;pilot=casual;fold=1;freezeOn=reveal|25|Duo play, turned round: floor and HUD on the sharp half, no slider|fold=1 turned=1
-32-reveal-fold-unturned|screen=run;mode=run;seed=7;pilot=casual;fold=1;turn=0;freezeOn=reveal|25|Duo play with "Turn the chest round" off|fold=1 turned=0
+32-reveal-fold-unturned|screen=run;mode=run;seed=7;pilot=casual;fold=1;turn=0;freezeOn=reveal|25|Duo play with "Turn the chest round" off: upright, the same moment as 31; no lever on a fold layout (R3 frame drew one: App, NEEDS CI R4)|fold=1 turned=0
 33-waking-fold|screen=run;mode=run;seed=7;pilot=novice;fold=1;freezeOn=waking|60|Duo play at Waking: the floor tells (meter, tongue) are on the sharp half|HUSH-T freeze waking
-34-lesson-1-fold|screen=lesson;lessonStep=1;fold=1;lid=0|6|Duo lesson 1: "Stand your Duo like a little laptop. Lift this half."|fold=1
+34-lesson-1-fold|screen=lesson;lessonStep=1;fold=1;lid=0|6|Duo lesson 1: "Stand your Duo like a little laptop." on the card and "Lift this half" on the ringed lid half|fold=1
 # R2 (design/ROUND-2.md, CI engineer 1 + 4).
-#  - 35: turned round on a PHONE (no fold): the scene's own π turn (ChestScene.turned), no SwiftUI rotation of the
-#    SpriteView; the IN BAG / BANKED plates keep their sides.
-#  - 36 needs the App's `golden=1` demo key (design/NEEDS.md, CI R2). Unknown keys are ignored, so until it lands this
-#    is a normal chest and the expect misses.
+#  - 35 (R4, QA-3 P2-11): AppRules.turnsRound needs a fold, so a phone is NEVER drawn turned round, whatever `turn=`
+#    says. The frame is the proof: turn=1 on a phone gives the upright world, identical to 10 (R3's expect wanted
+#    turned=1, which the rule makes impossible).
 #  - 37: pilot=perfect never stirs the mimic, so every bank is Hushed; freezeAfter=24 lets the first two banks pass
-#    (about 8–10 s a chest), so the frozen bank is the 3rd or later and the chain badge reads ×1.2 or more.
-35-reveal-phone-turned|screen=run;mode=run;seed=7;pilot=casual;turn=1;freezeOn=reveal|25|Phone, turned round (turn=1, no fold): the whole world rotated by π inside the scene, IN BAG / BANKED and NOISE readable, no letterbox bars|fold=0 turned=1
-#  - R3 golden (REVIEW-2-ux P1-8: R2's 36 froze on chest #1, a plain Snorer): `golden=1` picks the first seed from 7
-#    whose chest #3 (Tuning.goldenFromIndex 2) is golden, so the freeze has to wait for chest #3. freezeAfter gates the
-#    moment (a pilot takes ~10–14 s a chest): 36 freezes on chest #3's arrival (`ready`, the first ready after 18 s),
-#    36b on the first reveal after 22 s. The expect proves the golden chest arrived before the capture; eyeball 36b
-#    (a reveal needs the lid >= 0.75 with 3 lit items, which depends on that chest's loot).
-36-golden-mimic|screen=run;mode=run;seed=7;pilot=expert;golden=1;freezeAfter=18;freezeOn=ready|60|Golden mimic arriving (chest #3): gilded frame, sparkle, "GOLDEN" on the nameplate, the banner "A golden mimic! Double gold."|event chestArrived .*golden=1
-36b-golden-reveal|screen=run;mode=run;seed=7;pilot=casual;golden=1;freezeAfter=22;freezeOn=reveal|70|Golden mimic opened: the gilded chest with its loot lit and "×2" on the coins|event chestArrived .*golden=1
-37-chain-badge|screen=run;mode=run;seed=7;pilot=perfect;freezeAfter=24;freezeOn=bank|90|Hush Chain: a Hushed bank, the chain badge popping by the BANKED plate ("Hush Chain ×1.2" or more); BANKED equals the sum of the banks|HUSH-T event chainUp
-38-results-chest-strip|screen=results;seed=7;progress=mid;pilot=perfect|8|Results after a clean run: the chest strip all 💤 (Hushed), best chain, "Hushed: banked while it slept", "New best!" or "N short of your best"|HUSH-T canvas
-39-lesson-final-fold|screen=lesson;lessonStep=6;fold=1|6|Duo lesson final card: the 3 icon rows and "Got it", clear of the fold|fold=1
+#    (about 8–10 s a chest), so the frozen bank is the 3rd and the chain reads ×1.3. R4: freezeDelay=0.6 keeps the
+#    bank group up ("Hush Chain ×1.3" is shown from 0.45 s), R3's 1.25 s showed only a black interior.
+35-reveal-phone-turned|screen=run;mode=run;seed=7;pilot=casual;turn=1;freezeOn=reveal|25|Phone with "Turn the chest round" forced on: still upright (no fold, so never turned), the same reveal as 10, IN BAG / BANKED and NOISE readable, no letterbox bars|fold=0 turned=0
+#  - R4 golden (QA-3 P2-11: R3's 36 never froze, `ready` is not seen after a bank because the expert's lid already
+#    sits in the shut zone): freeze on the bank of chest #2 instead and hold past chest #3's arrival. golden=1 makes
+#    chest #3 golden; the expert banks chest #1 at ~9 s and chest #2 at ~18 s, so freezeAfter=13 picks bank #2, and the
+#    next chest arrives Tuning.bankMomentSeconds (1.4 s) later: freezeDelay=1.75 is 0.35 s after the golden arrival
+#    (the banner shows for 1.9 s), +0.4 s scene hold.
+36-golden-mimic|screen=run;mode=run;seed=7;pilot=expert;golden=1;freezeAfter=13;freezeOn=bank;freezeDelay=1.75|60|Golden mimic arriving (chest #3, Treasure Trev): gilded frame and sparkle, "GOLDEN MIMIC" on the nameplate, the seal with the real total multiplier, the banner "A golden mimic! Extra gold!" (R4 App copy)|event chestArrived .*golden=1
+36b-golden-reveal|screen=run;mode=run;seed=7;pilot=casual;golden=1;freezeAfter=22;freezeOn=reveal|70|Golden mimic opened: the gilded chest with its loot lit; R4 Scene: the loot pops the SAME "×N" as the seal and no other number shows (R3 frame: seal ×3, gem ×2)|event chestArrived .*golden=1
+37-chain-badge|screen=run;mode=run;seed=7;pilot=perfect;freezeAfter=24;freezeOn=bank;freezeDelay=0.6|90|Hush Chain: a Hushed bank, "Hushed! BANKED +N" over "Hush Chain ×1.3"; R4 Scene: the medal by BANKED reads CHAIN over GOLD ×1.3, the same multiplier as the toast, fully on screen|HUSH-T event chainUp
+38-results-chest-strip|screen=results;seed=7;progress=mid;pilot=perfect|8|Results after a clean run: every chest 💤 (Hushed), 0 bites, "New best!" or "N short of your best", the strip's "+N more"|HUSH-T canvas
+39-lesson-final-fold|screen=lesson;lessonStep=6;fold=1|6|Duo lesson final card (turned round): the 3 icon rows ("Ease the lid shut to bank") and "Got it", clear of the fold|fold=1
 # Game Center badges (asc.yml collects ci-screens/badges/*.png and greps logs/*badges*.txt for "HUSH-T badges").
-40-badges|screen=badges|10|A real badge grid screen (R2), and the 12 achievement badges rendered to Documents/badges (copied to badges/)|HUSH-T badges
+40-badges|screen=badges|10|A real badge grid screen (R2): "0 of 12 earned", the 12 achievement badges (R4 Scene: a real Relic Hunter glyph), also rendered to Documents/badges (copied to badges/)|HUSH-T badges
 # Large Dynamic Type (R3, REVIEW-2-ux "no frame proves no clipping"): the same pages launched with the text size forced
 # by UIKit's own argument (6th column, passed after -hushDemo). AccessibilityL is AX3; XXXL is the largest non-AX size.
 # Check: nothing clipped or under the Done / Again / Home buttons, the Codex and Settings bottom rows clear Done.
-41-results-axl|screen=results;seed=7;progress=mid;pilot=casual|8|Results at Accessibility Large: stat tiles above the chest strip, the cause line, no text under the buttons|HUSH-T canvas|-UIPreferredContentSizeCategoryName UICTContentSizeCategoryAccessibilityL
-42-codex-axl|screen=codex;progress=mid|6|Codex at Accessibility Large: title and "9 of 24" readable, grid aligned, bottom row clears Done|HUSH-T canvas|-UIPreferredContentSizeCategoryName UICTContentSizeCategoryAccessibilityL
-43-settings-axl|screen=settings|5|Settings at Accessibility Large: every toggle's title and detail wrap, nothing under Done|HUSH-T canvas|-UIPreferredContentSizeCategoryName UICTContentSizeCategoryAccessibilityL
-44-home-axl|screen=home;progress=mid|6|Home at Accessibility Large: the labelled buttons (Codex, Badges, Daily) and the best-haul card fit|HUSH-T canvas|-UIPreferredContentSizeCategoryName UICTContentSizeCategoryAccessibilityL
-45-results-xxxl|screen=results;seed=7;progress=mid;pilot=casual|8|Results at XXXL (the largest standard size)|HUSH-T canvas|-UIPreferredContentSizeCategoryName UICTContentSizeCategoryXXXL
-46-codex-xxxl|screen=codex;progress=mid|6|Codex at XXXL|HUSH-T canvas|-UIPreferredContentSizeCategoryName UICTContentSizeCategoryXXXL
-47-settings-xxxl|screen=settings|5|Settings at XXXL|HUSH-T canvas|-UIPreferredContentSizeCategoryName UICTContentSizeCategoryXXXL
+# R4: the logs confirm the category (`HUSH-T dynamic-type UICTContentSizeCategoryAccessibilityL`), but R3's 41 and 45
+# are the same picture: the App's type stops growing at XXXL, so 41–44 show the capped layout, not AX3 (NEEDS CI R4).
+41-results-axl|screen=results;seed=7;progress=mid;pilot=casual|8|Results at Accessibility Large: stat tiles above the chest strip, the cause line, no text under the buttons; R4 App: the chevron never covers a total|HUSH-T dynamic-type UICTContentSizeCategoryAccessibilityL|-UIPreferredContentSizeCategoryName UICTContentSizeCategoryAccessibilityL
+42-codex-axl|screen=codex;progress=mid|6|Codex at Accessibility Large: title and "9 of 24" readable, grid aligned, bottom row clears Done; R4 App: names wrap, never "…"|HUSH-T dynamic-type UICTContentSizeCategoryAccessibilityL|-UIPreferredContentSizeCategoryName UICTContentSizeCategoryAccessibilityL
+43-settings-axl|screen=settings|5|Settings at Accessibility Large: every toggle's title and detail wrap, nothing under Done|HUSH-T dynamic-type UICTContentSizeCategoryAccessibilityL|-UIPreferredContentSizeCategoryName UICTContentSizeCategoryAccessibilityL
+44-home-axl|screen=home;progress=mid|6|Home at Accessibility Large: the labelled buttons (Codex, Badges, Daily) and the best-haul card fit; R4 App: "Today's try ready" wraps, never "…"|HUSH-T dynamic-type UICTContentSizeCategoryAccessibilityL|-UIPreferredContentSizeCategoryName UICTContentSizeCategoryAccessibilityL
+45-results-xxxl|screen=results;seed=7;progress=mid;pilot=casual|8|Results at XXXL (the largest standard size); R4 App: the chevron never covers a total|HUSH-T dynamic-type UICTContentSizeCategoryXXXL|-UIPreferredContentSizeCategoryName UICTContentSizeCategoryXXXL
+46-codex-xxxl|screen=codex;progress=mid|6|Codex at XXXL: relic names on up to 2 lines, never truncated|HUSH-T dynamic-type UICTContentSizeCategoryXXXL|-UIPreferredContentSizeCategoryName UICTContentSizeCategoryXXXL
+47-settings-xxxl|screen=settings|5|Settings at XXXL|HUSH-T dynamic-type UICTContentSizeCategoryXXXL|-UIPreferredContentSizeCategoryName UICTContentSizeCategoryXXXL

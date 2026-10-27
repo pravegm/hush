@@ -46,7 +46,7 @@ Captured on the Duo simulator's tabletop canvas, **upright** (`turn=0`). On a re
 | **D6** | `D6-codex` | The Relic Codex, mid progress: 9 relics drawn on velvet, the rest silhouettes (`22-codex-mid`) | **Twenty-four relics. One *Codex*.** (4) / Daily Dungeon, ranks, Game Center. (5) | `screen=codex;progress=mid` |
 
 Reserves (same rules), in order of preference:
-- `DR1-golden` (`36-golden-mimic`): **A golden mimic. *Double* gold.** (5) / But it sleeps lighter. (4). Args: `screen=run;mode=run;seed=7;pilot=casual;golden=1;turn=0;freezeOn=reveal`. Use only if the frame shows the gilded chest and "GOLDEN" on the plate.
+- `DR1-golden` (`36-golden-mimic`): **A golden mimic. *Extra* gold.** (5) / But it sleeps lighter. (4). Args: `screen=run;mode=run;seed=7;pilot=casual;golden=1;turn=0;freezeOn=reveal`. Use only if the frame shows the gilded chest and "GOLDEN" on the plate.
 - `DR2-relic` (`15-relic`): **Open wide for *relics*.** (4) / The best loot sits deepest. (5). Args: `screen=run;mode=run;seed=7;pilot=expert;turn=0;skipTo=25;freezeOn=relic`. Use only if the relic card (art and name) is in the frame.
 - `DR3-results` (`20-results-mid`): **One more *chest*?** (3) / No ads. No in-app purchases. (5). Args: `screen=results;seed=7;progress=mid;pilot=casual`.
 - `DR4-lesson` (`39`/`34-lesson-fold`): **A short lesson shows *how*.** (5) / Open, grab, freeze, bank. (4). Args: `screen=lesson;lessonStep=2;lid=0.3` on the Duo sim.

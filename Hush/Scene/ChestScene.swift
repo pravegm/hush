@@ -90,8 +90,12 @@ final class ChestScene: SKScene {
         set { hud.showsBagSublabel = newValue }
     }
     var bagSublabelShowing: Bool { hud.bagSublabelShowing }
-    /// R3: the lever is drawn (never on a fold layout, decision 4).
-    var leverShowing: Bool { usesSlider && !layout.hasFold }
+    /// R3: the lever is drawn (never on a fold layout, decision 4; R4: turned or not).
+    var leverShowing: Bool { ChestScene.showsLever(hasFold: layout.hasFold, usesSlider: usesSlider) }
+
+    /// R4 (founder, CI frame 32): the ONE rule for the lever: only without a fold, and only when the driver uses the
+    /// slider. `turned` plays no part.
+    static func showsLever(hasFold: Bool, usesSlider: Bool) -> Bool { !hasFold && usesSlider }
     /// Items drawn this frame, and relics glimmering.
     var visibleLoot: Int { lootView.visibleCount }
     var glimmeringRelics: Int { lootView.glimmerCount }
@@ -127,6 +131,32 @@ final class ChestScene: SKScene {
     /// The App's hint band and pause coin area (canvas points, y up).
     static var hintBandRect: CGRect { ChestLayout.hintBand }
     static var pauseButtonRect: CGRect { ChestLayout.pauseArea }
+
+    // MARK: R4 read-outs
+
+    /// View points per canvas point (from the SKView; tests may set it). The pause seat follows it.
+    var viewScale: CGFloat {
+        get { hud.viewScale }
+        set { hud.viewScale = newValue }
+    }
+    /// The pause coin's brass seat as drawn (canvas).
+    var pauseSeatRect: CGRect { hud.seatRect }
+    /// The meter's stage word ("NOISE" / "STIRRING" / "WAKING!") and its drawn width.
+    var meterWord: String { hud.meterWordText }
+    var meterWordWidth: CGFloat { hud.meterWordWidth }
+    /// The chain tab's two lines' drawn widths ("CHAIN", "GOLD ×1.2").
+    var chainTextWidths: [CGFloat] { hud.chainTextWidths }
+    /// The bank stack's chain line is drawn (never in the First Chest lesson).
+    var bankSublineShowing: Bool { moments.bankSubShowing }
+    /// "Next chest…" in the dimmed interior between chests (the App hides its hint while `bankActive || nextChestShowing`).
+    var nextChestShowing: Bool { moments.nextChestShowing }
+    /// How much of the interior's light the between-chests shadow lets through (1 = none of it: open).
+    var interiorLight: CGFloat { moments.interiorLight }
+    /// The carved plaque above the lid on phones ("Iron-bound · Chest 4").
+    var plaqueText: String { lid.plaqueText }
+    var plaqueShowing: Bool { lid.plaqueShowing }
+    /// The last golden "×n" popped over a revealed item ("" before any).
+    private(set) var lastGoldenPop = ""
 
     private let world: SKNode
     private let shaker: SKNode
@@ -251,11 +281,13 @@ final class ChestScene: SKScene {
     override func didChangeSize(_ oldSize: CGSize) {
         super.didChangeSize(oldSize)
         placeWorld()
+        syncViewScale()
     }
 
     override func didMove(to view: SKView) {
         super.didMove(to: view)
         view.isMultipleTouchEnabled = true
+        syncViewScale()
     }
 
     /// A new session: clear every effect and moment.
@@ -281,13 +313,16 @@ final class ChestScene: SKScene {
         if let last = lastUpdate { dt = min(max(currentTime - last, 0), 1.0 / 30.0) }
         lastUpdate = currentTime
         drawnFrames += 1
+        // (Cheap: a compare; the seat only moves when the scale really changes.)
+        syncViewScale()
 
         var events: [HeistEvent] = []
         var fxDt = dt
         if let d = driver {
             let out = d.advance(dt: dt, now: CACurrentMediaTime())
-            // Decision 4: a fold layout never draws or uses the lever.
-            usesSlider = d.usesSlider && !layout.hasFold
+            // Decision 4: a fold layout never draws or uses the lever (R4: re-checked against the CURRENT layout at
+            // every draw and touch too, whatever `turned` is).
+            usesSlider = ChestScene.showsLever(hasFold: layout.hasFold, usesSlider: d.usesSlider)
             var simDt: Double = 0
             if hasSnapshot {
                 if out.0.time + 0.25 < snapshot.time {
@@ -326,11 +361,11 @@ final class ChestScene: SKScene {
         floor.chestRoot.position = CGPoint(x: 0, y: mf.chestOffset)
         lootView.root.position = CGPoint(x: 0, y: mf.chestOffset)
         lid.jaw.position = CGPoint(x: 0, y: mf.jawDrop)
-        floor.update(dt: dt, snapshot: s, light: light, reduceMotion: reduceMotion)
+        floor.update(dt: dt, snapshot: s, light: light, reduceMotion: reduceMotion, cover: mf.interiorCover)
         lootView.update(dt: dt, loot: s.loot, hideBagged: mf.hideBagged, light: light, openness: s.openness)
         hud.update(dt: dt, snapshot: s, light: light, reduceMotion: reduceMotion)
         lid.update(dt: dt, snapshot: s, light: light, wakeOverride: mf.wakeOverride, teethOverride: mf.teethOverride,
-                   lookAt: lookTarget(), usesSlider: usesSlider, reduceMotion: reduceMotion)
+                   lookAt: lookTarget(), usesSlider: leverShowing, reduceMotion: reduceMotion)
         fx.update(CGFloat(dt))
         shaker.position = reduceMotion ? .zero : moments.shake
 
@@ -355,6 +390,20 @@ final class ChestScene: SKScene {
         lid.setDress(d, tier: c.tier, animated: animated)
         lid.setPlate(name: c.mimicName, subline: ChestCopy.plateSubline(c), seal: ChestCopy.plateSeal(c),
                      golden: c.golden)
+        lid.setPlaque(ChestCopy.extensionPlaque(c))
+    }
+
+    /// R4: view points per canvas point, the App's `CanvasFit.scale` rule (aspect-fill in portrait, aspect-fit in
+    /// landscape). 1 without a view (tests set it).
+    static func scaleFor(view: CGSize, scene: CGSize) -> CGFloat {
+        guard view.width > 0, view.height > 0, scene.width > 0, scene.height > 0 else { return 1 }
+        let sx = view.width / scene.width, sy = view.height / scene.height
+        return view.width > view.height ? min(sx, sy) : max(sx, sy)
+    }
+
+    private func syncViewScale() {
+        guard let v = view else { return }
+        hud.viewScale = ChestScene.scaleFor(view: v.bounds.size, scene: size)
     }
 
     /// The candle's flicker on the light (1 steady; lower is dimmer). It gutters in the last 15 s.
@@ -416,10 +465,12 @@ final class ChestScene: SKScene {
                     if case .gem = kind { big = true }
                     fx.sparkBurst(at: p, count: big ? 10 : 4, color: ScenePaint.ui(big ? pal.gold : pal.candle),
                                   speed: big ? 200 : 120, size: big ? 26 : 18)
-                    // The golden mimic: every coin is worth double.
-                    if s.chest?.golden == true, kind != .oil {
+                    // The golden mimic. R4 (UX P2-3): the pop is the chest's real total, the seal's own number.
+                    if let c = s.chest, c.golden, kind != .oil {
+                        let text = ChestCopy.goldenPop(c)
+                        lastGoldenPop = text
                         // (Kept under the App's hint band at the back edge.)
-                        moments.popup("×2", at: CGPoint(x: p.x, y: min(p.y + 30, 372)), color: ScenePaint.ui(pal.gold),
+                        moments.popup(text, at: CGPoint(x: p.x, y: min(p.y + 30, 372)), color: ScenePaint.ui(pal.gold),
                                       rise: 14)
                     }
                 }
@@ -456,9 +507,11 @@ final class ChestScene: SKScene {
                 moments.biteCost(lostValue: lostValue, seconds: seconds, candle: hud.flamePoint)
             case .banked(let value, _, let hushed):
                 moments.bank(items: lootView.bagged(), value: value, hushed: hushed)
-                hud.roll(to: s.banked, delay: 0.3, duration: 0.9)
+                // R4 (testers 7 and 8: "+119 next to 115"): the counter has finished rolling by the time the stack
+                // is fully up (0.7 s), so a still frame never shows two different numbers for long.
+                hud.roll(to: s.banked, delay: 0.15, duration: 0.55)
             case .chainUp(_, let multiplier):
-                hud.chainUp()
+                hud.chainUp(multiplier: multiplier)
                 moments.chainUp(multiplier: multiplier)
                 fx.sparkBurst(at: ChestLayout.chainCenter, count: 8, color: ScenePaint.ui(pal.gold), speed: 150,
                               size: 18)
@@ -514,7 +567,7 @@ final class ChestScene: SKScene {
     /// One touch beginning at canvas point `p` (UITouch path and tests).
     func beginTouch(_ id: Int, canvas p: CGPoint, time: TimeInterval) {
         guard let d = driver else { return }
-        let lever = d.usesSlider && !layout.hasFold
+        let lever = ChestScene.showsLever(hasFold: layout.hasFold, usesSlider: d.usesSlider)
         if ChestLayout.startsOnFloor(p) {
             touchHalves[id] = true
             floorTouchPoints[id] = p

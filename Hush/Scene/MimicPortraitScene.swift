@@ -165,13 +165,38 @@ final class MimicPortraitScene: SKScene {
         }
     }
 
-    /// The cover card's look: asleep, cracked a sliver, peeking every ~5 s, filling the card.
+    /// The cover card's look: asleep, cracked a sliver, peeking every ~5 s, filling the card. R4 (juror P1-3):
+    /// - the scene FILLS its view (`resizeFill`): no letterbox, so no hairlines at the card's top and bottom;
+    /// - the Zzz stay inside the scene (never clipped by its edge);
+    /// - the amber eye glints through the seam: a warm eye-shine always, a starry glint at each peek.
     func applyCoverStyle() {
         openness = 0.12
         wake = 0
         idlePeek = true
+        fillsView = true
         artScale = 1.2
     }
+
+    /// R4: resize the scene to its view (no letterbox bars). Set by `applyCoverStyle()`.
+    var fillsView: Bool = false {
+        didSet { if fillsView { fillView() } }
+    }
+
+    private func fillView() {
+        scaleMode = .resizeFill
+        if let v = view, v.bounds.width > 1, v.bounds.height > 1, size != v.bounds.size { size = v.bounds.size }
+    }
+
+    override func didMove(to view: SKView) {
+        super.didMove(to: view)
+        if fillsView { fillView() }
+    }
+
+    /// R4: the eye-shine in the seam (0 … 1) and the peek's glint (0 … 1) now (tests).
+    private(set) var eyeShineLevel: CGFloat = 0
+    private(set) var glintLevel: CGFloat = 0
+    /// R4: the highest a Zzz reaches, in scene points (tests: never past the scene's top).
+    private(set) var zzzTop: CGFloat = 0
 
     /// How far into a peek it is (0 none … 1 fully peeking; tests).
     private(set) var peekLevel: CGFloat = 0
@@ -210,6 +235,9 @@ final class MimicPortraitScene: SKScene {
     private let fangs: SKSpriteNode
     private let zzz: [SceneLabel]
     private let sparkles: [SKSpriteNode]
+    /// R4: the cover's warm eye-shine in the seam and the peek's glint.
+    private let eyeShine: SKSpriteNode
+    private let glint: SKSpriteNode
 
     private var time: Double = 0
     private var lastTime: TimeInterval?
@@ -348,6 +376,22 @@ final class MimicPortraitScene: SKScene {
             sp.append(s)
         }
         sparkles = sp
+        let shineN = SKSpriteNode(texture: SceneTextures.glow, size: CGSize(width: 120, height: 44))
+        shineN.color = UIColor(red: 1, green: 0.72, blue: 0.22, alpha: 1)
+        shineN.colorBlendFactor = 1
+        shineN.blendMode = .add
+        shineN.alpha = 0
+        shineN.isHidden = true
+        shineN.zPosition = 5.4
+        eyeShine = shineN
+        let glintN = SKSpriteNode(texture: SceneTextures.sparkle, size: CGSize(width: 34, height: 34))
+        glintN.color = UIColor(red: 1, green: 0.95, blue: 0.75, alpha: 1)
+        glintN.colorBlendFactor = 1
+        glintN.blendMode = .add
+        glintN.alpha = 0
+        glintN.isHidden = true
+        glintN.zPosition = 9.5
+        glint = glintN
         backdrop = backdropN
         shadow = shadowN
         glowBack = glowBackN
@@ -376,6 +420,8 @@ final class MimicPortraitScene: SKScene {
         for n in [eye, body, lock, lidNode] as [SKNode] { root.addChild(n) }
         for z in zzz { root.addChild(z.node) }
         for s in sparkles { root.addChild(s) }
+        root.addChild(eyeShine)
+        root.addChild(glint)
         relayout()
         rebuildEye(step: 0)
         pose(dt: 0)
@@ -433,7 +479,8 @@ final class MimicPortraitScene: SKScene {
             if peekClock <= 0 { peek = CGFloat(sin(min(-peekClock / 1.3, 1) * Double.pi)) }
         }
         peekLevel = peek
-        gap = 12 + 62 * (CGFloat(openness) + 0.16 * peek) + 1.6 * CGFloat(breath)
+        // R4: the peek lifts the lid far enough for the eye to show between the fangs.
+        gap = 12 + 62 * (CGFloat(openness) + 0.3 * peek) + 1.6 * CGFloat(breath)
         let lidBase: CGFloat = 10 + gap
         lidNode.position = CGPoint(x: 0, y: lidBase)
         lidNode.zRotation = -0.05 * CGFloat(openness) - 0.012
@@ -465,14 +512,44 @@ final class MimicPortraitScene: SKScene {
         iris.position = CGPoint(x: g.irisCenter.x + wander, y: g.irisCenter.y)
         lashes.alpha = max(0, 1 - CGFloat(shownWake) * 5)
 
-        // Zzz while it sleeps.
+        // Zzz while it sleeps. R4 (juror P1-3): they drift only as high as the scene's top allows (minus a margin and
+        // the glyph), so none is ever clipped by the card's edge.
         let sleepy: CGFloat = wake < 0.08 && peek < 0.15 ? 1 : 0
+        let unit = max(root.xScale, 0.001)
+        // The highest a Z's centre may go (its 30-unit glyph then ends 7 units under the scene's top), where the drift
+        // starts (lower when the chest fills the card), and how far it rises.
+        let limit = (size.height - root.position.y) / unit - 22
+        let zBase = min(lidBase + 96, limit - 40)
+        let span = max(min(98, limit - zBase - 4), 0)
+        var top: CGFloat = 0
         for (i, z) in zzz.enumerated() {
             let ph = reduceMotion ? 0.5 : (time / 3.2 + Double(i) / 3).truncatingRemainder(dividingBy: 1)
             let k = CGFloat(ph)
-            z.node.position = CGPoint(x: 118 + 22 * k + CGFloat(i) * 16, y: lidBase + 96 + 70 * k + CGFloat(i) * 14)
-            z.node.alpha = reduceMotion ? sleepy * 0.85 : sleepy * min(k * 4, 1) * (1 - k) * 1.4
+            let y = zBase + span * (70 * k + CGFloat(i) * 14) / 98
+            z.node.position = CGPoint(x: 118 + 22 * k + CGFloat(i) * 16, y: y)
+            let edgeFade = min(max((limit - y) / 12, 0), 1)
+            z.node.alpha = edgeFade * (reduceMotion ? sleepy * 0.85 : sleepy * min(k * 4, 1) * (1 - k) * 1.4)
+            if z.node.alpha > 0.01 { top = max(top, root.position.y + (y + 15) * unit) }
         }
+        zzzTop = top
+
+        // R4 (juror P1-3): the cover's amber eye in the seam: a warm shine always (a still frame shows something
+        // watching), and a starry glint on the pupil at each peek. Off unless `idlePeek` (the cover); the shine stays
+        // (dimmer, steady) under Reduce Motion.
+        let seamY = (16 + lidBase) / 2
+        let shine: CGFloat = idlePeek ? (0.45 + 0.5 * peek) : 0
+        eyeShineLevel = shine
+        eyeShine.isHidden = shine < 0.01
+        eyeShine.alpha = shine
+        eyeShine.position = CGPoint(x: 0, y: seamY)
+        eyeShine.yScale = 1 + 0.8 * peek
+        let gl: CGFloat = idlePeek && !reduceMotion ? max(0, (peek - 0.35) / 0.65) : 0
+        glintLevel = gl
+        glint.isHidden = gl < 0.01
+        glint.alpha = gl
+        glint.position = CGPoint(x: eye.position.x + iris.position.x - 6, y: eye.position.y + iris.position.y + 6)
+        glint.zRotation = CGFloat(time) * 1.2
+        glint.setScale(0.6 + 0.6 * gl)
 
         // The golden mimic sparkles.
         for (i, s) in sparkles.enumerated() {

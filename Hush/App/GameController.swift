@@ -149,6 +149,13 @@ final class GameController: ObservableObject, SceneDriver {
     /// R3: the in-run callout (a one-time tip, the golden banner) and until when it shows (wall clock).
     private var callout: String?
     private var calloutUntil: TimeInterval = 0
+    /// R4: a callout that arrived during the bank beat or the relic card (shown once the next chest is live).
+    private var pendingCallout: String?
+    /// R4: the relic card is on screen until then (frame clock).
+    private var relicCardUntil: TimeInterval = 0
+    /// R4 (QA-3 P2-4/5): VoiceOver's stage lines: once per chest for Stirring, and the late one cancellable.
+    private var announceGate = AnnounceGate()
+    private var stageAnnounceTask: Task<Void, Never>?
     /// The hinge angle when the book-pose card appeared (P0-1: a ≥ 15° lift asks iOS for portrait).
     private var standUpAngle: Double?
     private var lastPortraitAsk: TimeInterval = -100
@@ -230,17 +237,32 @@ final class GameController: ObservableObject, SceneDriver {
     var layoutHasFold: Bool { layout?.hasFold ?? false }
     var sliderWording: Bool { !layoutHasFold }
     var lessonReplaying: Bool { lessonReplay }
+    /// R4 (QA-3 P2-3): the lesson has been banked ("Banked! Gently does it." or the final card is up).
+    var lessonFinishing: Bool { mode == .lesson && (lessonScript?.isFinishing ?? false) }
     /// "Daily Dungeon · 27 Oct" for the run's day (nil outside a Daily).
     var dailyMarker: String? {
         guard case let .daily(day, scored) = mode else { return nil }
         return (scored ? "Daily Dungeon · " : "Daily practice · ") + AppRules.dailyDate(day: day)
     }
 
-    /// Settings › About › Diagnostics (DEBUG, or the hidden gesture): the founder's device-test line.
-    var diagnosticsLine: String {
-        let a = { (v: Double?) in v.map { AppTrace.fixed($0, 1) + "°" } ?? "-" }
-        return "Lid: \(hasHinge ? "hinge" : "lever") · " + OrientationLock.status()
-            + " · cover at \(a(handoffAngle)) · relit at \(a(relightAngle)) · device \(UIDevice.current.orientation.rawValue)"
+    /// Settings › About › Diagnostics (DEBUG, or the hidden 2 s press on the version line): the founder's device test
+    /// (LAUNCH-RUNBOOK step 9). R4: one fact a line, the hinge angle live (the panel redraws 4 times a second), and
+    /// the last hand-off and relight angles kept across launches.
+    var diagnosticsLines: [String] {
+        AppRules.diagnosticsLines(channel: BuildChannel.current.label, version: BuildChannel.versionLine,
+                                  hinge: hinge.angle, input: hasHinge ? "hinge" : "lever",
+                                  handoff: handoffAngle ?? Self.storedAngle(Self.handoffKey),
+                                  relight: relightAngle ?? Self.storedAngle(Self.relightKey),
+                                  resumeAngle: hinge.effectiveResumeAngle,
+                                  orientation: OrientationLock.status()
+                                      + " · device \(UIDevice.current.orientation.rawValue)")
+    }
+
+    static let handoffKey = "hush.diag.handoff"
+    static let relightKey = "hush.diag.relight"
+
+    private static func storedAngle(_ key: String) -> Double? {
+        UserDefaults.standard.object(forKey: key) as? Double
     }
 
     // MARK: - SceneDriver
@@ -248,12 +270,10 @@ final class GameController: ObservableObject, SceneDriver {
     /// R2 (UX P0-4): on an iPhone without a fold the lever is always drawn, whoever drives the lid (CI's pilot and
     /// `lid=` frames included); only the player's slider takes its touches (`sliderTouch`). R3 (decision 4): a fold
     /// layout never draws or uses the lever.
+    /// R4 (founder, CI R4 frame 32): keyed on the LAYOUT only (`AppRules.usesSlider`): a fold layout never draws or
+    /// takes the lever, turned round or not; "Play anyway" (landscape, no fold) is the one Duo case that does.
     var usesSlider: Bool {
-        guard route.isPlay, !layoutHasFold else { return false }
-        switch input {
-        case .slider, .pilot, .fixed: return true
-        case .hinge: return false
-        }
+        AppRules.usesSlider(playRoute: route.isPlay, layoutHasFold: layoutHasFold, input: input)
     }
 
     func advance(dt: TimeInterval, now: TimeInterval) -> (HeistSnapshot, [HeistEvent]) {
@@ -314,6 +334,7 @@ final class GameController: ObservableObject, SceneDriver {
             if case let .banked(value, _, _) = event { bankedSum += value }
             if case .chestArrived = event, snapshot.chest?.golden == true { feedback.goldenArrived() }
             if case .torchOut = event { watchTheEnd() }
+            if case .relicFound = event { noteRelicCard(now: now) }
             AppTrace.t("HUSH-T event " + traceLine(event, snapshot: snapshot))
             callouts(for: event, snapshot: snapshot, now: now)
             announce(event)
@@ -358,7 +379,7 @@ final class GameController: ObservableObject, SceneDriver {
     }
 
     func sliderTouch(began: Bool, ended: Bool, fraction: Double, time: TimeInterval) {
-        guard input == .slider, route.isPlay, !layoutHasFold else { return }
+        guard input == .slider, usesSlider else { return }
         if (isPaused || frozen) && !ended { return }
         let f = fraction.isFinite ? min(max(fraction, 0), 1) : 0
         slider.touch(began: began, ended: ended, fraction: f, time: time)
@@ -415,29 +436,72 @@ final class GameController: ObservableObject, SceneDriver {
         showCallout(tip.text, now: now)
     }
 
+    /// R4 (ROUND-4 App 2): one prompt at a time. A callout that lands during the bank beat or under the relic card
+    /// (the first Hush Chain tip arrives WITH the bank) waits until the next chest is live, then shows its full time.
     private func showCallout(_ text: String, now: TimeInterval) {
+        guard let session, !AppRules.promptBlocked(phase: session.snapshot.phase, relicCardUp: now < relicCardUntil)
+        else {
+            pendingCallout = text
+            return
+        }
+        pendingCallout = nil
         callout = text
         calloutUntil = now + Self.calloutSeconds
         AppTrace.t("HUSH-T callout \(text)")
         announceNow(text)
     }
 
+    /// The relic card shows after the bank's stack, one per relic (`SceneMoments`): hints and callouts wait for it.
+    private func noteRelicCard(now: TimeInterval) {
+        let start = max(relicCardUntil, now + SceneMoments.bankGroupEnd)
+        relicCardUntil = start + SceneMoments.bannerTime
+    }
+
     /// UX P1-9: VoiceOver hears the stages, the bites and the banks (stages a beat late, after Feel's cue).
+    /// R4 (QA-3 P2-4/5): the late stage line is kept, cancelled by a bite, a bank or a pause, and re-checked when it
+    /// fires, so it never cuts "Chomp!"; "It's stirring." is said at most once per chest; everything but "Chomp!" and
+    /// "It's waking. Freeze!" queues behind what VoiceOver is saying instead of cutting it. In the lesson the step
+    /// line speaks for the stages.
     private func announce(_ event: HeistEvent) {
+        switch event {
+        case let .chestArrived(index, _, _, _): announceGate.chestArrived(index)
+        case .bitten, .banked: cancelStageAnnouncement()
+        default: break
+        }
         guard let text = HushCopy.announcement(event) else { return }
-        if case .stageChanged = event {
-            Task { [weak self] in
+        if case let .stageChanged(_, to) = event {
+            guard mode != .lesson, announceGate.allowsStage(to) else { return }
+            cancelStageAnnouncement()
+            let queued = HushCopy.queuesAnnouncement(event)
+            stageAnnounceTask = Task { [weak self] in
                 try? await Task.sleep(nanoseconds: UInt64(GameController.announceDelay * 1_000_000_000))
-                self?.announceNow(text)
+                guard !Task.isCancelled, let self else { return }
+                self.stageAnnounceTask = nil
+                guard let s = self.session?.snapshot,
+                      AppRules.stageAnnouncementDue(to, current: s.stage, phase: s.phase, paused: self.isPaused)
+                else { return }
+                self.announceNow(text, queued: queued)
             }
         } else {
-            announceNow(text)
+            announceNow(text, queued: HushCopy.queuesAnnouncement(event))
         }
     }
 
-    private func announceNow(_ text: String) {
+    private func cancelStageAnnouncement() {
+        stageAnnounceTask?.cancel()
+        stageAnnounceTask = nil
+    }
+
+    /// `queued`: wait for VoiceOver to finish what it is saying (NSAttributedString +
+    /// `.accessibilitySpeechQueueAnnouncement`), else interrupt it.
+    private func announceNow(_ text: String, queued: Bool = true) {
         guard !isDemo, UIAccessibility.isVoiceOverRunning else { return }
-        UIAccessibility.post(notification: .announcement, argument: text)
+        if queued {
+            let line = NSAttributedString(string: text, attributes: [.accessibilitySpeechQueueAnnouncement: true])
+            UIAccessibility.post(notification: .announcement, argument: line)
+        } else {
+            UIAccessibility.post(notification: .announcement, argument: text)
+        }
     }
 
     private func currentLid(now: TimeInterval, step: Double, session: HeistSession,
@@ -484,11 +548,29 @@ final class GameController: ObservableObject, SceneDriver {
     }
 
     /// The first hinge sample of a launch (or a fold appearing) re-chooses the input (the slider's state is dropped).
+    /// R4 (QA-3 P1-1): a live run whose input CHANGES to the hinge (leaving "Play anyway", a fold appearing) is never
+    /// played straight away: fresh filters, then the closing pause until the lid is open and still. The reverse (QA-3
+    /// P2, "Play anyway" mid-run) hands the lever the lid where it is, so the chest never snaps shut or auto-banks.
     func refreshInput() {
-        guard session != nil else { return }
+        guard let session else { return }
         let kind = chooseInput()
         guard kind != input else { return }
+        let old = input
+        let live = isLiveRun
+        if AppRules.switchKeepsOpenness(from: old, to: kind, liveRun: live) {
+            slider.reset(openness: session.snapshot.openness)
+        }
         setInput(kind)
+        if AppRules.switchHolds(from: old, to: kind, liveRun: live) {
+            hinge.reset()
+            closingPause.hold()
+            if !hinge.hasHinge { closingAwaitsHinge = true }
+            // Not the player's close: CI's `noiseUntil=pause` keeps waiting.
+            guardHold = true
+            setClosing(true)
+            guardHold = false
+            AppTrace.t("HUSH-T input switch hold \(old.rawValue)->\(kind.rawValue)")
+        }
     }
 
     // MARK: - Lifecycle hooks from RootView
@@ -564,9 +646,11 @@ final class GameController: ObservableObject, SceneDriver {
         if hingeSeen {
             if new == .small {
                 handoffAngle = angle
+                if !isDemo, let angle { UserDefaults.standard.set(angle, forKey: Self.handoffKey) }
                 AppTrace.t("HUSH-T handoff angle=\(a)")
             } else {
                 relightAngle = angle
+                if !isDemo, let angle { UserDefaults.standard.set(angle, forKey: Self.relightKey) }
                 AppTrace.t("HUSH-T relight angle=\(a)")
                 if isLiveRun { hinge.requiredResumeAngle = HingeLidSource.coverResumeAngle(relight: angle) }
             }
@@ -775,7 +859,13 @@ final class GameController: ObservableObject, SceneDriver {
         let angle = hinge.angle
         let lifted = (angle ?? 0) >= hinge.effectiveResumeAngle
         if lifted != closingLifted { closingLifted = lifted }
-        guard AppRules.closingApplies(phase) else { return }
+        // R4 (QA-3 P2-3): the lesson's pay-off ("Banked!", then the final card) is never hidden by the closing card.
+        let finishing = lessonFinishing
+        if finishing && (closingPause.paused || isClosingPaused) {
+            closingPause.clear()
+            setClosing(false)
+        }
+        guard AppRules.closingApplies(phase, lessonFinishing: finishing) else { return }
         if closingPause.paused && !isClosingPaused { setClosing(true) }
         let resumable = AppRules.mayResume(canResume: hinge.canResume, canvas: canvasClass)
         switch closingPause.update(angle: angle, gateClosing: hinge.isClosing, isShut: isShut,
@@ -906,6 +996,8 @@ final class GameController: ObservableObject, SceneDriver {
         frozen = false
         sceneHeld = false
         callout = nil
+        pendingCallout = nil
+        cancelStageAnnouncement()
         setGlimmer(false)
         lockForLiveRun(false)
         feedback.silence()
@@ -997,6 +1089,8 @@ final class GameController: ObservableObject, SceneDriver {
                 || display.line != lessonDisplay?.line {
                 AppTrace.t("HUSH-T lesson step \(display.step) praise=\(display.praise ? 1 : 0) line '\(display.line)'")
             }
+            // R4 (QA-3 P2, UX P2-9): VoiceOver hears each step, praise and warning, and the final card.
+            if let said = LessonDisplay.announcement(from: lessonDisplay, to: display) { announceNow(said) }
             lessonDisplay = display
         }
     }
@@ -1016,6 +1110,10 @@ final class GameController: ObservableObject, SceneDriver {
         noiseReleased = false
         callout = nil
         calloutUntil = 0
+        pendingCallout = nil
+        relicCardUntil = 0
+        announceGate = AnnounceGate()
+        cancelStageAnnouncement()
         var m = newMode
         if case let .daily(day, scored) = m, scored {
             if store.canPlayScoredDaily(today: day) {
@@ -1214,6 +1312,23 @@ final class GameController: ObservableObject, SceneDriver {
             wanted = nil
             if hintGate.shown != nil { hintGate.clear() }
         }
+        // R4 (ROUND-4 App 2, juror P1-5): one prompt at a time. The bank beat and the relic card hide the hint at
+        // once (a live warning still shows), and a callout that waited for them shows now.
+        let relicUp = now < relicCardUntil
+        if let h = wanted, AppRules.hintSuppressed(h, phase: s.phase, relicCardUp: relicUp) { wanted = nil }
+        if AppRules.promptBlocked(phase: s.phase, relicCardUp: relicUp) {
+            if let h = hintGate.shown, AppRules.hintSuppressed(h, phase: s.phase, relicCardUp: relicUp) {
+                hintGate.clear()
+            }
+            if callout != nil && now < calloutUntil {
+                // A callout caught by the bank beat or the relic card finishes later, in full.
+                pendingCallout = callout
+                callout = nil
+                calloutUntil = 0
+            }
+        } else if let waiting = pendingCallout, !isPaused, route != .lesson, AppRules.isLive(s.phase) {
+            showCallout(waiting, now: now)
+        }
         var shown = hintGate.update(wanted, now: now)
         if isPaused { shown = nil }
         setGlimmer(shown == .relicDeeper)
@@ -1268,6 +1383,7 @@ final class GameController: ObservableObject, SceneDriver {
         }
         if isPaused && !was {
             feedback.silence()
+            cancelStageAnnouncement()
             setGlimmer(false)
             // R3 (QA-2 P2-3): nothing stays drawn under a pause card.
             hintGate.clear()

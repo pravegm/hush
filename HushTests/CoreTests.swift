@@ -1527,4 +1527,38 @@ struct CoreTests {
         #expect(logged == r.gold)
         #expect(s.partialResult() == r)
     }
+
+    /// R4: no loot is dealt under the phone's pause coin (Tuning.lootKeepOut, plus the item's radius and the gap),
+    /// in any chest; the lesson's fixed chest is clear of it too.
+    @Test func lootStaysOutOfThePauseCoinCorner() {
+        let keep: CGRect = Tuning.lootKeepOut
+        #expect(keep == CGRect(x: 540, y: 0, width: 130, height: 112))
+        func clearance(_ it: LootItem) -> Double {
+            let x: Double = Double(it.position.x)
+            let y: Double = Double(it.position.y)
+            let dx: Double = x - min(max(x, Double(keep.minX)), Double(keep.maxX))
+            let dy: Double = y - min(max(y, Double(keep.minY)), Double(keep.maxY))
+            return (dx * dx + dy * dy).squareRoot() - Double(it.radius) - Tuning.lootGap
+        }
+        var inside: Int = 0
+        var items: Int = 0
+        var seed: UInt64 = 1
+        while seed <= 120 {
+            var index: Int = 0
+            while index <= 10 {
+                for it in ChestFactory.chest(seed: seed, index: index, found: []).items {
+                    items += 1
+                    if clearance(it) < -0.001 { inside += 1 }
+                }
+                index += 1
+            }
+            seed += 1
+        }
+        #expect(items > 5_000)
+        #expect(inside == 0)
+        let lessonClear: Bool = ChestFactory.lessonChest().items.allSatisfy { (it: LootItem) -> Bool in
+            clearance(it) >= 0
+        }
+        #expect(lessonClear)
+    }
 }

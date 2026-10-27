@@ -86,6 +86,11 @@ struct CodexView: View {
     @ObservedObject var store: ProgressStore
     let info: AppCanvas
     @State private var selected: RelicID?
+    @Environment(\.dynamicTypeSize) private var dynamicType
+
+    /// R4 (ROUND-4 App 7): a relic name's lines: 2, and 3 from xxLarge up (then the name is shrunk at most to 0.7 to
+    /// fit, so the longest names wrap whole instead of truncating). Pure; tested.
+    static func nameLines(_ size: DynamicTypeSize) -> Int { size >= .xxLarge ? 3 : 2 }
 
     /// Pure; tested.
     static func subtitle(found: Int, total: Int) -> String {
@@ -139,13 +144,18 @@ struct CodexView: View {
                                             .foregroundStyle(HushTheme.goldDeep.opacity(0.8))
                                     }
                                 }
+                                // R4 (UX P2-7, frames 42/46): names wrap, never truncate. A fixed box of
+                                // `nameLines` lines keeps the grid aligned; at large sizes the box grows a line.
+                                let lines = Self.nameLines(dynamicType)
                                 Text(has ? relic.name : "???")
                                     .font(HushType.caption(info.isCompact))
                                     .foregroundStyle(has ? HushTheme.parchment : HushTheme.haze)
                                     .multilineTextAlignment(.center)
-                                    .lineLimit(2)
-                                    .minimumScaleFactor(0.8)
-                                    .frame(height: HushType.scaled(14, .footnote) * 2.7, alignment: .top)
+                                    .lineLimit(lines)
+                                    .minimumScaleFactor(0.7)
+                                    .allowsTightening(true)
+                                    .frame(height: HushType.scaled(14, .footnote) * (CGFloat(lines) * 1.3 + 0.1),
+                                           alignment: .top)
                             }
                             .padding(.vertical, 10)
                             .padding(.horizontal, 6)
@@ -313,6 +323,8 @@ struct SettingsView: View {
     static let turnTitle = "Turn the chest round"
     static let turnDetail = "Puts the loot on the half that stays flat, the lid on the half you lift"
     static let silentTitle = "Play sound on silent"
+    /// The About card's version line (the hidden Diagnostics press is on it).
+    static var versionText: String { "Version \(BuildChannel.versionLine)" }
 
     var body: some View {
         let c = info.isCompact
@@ -346,24 +358,27 @@ struct SettingsView: View {
                     }
                     if showsAbout {
                         VStack(spacing: 6) {
-                            Text("Hush: Don't Wake the Mimic \(BuildChannel.versionLine). The game where you have to "
-                                 + "be gentle. No ads, no tracking, nothing collected. Ever.")
+                            Text("Hush: Don't Wake the Mimic. The game where you have to be gentle. No ads, no "
+                                 + "tracking, nothing collected. Ever.")
                                 .font(HushType.body(c))
                                 .foregroundStyle(HushTheme.mist)
                                 .multilineTextAlignment(.center)
                                 .fixedSize(horizontal: false, vertical: true)
-                                // R3 (QA-2 P2-15): a hidden 2 s press toggles Diagnostics; a sandbox receipt (App
-                                // Review installs carry one) never shows test UI by itself.
-                                .onLongPressGesture(minimumDuration: 2) {
+                            // R3 (QA-2 P2-15) / R4 (ROUND-4 App 10): a hidden 2 s press on the VERSION LINE toggles
+                            // Diagnostics in any build (a click confirms it). A sandbox receipt (TestFlight, and App
+                            // Review installs too) never shows test UI by itself.
+                            Text(Self.versionText)
+                                .font(HushType.caption(c).monospacedDigit())
+                                .foregroundStyle(HushTheme.haze)
+                                .padding(.horizontal, 16)
+                                .padding(.vertical, 8)
+                                .contentShape(Rectangle())
+                                .onLongPressGesture(minimumDuration: 2, maximumDistance: 40) {
                                     showsDiagnostics = BuildChannel.toggleDiagnostics()
+                                    FeedbackDirector.shared.uiConfirm()
                                 }
                             if showsDiagnostics {
-                                Text("Diagnostics · " + controller.diagnosticsLine)
-                                    .font(HushType.caption(c))
-                                    .foregroundStyle(HushTheme.haze)
-                                    .multilineTextAlignment(.center)
-                                    .fixedSize(horizontal: false, vertical: true)
-                                    .textSelection(.enabled)
+                                DiagnosticsPanel(controller: controller, compact: c)
                             }
                         }
                         .padding(.horizontal, 14)
@@ -393,6 +408,35 @@ struct SettingsView: View {
 
     private var divider: some View {
         Rectangle().fill(HushTheme.stroke).frame(height: 1).padding(.horizontal, 12)
+    }
+}
+
+/// R4 (ROUND-4 App 10): the founder's device-test panel. It redraws 4 times a second, so the hinge angle is live; the
+/// last hand-off (inner → cover) and relight (cover → inner) angles are kept across launches.
+struct DiagnosticsPanel: View {
+    @ObservedObject var controller: GameController
+    let compact: Bool
+
+    var body: some View {
+        TimelineView(.periodic(from: .now, by: 0.25)) { _ in
+            VStack(alignment: .leading, spacing: 3) {
+                Text("DIAGNOSTICS")
+                    .font(HushType.overline(compact))
+                    .kerning(1.2)
+                    .foregroundStyle(HushTheme.gold)
+                ForEach(controller.diagnosticsLines, id: \.self) { line in
+                    Text(line)
+                        .font(HushType.caption(compact).monospacedDigit())
+                        .foregroundStyle(HushTheme.mist)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(10)
+            .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(HushTheme.night.opacity(0.6)))
+            .textSelection(.enabled)
+        }
+        .accessibilityElement(children: .combine)
     }
 }
 

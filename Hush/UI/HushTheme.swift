@@ -76,14 +76,19 @@ enum HushTheme {
 /// The type scale. `compact` = a short canvas (an iPhone SE-sized screen).
 ///
 /// R2 (UX P2-15, ROUND-2 App 10): menu, Results, Codex and Settings type follows Dynamic Type (`UIFontMetrics`),
-/// capped at 1.3× so the halves still fit; those screens scroll or wrap instead of clipping. The big display numbers,
+/// R4: in full through XXXL, capped only at the accessibility sizes (`accessibilityGrowth`); those screens scroll or
+/// wrap instead of clipping. The big display numbers,
 /// the wordmark and the in-run hint stay fixed (the chest's own scale sets those).
 enum HushType {
-    /// The largest Dynamic Type growth the layouts take.
-    static let maxGrowth: CGFloat = 1.3
+    /// R4 (founder, CI R4: frames 41 and 45 were identical): the standard sizes (up to XXXL) grow fully, as iOS scales
+    /// them. The CAP is only at the accessibility sizes, on purpose: at most `accessibilityGrowth` × the XXXL size, so
+    /// AX text is visibly larger than XXXL and the screens (which scroll or wrap) never clip.
+    static let accessibilityGrowth: CGFloat = 1.12
+    /// The cap's reference category.
+    static let capCategory: UIContentSizeCategory = .extraExtraExtraLarge
 
-    /// `size` for the reader's text size (never below 0.9× nor above `maxGrowth` × the design size). Pure given the
-    /// category; tested.
+    /// `size` for the reader's text size: never below 0.9× the design size; through XXXL as iOS scales it; at the
+    /// accessibility sizes no more than `accessibilityGrowth` × its XXXL size. Pure given the category; tested.
     static func scaled(_ size: CGFloat, _ style: UIFont.TextStyle, category: UIContentSizeCategory? = nil) -> CGFloat {
         let metrics = UIFontMetrics(forTextStyle: style)
         let grown: CGFloat
@@ -93,7 +98,16 @@ enum HushType {
         } else {
             grown = metrics.scaledValue(for: size)
         }
-        return min(max(grown, size * 0.9), size * maxGrowth)
+        let xxxl = metrics.scaledValue(for: size,
+                                       compatibleWith: UITraitCollection(preferredContentSizeCategory: capCategory))
+        return min(max(grown, size * 0.9), max(xxxl, size) * accessibilityGrowth)
+    }
+
+    /// The largest growth any style can reach (the AX cap), for layout checks.
+    static func maxGrowth(_ style: UIFont.TextStyle) -> CGFloat {
+        let xxxl = UIFontMetrics(forTextStyle: style)
+            .scaledValue(for: 100, compatibleWith: UITraitCollection(preferredContentSizeCategory: capCategory))
+        return max(xxxl, 100) * accessibilityGrowth / 100
     }
 
     static func wordmark(_ c: Bool) -> Font { .system(size: c ? 60 : 84, weight: .black, design: .rounded) }
@@ -143,18 +157,28 @@ struct HushButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         let pressed = configuration.isPressed
         let h = max(height, HushTheme.minTap)
-        return configuration.label
+        let label = configuration.label
             .font(kind == .quiet ? HushType.body(compact) : HushType.button(compact))
             .foregroundStyle(textColor)
             .lineLimit(1)
-            .minimumScaleFactor(0.75)
-            .frame(maxWidth: .infinity, minHeight: h)
-            .padding(.horizontal, 14)
-            .background(HushButtonBackground(kind: kind, pressed: pressed).frame(height: h))
-            .contentShape(Rectangle())
-            .scaleEffect(pressed ? 0.97 : 1)
-            .opacity(kind == .quiet && pressed ? 0.6 : 1)
-            .animation(.spring(response: 0.18, dampingFraction: 0.7), value: pressed)
+            .minimumScaleFactor(kind == .leather ? 0.7 : 0.75)
+        return Group {
+            if kind == .leather {
+                // R4: the leather plate's label sits inside its text rect (clear of the brass end-caps).
+                label
+                    .frame(maxWidth: .infinity)
+                    .onPlate(.leather, minHeight: h, radius: HushTheme.buttonRadius, pressed: pressed)
+            } else {
+                label
+                    .frame(maxWidth: .infinity, minHeight: h)
+                    .padding(.horizontal, 14)
+                    .background(HushButtonBackground(kind: kind, pressed: pressed).frame(height: h))
+            }
+        }
+        .contentShape(Rectangle())
+        .scaleEffect(pressed ? 0.97 : 1)
+        .opacity(kind == .quiet && pressed ? 0.6 : 1)
+        .animation(.spring(response: 0.18, dampingFraction: 0.7), value: pressed)
     }
 
     private var textColor: Color {
@@ -254,11 +278,89 @@ struct PlateBackground: View {
 }
 
 extension View {
-    /// R3: wraps the view in the in-world plate (decision 5).
+    /// R3: wraps the view in the in-world plate (decision 5). R4 (juror P0-1, UX P1-1): the content (plus `padding`)
+    /// is laid out inside the Scene's `ChestArt.plateTextRect`, never on the brass end-caps or the stitched border.
     func hushPlate(_ style: PlateStyle = .leather, padding: CGFloat = 16, radius: CGFloat = 18) -> some View {
-        self.padding(.horizontal, padding + 8)
-            .padding(.vertical, padding)
-            .background(PlateBackground(style: style, radius: radius))
+        PlateTextLayout(style: style) {
+            self.padding(.horizontal, max(padding - 8, 0))
+                .padding(.vertical, max(padding - 6, 0))
+        }
+        .background(PlateBackground(style: style, radius: radius).allowsHitTesting(false))
+    }
+
+    /// R4: a line (or a small group) on a hugging in-world plate, inside its text rect. `minHeight` keeps a plate at
+    /// least that tall (a leather button's tap height).
+    func onPlate(_ style: PlateStyle, minHeight: CGFloat = 0, radius: CGFloat = 16, pressed: Bool = false) -> some View {
+        PlateTextLayout(style: style, minHeight: minHeight) { self }
+            .background(PlateBackground(style: style, radius: radius, pressed: pressed).allowsHitTesting(false))
+    }
+}
+
+/// R4 (juror P0-1, UX P1-1): where a plate's text goes. The Scene owns the plate art, so it owns the rect that clears
+/// its brass end-caps (plus 8 pt) and stitching: `ChestArt.plateTextRect(in:style:)` (SwiftUI terms: origin top-left).
+/// Pure; tested.
+enum PlateFit {
+    /// The plate's text rect at `size`, sanitised (inside the plate, never empty or NaN).
+    static func textRect(in size: CGSize, style: PlateStyle) -> CGRect {
+        let bounds = CGRect(origin: .zero, size: CGSize(width: max(size.width, 0), height: max(size.height, 0)))
+        let r = ChestArt.plateTextRect(in: size, style: style)
+        let finite = r.minX.isFinite && r.minY.isFinite && r.width.isFinite && r.height.isFinite
+        let clipped = finite ? r.intersection(bounds) : .null
+        guard !clipped.isNull, clipped.width >= 1, clipped.height >= 1 else {
+            // Never seen in practice: a centred box a third of the plate's width in from each cap.
+            return bounds.insetBy(dx: min(bounds.width / 3, 24), dy: min(bounds.height / 4, 6))
+        }
+        return clipped
+    }
+
+    /// What the plate adds round its text at `size` (both sides together).
+    static func margins(_ size: CGSize, style: PlateStyle) -> CGSize {
+        let r = textRect(in: size, style: style)
+        return CGSize(width: max(size.width - r.width, 0), height: max(size.height - r.height, 0))
+    }
+
+    /// The plate that hugs content measured by `measure` (proposed a text width, nil = ideal), never wider than
+    /// `maxWidth` nor shorter than `minHeight`. The caps grow with the plate's height, so the margins are refined from
+    /// the measured size.
+    static func plateSize(maxWidth: CGFloat?, minHeight: CGFloat = 0, style: PlateStyle,
+                          measure: (CGFloat?) -> CGSize) -> CGSize {
+        let cap = maxWidth.flatMap { $0.isFinite && $0 > 0 ? $0 : nil }
+        var guess = CGSize(width: cap ?? 320, height: max(minHeight, 44))
+        var size = guess
+        for _ in 0..<3 {
+            let m = margins(guess, style: style)
+            let t = measure(cap.map { max($0 - m.width, 1) })
+            let w = t.width.isFinite ? t.width : 0
+            let h = t.height.isFinite ? t.height : 0
+            size = CGSize(width: w + m.width, height: max(h + m.height, minHeight))
+            if let cap { size.width = min(size.width, cap) }
+            guard size != guess else { break }
+            guess = size
+        }
+        return size
+    }
+}
+
+/// R4: lays its one child inside the plate's text rect (`PlateFit`). The plate hugs the child up to the proposed
+/// width; the child is then proposed exactly the text rect, so `minimumScaleFactor` shrinks it before it ever reaches
+/// a cap.
+struct PlateTextLayout: Layout {
+    var style: PlateStyle
+    var minHeight: CGFloat = 0
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        guard let child = subviews.first else { return .zero }
+        return PlateFit.plateSize(maxWidth: proposal.width, minHeight: minHeight, style: style) { w in
+            child.sizeThatFits(ProposedViewSize(width: w, height: nil))
+        }
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        let r = PlateFit.textRect(in: bounds.size, style: style)
+        for child in subviews {
+            child.place(at: CGPoint(x: bounds.minX + r.midX, y: bounds.minY + r.midY), anchor: .center,
+                        proposal: ProposedViewSize(width: r.width, height: r.height))
+        }
     }
 }
 

@@ -1,6 +1,7 @@
 import CoreGraphics
 import Foundation
 import SpriteKit
+import UIKit
 import Testing
 @testable import Hush
 
@@ -89,8 +90,9 @@ struct SceneTests {
         #expect(ChestLayout.counterCoin.x + 26 <= ScreenLayout.canvasWidth - inset)
         // The countdown hangs beside the candle, not over it.
         #expect(ChestLayout.countdownRect.minX > ChestLayout.torchRect.maxX)
-        // The pause coin sits in its socket (the frame draws no corner bracket there).
-        #expect(pause.width / 2 <= ChestLayout.pauseSocketRadius - 8)
+        // The pause coin sits in its seat (the frame draws no corner bracket there; R4: a round seat, coin + 4 pt).
+        #expect(pause.width / 2 <= ChestLayout.pauseSocketRadius)
+        #expect(ChestLayout.pauseSocketRadius - ChestLayout.pauseCoinViewDiameter / 2 >= CGFloat(3.9))
         // IN BAG on the left, BANKED on the right, always.
         #expect(ChestLayout.bagValueRect.maxX < ChestLayout.pouchRect.minX)
         #expect(ChestLayout.counterRect.minX > ChestLayout.pouchRect.maxX)
@@ -357,9 +359,11 @@ struct SceneTests {
         c.mimic = .lightSleeper
         c.golden = true
         c.multiplier = 3
-        // The golden plate says GOLDEN, and the seal shows the real payout (QA-2 P2-8: tier × 2).
-        #expect(ChestCopy.plateSubline(c) == "GOLDEN MIMIC · Light sleeper")
+        // The golden plate says Golden (R4: one casing), and the seal shows the real payout (QA-2 P2-8: tier × 2);
+        // the pop over its loot is the same number (R4, UX P2-3).
+        #expect(ChestCopy.plateSubline(c) == "Golden · Light sleeper")
         #expect(ChestCopy.plateSeal(c) == "×3")
+        #expect(ChestCopy.goldenPop(c) == "×3")
         #expect(SceneMoments.multiplierText(1.5) == "×1.5")
         #expect(SceneMoments.multiplierText(2) == "×2")
         #expect(SceneMoments.multiplierText(.nan) == "×1")
@@ -415,7 +419,8 @@ struct SceneTests {
         #expect(SceneLid.canineShowing(shown: 1) > SceneLid.canineShowing(shown: 0.4))
         // Tucked, no root ever rises above the lip (it would show over the plate).
         let corner = SceneTextures.gumEdge(SceneTextures.fangSpec[0].x)
-        let topRoot = SceneLid.teethTop(shown: 0) - 72 + (72 - ChestLayout.gumRise - 6 + corner + 2) + 4
+        let th = ChestLayout.teethTextureHeight
+        let topRoot = SceneLid.teethTop(shown: 0) - th + (th - ChestLayout.gumRise - 6 + corner + 2) + 4
         #expect(topRoot < ChestLayout.lipBottom + ChestLayout.lipHeight)
         // The gum is a curve: lowest at the centre.
         #expect(SceneTextures.gumEdge(335) < SceneTextures.gumEdge(40))
@@ -488,8 +493,9 @@ struct SceneTests {
         SceneFakeDriver.run(scene, frames: 60, clock: &clock)
         #expect(scene.visibleLoot >= 4)
         #expect(scene.drawnNodeCount <= 185)
-        // R3: +16 mostly-hidden nodes (dress cross-fade, seal, chain tab, creak, relic card, rim sparkles).
-        #expect(scene.nodeCount <= 350)
+        // R3: +16 mostly-hidden nodes (dress cross-fade, seal, chain tab, creak, relic card, rim sparkles). R4: +4
+        // (the pause seat, "Next chest…", the extension plaque and its words).
+        #expect(scene.nodeCount <= 360)
         #expect(scene.mimicName == "Snoring Sam")
         #expect(scene.plateSubline == "Snorer · Wooden")
         #expect(scene.plateSeal == "×1.5")
@@ -658,7 +664,7 @@ struct SceneTests {
         driver.startChest(gold)
         SceneFakeDriver.run(scene, frames: 30, clock: &clock)
         #expect(scene.dress == .golden)
-        #expect(scene.plateSubline == "GOLDEN MIMIC · Light sleeper")
+        #expect(scene.plateSubline == "Golden · Light sleeper")
         #expect(scene.plateSeal == "×1.5")
         #expect(scene.chestShellIsWhole)
     }
@@ -966,6 +972,424 @@ struct SceneTests {
             }
             if reduce { #expect(peak < CGFloat(0.01)) } else { #expect(peak > CGFloat(0.5)) }
         }
+    }
+
+    // MARK: R4
+
+    /// Item 1 (juror P0-1, UX P1-1): plate text lies inside the stitched border and ≥ 8 pt clear of both brass
+    /// end-caps, for drawn plates of every size and for stretched slices; the slice insets cover a cap + 8 pt; the
+    /// longest hint fits the hint band's plate on one line at ≥ 0.7 scale.
+    @Test func plateTextStaysInsideTheStitchAndClearOfTheCaps() {
+        let sizes = [CGSize(width: 464, height: 48), CGSize(width: 300, height: 60), CGSize(width: 120, height: 44),
+                     CGSize(width: 380, height: 250), CGSize(width: 220, height: 34), CGSize(width: 560, height: 96),
+                     CGSize(width: 120, height: 56)]
+        for style in PlateStyle.allCases {
+            for size in sizes {
+                let t = ChestArt.plateTextRect(in: size, style: style)
+                #expect(t.width > CGFloat(10) && t.height > CGFloat(8))
+                // Symmetric (so y-up and y-down agree).
+                #expect(abs(t.midX - size.width / 2) < CGFloat(0.01))
+                #expect(abs(t.midY - size.height / 2) < CGFloat(0.01))
+                // Inside the stitch line (half its 1.6 pt width plus room to spare).
+                let stitch = ChestArt.plateStitchRect(size: size).insetBy(dx: 2.8, dy: 1.5)
+                #expect(stitch.contains(t))
+                // ≥ 8 pt clear of each cap as drawn, and of a stretched slice's 16 pt cap.
+                for cap in ChestArt.plateCapRects(size: size) {
+                    #expect(!cap.insetBy(dx: -8, dy: 0).intersects(t))
+                }
+                if size.height >= 34 {
+                    #expect(t.minX >= CGFloat(1 + 16 + 8) - 0.001)
+                    #expect(t.maxX <= size.width - CGFloat(1 + 16 + 8) + 0.001)
+                }
+            }
+            // The nine-slice insets cover the slice's brass cap (x 1…17) plus 8 pt.
+            let ins = ChestArt.plateInsets(style)
+            let capW = ChestArt.plateCapWidth(CGSize(width: 120, height: 56))
+            #expect(ins.left >= 1 + capW + 8 && ins.right >= 1 + capW + 8)
+        }
+        // A degenerate size never makes an empty or inverted rect.
+        let tiny = ChestArt.plateTextRect(in: CGSize(width: 10, height: 6), style: .parchment)
+        #expect(tiny.width >= 1 && tiny.height >= 1)
+        let odd = ChestArt.plateTextRect(in: CGSize(width: CGFloat.nan, height: 40), style: .leather)
+        #expect(odd.width >= 1 && odd.minX.isFinite)
+        // The longest hints fit the hint band's plate on one line (font ≈ 80 % of the text height, scale ≥ 0.7).
+        let text = ChestArt.plateTextRect(in: ChestLayout.hintBand.size, style: .parchment)
+        let font = UIFont.systemFont(ofSize: text.height * 0.8, weight: .heavy)
+        for hint in ["Hush Chain! Sleepy banks pay more", "Slide the lever down to bank", "Drag the loot into your bag",
+                     "Something glints deeper…"] {
+            let w = (hint as NSString).size(withAttributes: [.font: font]).width
+            #expect(w * 0.7 <= text.width)
+        }
+    }
+
+    /// Item 3 (juror P1-2): the pause coin's seat sits under the App's coin at every device scale, ≥ 16 screen pt
+    /// from the edge, on no bracket, and never touches the hint band, the meter or the HUD.
+    @Test @MainActor func pauseSeatIsClearOfEverything() {
+        let hint = ChestLayout.hintBand
+        let scales: [CGFloat] = [ChestLayout.minViewScale, 0.56, 0.587, 0.6, 0.657, 1.0]
+        for s in scales {
+            let seat = ChestLayout.pauseSeat(viewScale: s)
+            let c = ChestLayout.pauseCenter(viewScale: s)
+            // The App's coin: 55 pt; its 56 pt tap frame keeps 16 pt from the screen edge.
+            let coinR = ChestLayout.pauseCoinViewDiameter / 2 / s
+            #expect((ScreenLayout.canvasWidth - c.x - ChestLayout.pauseTapViewSide / 2 / s) * s >= CGFloat(15.99))
+            #expect((ScreenLayout.canvasWidth - c.x - coinR) * s >= CGFloat(15.99))
+            #expect(seat.width / 2 > coinR)
+            // Never touching the hint plate's band (≥ 8 pt), the meter, the HUD, the chain tab.
+            #expect(seat.minX - hint.maxX >= CGFloat(7.99))
+            #expect(!seat.intersects(ChestLayout.meterRect))
+            for r in ChestLayout.hudRects { #expect(!seat.intersects(r)) }
+            // Inside the floor half (at the smallest phone scale it may kiss the fold strip's edge, by < 2 pt).
+            #expect(seat.minY > ChestLayout.counterRect.maxY)
+            #expect(seat.maxY <= ScreenLayout.foldMinY + 2)
+            // Not on the front-right bracket (the back-right corner has none).
+            #expect(!seat.intersects(CGRect(x: ChestLayout.frontRightBracketMinX, y: 104, width: 76, height: 76)))
+        }
+        // On the Duo the coin is right of the loot and exactly on the pause area.
+        let duo = ChestLayout.pauseCenter(viewScale: 1)
+        #expect(duo.x - ChestLayout.pauseCoinViewDiameter / 2 >= FloorSpace.interior.maxX)
+        #expect(abs(duo.x - ChestLayout.pauseArea.midX) < CGFloat(0.01))
+        // The scene draws the seat where the layout says, at the scale it is shown at.
+        let scene = ChestScene(layout: SceneTests.phone)
+        scene.viewScale = 0.6
+        let want = ChestLayout.pauseSeat(viewScale: 0.6)
+        #expect(abs(scene.pauseSeatRect.midX - want.midX) < CGFloat(0.5))
+        #expect(abs(scene.pauseSeatRect.width - want.width) < CGFloat(0.5))
+        scene.viewScale = .nan
+        #expect(abs(scene.viewScale - 1) < CGFloat(0.001))
+        let k = ChestScene.scaleFor(view: CGSize(width: 402, height: 874), scene: CGSize(width: 670, height: 1457))
+        #expect(abs(k - CGFloat(0.6)) < CGFloat(0.01))
+    }
+
+    /// Item 2 (UX P1-2, testers 7 and 8): the chain tab reads "CHAIN" over "GOLD ×1.1", fits its text column, sits
+    /// left of the bracket with ≥ 16 screen pt to the edge, and shows the LAST bank's multiplier (the bank stack's
+    /// number) from that bank's frame. Not in the lesson.
+    @Test @MainActor func chainTabShowsTheLastBanksMultiplierInsideTheFrame() {
+        let tab = ChestLayout.chainRect
+        #expect(tab.maxX <= ChestLayout.frontRightBracketMinX)
+        #expect((ScreenLayout.canvasWidth - tab.maxX) * ChestLayout.minViewScale >= 16)
+        #expect(tab.minX > ChestLayout.meterRect.maxX)
+        #expect(tab.contains(ChestLayout.chainTextRect))
+        #expect(ChestLayout.chainTextRect.minX >= ChestLayout.chainCenter.x + ChestLayout.chainRadius)
+        let inPlate = ChestArt.plateTextRect(in: tab.size, style: .leather)
+        #expect(ChestLayout.chainTextRect.maxX <= tab.minX + inPlate.maxX + 0.001)
+        #expect(SceneFloorHUD.chainText(1.2) == "GOLD ×1.2")
+        #expect(SceneFloorHUD.chainShown(chain: 0, lastBank: 1.4) == nil)
+        let derived = SceneFloorHUD.chainShown(chain: 3, lastBank: nil) ?? 0
+        #expect(abs(derived - Noise.chainMultiplier(3)) < 0.001)
+
+        for lesson in [false, true] {
+            let scene = ChestScene(layout: SceneTests.phone)
+            let driver = SceneFakeDriver()
+            scene.driver = driver
+            driver.snap.mode = lesson ? .lesson : .run
+            driver.startChest(SceneFakeDriver.chest(tier: .wooden, index: 0))
+            var clock = 0.0
+            driver.openTo(0.9)
+            driver.bag([0, 1])
+            driver.snap.bagValue = 100
+            SceneFakeDriver.run(scene, frames: 30, clock: &clock)
+            // The first Hushed bank pays ×1.1; the snapshot already says the NEXT bank would pay ×1.2.
+            driver.openTo(0)
+            driver.snap.phase = .banked(elapsed: 0)
+            driver.snap.banked = 110
+            driver.snap.bagValue = 0
+            driver.snap.chain = 1
+            driver.snap.chainMultiplier = 1.2
+            driver.pending = [.banked(value: 110, items: 2, hushed: true), .chainUp(count: 1, multiplier: 1.1)]
+            SceneFakeDriver.run(scene, frames: 1, clock: &clock)
+            if lesson {
+                SceneFakeDriver.run(scene, frames: 90, clock: &clock)
+                #expect(!scene.chainBadgeShowing)
+                #expect(!scene.bankSublineShowing)
+                continue
+            }
+            #expect(scene.chainTabText == "GOLD ×1.1")
+            SceneFakeDriver.run(scene, frames: 70, clock: &clock)
+            #expect(scene.bankSublineShowing)
+            #expect(scene.bankSubline == "Hush Chain ×1.1")
+            #expect(scene.chainTabText == "GOLD ×1.1")
+            #expect(scene.chainBadgeShowing)
+            let widths = scene.chainTextWidths
+            #expect(widths.count == 2)
+            for w in widths { #expect(w <= ChestLayout.chainTextRect.width + 0.5) }
+            // The next bank: ×1.2, in the same frame for both.
+            driver.snap.chain = 2
+            driver.snap.chainMultiplier = 1.3
+            driver.pending = [.banked(value: 60, items: 1, hushed: true), .chainUp(count: 2, multiplier: 1.2)]
+            SceneFakeDriver.run(scene, frames: 1, clock: &clock)
+            #expect(scene.chainTabText == "GOLD ×1.2")
+            #expect(scene.bankSubline == "Hush Chain ×1.2")
+        }
+    }
+
+    /// Item 6 (UX P2-6): the meter's word follows the stage and fits its recess.
+    @Test @MainActor func meterWordFollowsTheStage() {
+        #expect(ChestCopy.meterWord(.asleep) == "NOISE")
+        #expect(ChestCopy.meterWord(.stirring) == "STIRRING")
+        #expect(ChestCopy.meterWord(.waking) == "WAKING!")
+        #expect(ChestCopy.meterWord(.biting) == "WAKING!")
+        let scene = ChestScene(layout: ScreenLayout(hasFold: true))
+        let driver = SceneFakeDriver()
+        scene.driver = driver
+        driver.startChest(SceneFakeDriver.chest(tier: .wooden, index: 0))
+        var clock = 0.0
+        let steps: [(MimicStage, String)] = [(.asleep, "NOISE"), (.stirring, "STIRRING"), (.waking, "WAKING!"),
+                                             (.asleep, "NOISE")]
+        for (stage, word) in steps {
+            driver.snap.stage = stage
+            SceneFakeDriver.run(scene, frames: 2, clock: &clock)
+            #expect(scene.meterWord == word)
+            #expect(scene.meterWordWidth <= ChestLayout.meterLabelWidth + 0.5)
+        }
+        // The shorter meter still ends in its teeth, clear of the well.
+        #expect(ChestLayout.meterTeethCenter.x + 20 <= ChestLayout.meterRect.maxX)
+        #expect(ChestLayout.meterWell.maxX < ChestLayout.meterTeethCenter.x - 20)
+    }
+
+    /// Item 4 (UX P2-4, tester 8): the bank beat dims the interior to about 40 % (never black) and says "Next chest…",
+    /// on every tier and the golden mimic, on the Duo and a phone; not in the lesson.
+    @Test @MainActor func bankBeatDimsTheInteriorAndSaysNextChest() {
+        var dresses: [(ChestTier, Bool)] = ChestTier.allCases.map { ($0, false) }
+        dresses.append((.gilded, true))
+        for layout in [ScreenLayout(hasFold: true), SceneTests.phone] {
+            for (tier, golden) in dresses {
+                let lessons: [Bool] = tier == .wooden && !golden ? [false, true] : [false]
+                for lesson in lessons {
+                    let scene = ChestScene(layout: layout)
+                    let driver = SceneFakeDriver()
+                    scene.driver = driver
+                    driver.snap.mode = lesson ? .lesson : .run
+                    var spec = SceneFakeDriver.chest(tier: tier, index: 2)
+                    spec.golden = golden
+                    driver.startChest(spec)
+                    var clock = 0.0
+                    driver.openTo(0.9)
+                    driver.bag([0])
+                    driver.snap.bagValue = 20
+                    SceneFakeDriver.run(scene, frames: 60, clock: &clock)
+                    driver.openTo(0)
+                    driver.snap.phase = .banked(elapsed: 0)
+                    driver.snap.banked = 20
+                    driver.snap.bagValue = 0
+                    driver.pending = [.banked(value: 20, items: 1, hushed: false)]
+                    var sawNext = false
+                    var minLight: CGFloat = 1
+                    for _ in 0..<200 {
+                        SceneFakeDriver.run(scene, frames: 1, clock: &clock)
+                        sawNext = sawNext || scene.nextChestShowing
+                        minLight = min(minLight, scene.interiorLight)
+                    }
+                    // About 40 % of the light stays; the floor's own lid-shut darkness is lifted under the shadow.
+                    #expect(minLight > CGFloat(0.3) && minLight < CGFloat(0.5))
+                    #expect(scene.interiorDarkness < CGFloat(0.05))
+                    #expect(scene.interiorShut > CGFloat(0.95))
+                    #expect(sawNext == !lesson)
+                    #expect(scene.chestShellIsWhole)
+                    // The next chest: the shadow lifts and the words go.
+                    driver.startChest(SceneFakeDriver.chest(tier: .iron, index: 3))
+                    SceneFakeDriver.run(scene, frames: 120, clock: &clock)
+                    #expect(!scene.nextChestShowing)
+                    #expect(scene.interiorLight > CGFloat(0.99))
+                }
+            }
+        }
+    }
+
+    /// Item 5 (juror): the gum is a curved lip at every stage: the lower edge dips ≥ 10 pt at the centre, the top
+    /// edge sags too, the band stays thick, no fang root ever shows above the lip, and every fang fits its texture.
+    @Test func gumIsACurvedLipAtEveryStage() {
+        #expect(SceneTextures.gumEdge(0) - SceneTextures.gumEdge(335) >= CGFloat(10))
+        let h = ChestLayout.lipHeight + 4
+        #expect(SceneTextures.lipTopEdge(0, height: h) - SceneTextures.lipTopEdge(335, height: h) >= CGFloat(4))
+        #expect(abs(SceneTextures.lipTopEdge(0, height: h) - h) < CGFloat(0.001))
+        for x in stride(from: CGFloat(0), through: 670, by: 10) {
+            #expect(SceneTextures.lipTopEdge(x, height: h) - (4 + SceneTextures.gumEdge(x)) >= CGFloat(24))
+        }
+        let stages: [MimicStage] = [.asleep, .stirring, .waking, .biting]
+        for stage in stages {
+            let top = SceneLid.teethTop(shown: SceneLid.teethTarget(stage: stage, noise: 0.8))
+            for f in SceneTextures.fangSpec {
+                // The fang's base corners (+4) and outline (+3), lid-local, under the lip's top at both corners.
+                let root = top - ChestLayout.gumRise - 4 + SceneTextures.gumEdge(f.x) + 7
+                for x in [f.x - f.half, f.x + f.half] {
+                    let lipTop = ChestLayout.lipBottom - 4 + SceneTextures.lipTopEdge(x, height: h)
+                    #expect(root < lipTop)
+                }
+                // Fully bared, the tip still lies inside the fangs texture.
+                let texRoot = ChestLayout.teethTextureHeight - ChestLayout.gumRise - 6 + SceneTextures.gumEdge(f.x) + 2
+                #expect(texRoot - f.len >= CGFloat(0))
+            }
+        }
+    }
+
+    /// Item 7 (UX P2-3): a golden chest shows one number: the seal's total, popped over its loot as "×<same>".
+    @Test @MainActor func goldenChestShowsOneNumber() {
+        let scene = ChestScene(layout: ScreenLayout(hasFold: true))
+        let driver = SceneFakeDriver()
+        scene.driver = driver
+        var spec = SceneFakeDriver.chest(tier: .gilded, index: 5)
+        spec.golden = true
+        spec.multiplier = 4
+        driver.startChest(spec)
+        var clock = 0.0
+        driver.openTo(0.9)
+        SceneFakeDriver.run(scene, frames: 30, clock: &clock)
+        driver.pending = [.itemRevealed(id: 0, kind: .copper)]
+        SceneFakeDriver.run(scene, frames: 4, clock: &clock)
+        #expect(scene.plateSeal == "×4")
+        #expect(scene.lastGoldenPop == "×4")
+        #expect(scene.plateSubline == "Golden · Snorer")
+        #expect(!scene.plateSubline.contains(where: { $0.isNumber }))
+    }
+
+    /// Item 8 (tester 8): the phone's extension above the lid carries a carved plaque with the tier and the chest
+    /// number, clear of the teaching slot below and the safe-area top above; the Duo (no extension) has none.
+    @Test @MainActor func phoneExtensionCarriesThePlaque() {
+        let phone = ChestScene(layout: SceneTests.phone)
+        let d1 = SceneFakeDriver()
+        phone.driver = d1
+        d1.startChest(SceneFakeDriver.chest(tier: .iron, index: 3))
+        var clock = 0.0
+        SceneFakeDriver.run(phone, frames: 5, clock: &clock)
+        #expect(phone.plaqueText == "Iron-bound · Chest 4")
+        #expect(phone.plaqueShowing)
+        var g = SceneFakeDriver.chest(tier: .wooden, index: 0)
+        g.golden = true
+        #expect(ChestCopy.extensionPlaque(g) == "Golden · Chest 1")
+        let t = phone.extensionTop
+        #expect(t >= ChestLayout.plaqueMinExtension)
+        let cy = ChestLayout.plaqueCenterY(topExtension: t)
+        let half = ChestLayout.plaqueSize.height / 2
+        let slotTop = ChestLayout.lidLabelSlot.maxY - ChestLayout.lidBottom
+        #expect(cy - half >= slotTop + 8)
+        #expect(cy + half <= ChestLayout.lidSize.height + t - 60)
+        let duo = ChestScene(layout: ScreenLayout(hasFold: true))
+        let d2 = SceneFakeDriver()
+        duo.driver = d2
+        d2.startChest(SceneFakeDriver.chest(tier: .iron, index: 3))
+        SceneFakeDriver.run(duo, frames: 5, clock: &clock)
+        #expect(!duo.plaqueShowing)
+    }
+
+    /// Item 9 (juror P2): loot in flight never covers the strip's labels: a held item draws under the HUD and the
+    /// pouch's lip, and the bank flyers' arc stays under the meter.
+    @Test @MainActor func flyingLootStaysUnderTheLabels() {
+        #expect(CGFloat(25) + SceneLootView.heldZ < CGFloat(29))
+        for k in 0..<10 {
+            let from = SceneLootView.pilePoint(k)
+            var peak: CGFloat = 0
+            for i in 0...20 { peak = max(peak, SceneMoments.flightPoint(from: from, t: CGFloat(i) / 20).y) }
+            #expect(peak + 8 < ChestLayout.meterRect.minY)
+            let end = SceneMoments.flightPoint(from: from, t: 1)
+            #expect(abs(end.x - ChestLayout.counterCoin.x) < CGFloat(0.01))
+        }
+    }
+
+    /// Item 9 (juror P1-3): the cover fills its view (no letterbox hairlines), its Zzz never pass the top edge, and
+    /// the amber eye shows: a warm shine always, a glint at each peek (not under Reduce Motion).
+    @Test @MainActor func coverFillsItsCardKeepsTheZzzInAndGlints() {
+        for reduce in [false, true] {
+            let p = MimicPortraitScene(size: CGSize(width: 600, height: 480))
+            p.scaleMode = .aspectFit
+            p.reduceMotion = reduce
+            p.applyCoverStyle()
+            #expect(p.fillsView)
+            #expect(p.scaleMode == .resizeFill)
+            var glint: CGFloat = 0
+            var shine: CGFloat = 1
+            var top: CGFloat = 0
+            for i in 0..<(60 * 8) {
+                p.update(Double(i) / 60)
+                glint = max(glint, p.glintLevel)
+                shine = min(shine, p.eyeShineLevel)
+                top = max(top, p.zzzTop)
+            }
+            #expect(shine >= CGFloat(0.4))
+            if reduce { #expect(glint < CGFloat(0.01)) } else { #expect(glint > CGFloat(0.5)) }
+            #expect(top > 0)
+            #expect(top <= p.size.height - 4)
+            // The real card (≈ 328 × 262 pt) keeps every Z inside too.
+            p.size = CGSize(width: 328, height: 262)
+            var top2: CGFloat = 0
+            for i in 0..<(60 * 4) {
+                p.update(10 + Double(i) / 60)
+                top2 = max(top2, p.zzzTop)
+            }
+            #expect(top2 <= p.size.height - 4)
+        }
+    }
+
+    /// Item 10 (tester 8: "an unreadable grey blob"): the Relic Hunter badge's lantern reads by its silhouette: a
+    /// carrying ring, two see-through panes either side of the candle post, a flared foot.
+    @Test func relicHunterLanternReadsBySilhouette() {
+        #expect(BadgePainter.motif(index: 2) == .lantern)
+        let r: CGFloat = 50
+        let art = ChestArt.relicArt(.lantern, radius: r)
+        #expect(!art.holes.isEmpty)
+        let sil = art.silhouette
+        #expect(!sil.contains(CGPoint(x: -0.26 * r, y: -0.07 * r)))
+        #expect(!sil.contains(CGPoint(x: 0.26 * r, y: -0.07 * r)))
+        #expect(sil.contains(CGPoint(x: 0, y: -0.07 * r)))
+        #expect(!sil.contains(CGPoint(x: 0, y: 0.8 * r)))
+        #expect(sil.contains(CGPoint(x: 0.2, y: 0.92 * r)))
+        #expect(sil.contains(CGPoint(x: 0.62 * r, y: -0.8 * r)))
+        let box = sil.boundingBoxOfPath
+        #expect(box.minX >= -r - 0.01 && box.maxX <= r + 0.01 && box.minY >= -r - 0.01 && box.maxY <= r + 0.01)
+    }
+
+    /// Item 11 (tester 8): every loose coin and sparkle on the icon stays inside the iOS mask's safe circle.
+    @Test func iconBitsStayInsideTheMask() {
+        #expect(ChestArt.iconLooseBits.count >= 4)
+        let c = CGPoint(x: 512, y: 512)
+        for bit in ChestArt.iconLooseBits {
+            let d = hypot(bit.center.x - c.x, bit.center.y - c.y)
+            #expect(d + bit.reach <= ChestArt.iconSafeRadius)
+        }
+    }
+
+    /// Founder (CI frame 32): a fold layout never draws or uses the lever, turned or not; a phone without a fold does.
+    @Test @MainActor func foldLayoutsNeverShowTheLeverTurnedOrNot() {
+        #expect(!ChestScene.showsLever(hasFold: true, usesSlider: true))
+        #expect(!ChestScene.showsLever(hasFold: false, usesSlider: false))
+        #expect(ChestScene.showsLever(hasFold: false, usesSlider: true))
+        for turned in [false, true] {
+            let fold = ScreenLayout.make(hasFold: true, viewSize: CGSize(width: 393, height: 852))
+            let scene = ChestScene(layout: fold)
+            scene.turned = turned
+            let driver = SceneFakeDriver()
+            driver.usesSlider = true
+            scene.driver = driver
+            driver.startChest(SceneFakeDriver.chest(tier: .wooden, index: 0))
+            var clock = 0.0
+            SceneFakeDriver.run(scene, frames: 5, clock: &clock)
+            #expect(!scene.leverShowing)
+            scene.beginTouch(4, canvas: CGPoint(x: ChestLayout.sliderX, y: 700), time: 1)
+            scene.endTouch(4, canvas: CGPoint(x: ChestLayout.sliderX, y: 800), time: 1.1)
+            #expect(driver.sliderTouches == 0)
+            // The same scene moved to a no-fold layout draws it; back on the fold it is gone at once.
+            scene.layout = SceneTests.phone
+            SceneFakeDriver.run(scene, frames: 2, clock: &clock)
+            #expect(scene.leverShowing)
+            scene.layout = fold
+            #expect(!scene.leverShowing)
+        }
+    }
+
+    /// Founder: the front padlock's keyhole reads as a keyhole either way up: one piece with no neck (the slot meets
+    /// the round top wider than its radius), tapering out to a flat foot.
+    @Test func keyholeHasNoNeck() {
+        let c = CGPoint(x: 75, y: 74)
+        let r: CGFloat = 11
+        let p = SceneTextures.keyholePath(center: c, radius: r)
+        #expect(p.contains(c))
+        #expect(p.contains(CGPoint(x: c.x - 0.6 * r, y: c.y - 0.8 * r)))
+        #expect(p.contains(CGPoint(x: c.x + 0.6 * r, y: c.y - 0.8 * r)))
+        #expect(p.contains(CGPoint(x: c.x - 0.6 * r, y: c.y - 1.1 * r)))
+        #expect(p.contains(CGPoint(x: c.x + 0.6 * r, y: c.y - 1.1 * r)))
+        #expect(p.contains(CGPoint(x: c.x - 0.8 * r, y: c.y - 2.6 * r)))
+        #expect(!p.contains(CGPoint(x: c.x, y: c.y - 3.0 * r)))
+        #expect(!p.contains(CGPoint(x: c.x, y: c.y + 1.1 * r)))
     }
 
     // MARK: Pixel helpers

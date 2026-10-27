@@ -40,6 +40,9 @@ const T = {
   radiusCopper: 22, radiusSilver: 24, radiusGem: 26, radiusRelic: 34, radiusOil: 24,
   mimicWeightSnorer: 0.35, mimicWeightLight: 0.25, mimicWeightHeavy: 0.20, mimicWeightDreamer: 0.20,
   lootGap: 6, placementJitterY: 60, placementTries: 60, placementGridStep: 12,
+  // R4: Tuning.lootKeepOut (floor space): no loot within radius + lootGap of the phone pause coin's corner, in every
+  // mode (keepOut=0 switches it off for a comparison run).
+  keepOut: 1, keepOutX: 540, keepOutY: 0, keepOutW: 130, keepOutH: 112,
   torchSeconds: 100, oilSeconds: 6, biteTorchPenalty: 10, torchLowSeconds: 15,
   shutHoldSeconds: 0.35, bankMomentSeconds: 1.4, biteMomentSeconds: 1.8, torchOutSeconds: 2.0,
   lightRamp: 0.10, revealLight: 0.4, grabLight: 0.6, lootingStartOpenness: 0.02, lidCrackedOpenness: 0.05,
@@ -169,7 +172,10 @@ function chest(seed, index, found) {
 function place(rng, depth, radius, items) {
   const minX = FLOOR.ix + radius, maxX = FLOOR.ix + FLOOR.iw - radius;
   const minY = FLOOR.iy + radius, maxY = FLOOR.iy + FLOOR.ih - radius;
-  const free = (x, y) => items.every((o) => Math.hypot(o.x - x, o.y - y) >= o.radius + radius + T.lootGap);
+  const kx0 = T.keepOutX, kx1 = T.keepOutX + T.keepOutW, ky0 = T.keepOutY, ky1 = T.keepOutY + T.keepOutH;
+  const clear = (x, y) => !T.keepOut
+    || Math.sqrt((x - Math.min(Math.max(x, kx0), kx1)) ** 2 + (y - Math.min(Math.max(y, ky0), ky1)) ** 2) >= radius + T.lootGap;
+  const free = (x, y) => clear(x, y) && items.every((o) => Math.hypot(o.x - x, o.y - y) >= o.radius + radius + T.lootGap);
   const baseY = maxY - depth * (maxY - minY);
   for (let t = 0; t < T.placementTries; t++) {
     const x = rng.range(minX, maxX);

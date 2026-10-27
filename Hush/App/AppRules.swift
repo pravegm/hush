@@ -101,8 +101,44 @@ enum AppRules {
     }
 
     /// R3 (QA-2 P2-2): the closing pause only engages while a chest is live. The bank, bite and candle-out moments
-    /// play out whatever the lid is doing, so Results never wait on a closing pause. Pure; tested.
-    static func closingApplies(_ phase: RunPhase) -> Bool { isLive(phase) }
+    /// play out whatever the lid is doing, so Results never wait on a closing pause. R4 (QA-3 P2-3): never once the
+    /// lesson is finishing ("Banked! Gently does it." and the final card): the lid is shut after the lesson's bank,
+    /// and the final card must never sit behind the closing card. Pure; tested.
+    static func closingApplies(_ phase: RunPhase, lessonFinishing: Bool = false) -> Bool {
+        isLive(phase) && !lessonFinishing
+    }
+
+    /// R4 (founder, CI R4 frame 32): the lever is drawn and takes touches only on a play route with NO fold layout,
+    /// whatever "turned" is and whoever drives the lid (the player's slider, CI's pilot or a `lid=` hold). "Play
+    /// anyway" plays landscape, which is never a fold layout, so it keeps its lever. Pure; tested.
+    static func usesSlider(playRoute: Bool, layoutHasFold: Bool, input: AppInputKind) -> Bool {
+        guard playRoute, !layoutHasFold else { return false }
+        return input != .hinge
+    }
+
+    /// R4 (QA-3 P1-1): a live run whose input changes TO the hinge (leaving "Play anyway", a fold appearing) holds
+    /// the closing pause with fresh filters, like the first hinge report. Pure; tested.
+    static func switchHolds(from old: AppInputKind, to new: AppInputKind, liveRun: Bool) -> Bool {
+        liveRun && new == .hinge && old != .hinge
+    }
+
+    /// R4 (QA-3 P2): a live run handed to the lever (choosing "Play anyway" mid-run) starts the lever where the lid
+    /// is, so the chest never snaps shut (and auto-banks). Pure; tested.
+    static func switchKeepsOpenness(from old: AppInputKind, to new: AppInputKind, liveRun: Bool) -> Bool {
+        liveRun && new == .slider && old != .slider
+    }
+
+    /// R4 (ROUND-4 App 2): one prompt at a time. The bank beat and the relic card own the screen: no hint and no
+    /// callout while they're up. A warning that matters on a live chest ("Freeze!") still shows. Pure; tested.
+    static func promptBlocked(phase: RunPhase, relicCardUp: Bool) -> Bool {
+        if case .banked = phase { return true }
+        return relicCardUp
+    }
+
+    static func hintSuppressed(_ hint: HeistHint, phase: RunPhase, relicCardUp: Bool) -> Bool {
+        guard promptBlocked(phase: phase, relicCardUp: relicCardUp) else { return false }
+        return !(isWarning(hint) && isLive(phase))
+    }
 
     /// R3 (QA-2 P2-2): a moment (bank, bite, candle out) keeps stepping under a closing or pose pause (never under
     /// the menu or the background). Pure; tested.
@@ -289,9 +325,13 @@ enum AppRules {
         if r.bestChain >= 3 { return "A Hush Chain of \(r.bestChain). Not one snore missed." }
         if r.hushed >= 3 && r.bites == 0 { return "\(r.hushed) chests, and it never even stirred. Ghostly." }
         if r.bites >= 2 { return "Bitten \(r.bites) times: \(r.lostToBites.formatted()) gold went down the hatch." }
-        if r.chestsBanked >= 6 { return "\(r.chestsBanked) chests emptied before the candle gave out." }
+        if r.chestsBanked >= 6 { return "\(chestsOpened(r)) chests opened before the candle gave out." }
         return "The candle guttered out. \(r.gold.formatted()) gold made it home."
     }
+
+    /// R4 (tester 7): the chests a run opened, counted as the strip shows them (the one the candle went out on
+    /// included). Pure; tested.
+    static func chestsOpened(_ r: RunResult) -> Int { r.chestLog.isEmpty ? r.chestsOpened : r.chestLog.count }
 
     /// Results' line under the haul: "New best!" (a pill, elsewhere), else "312 short of your best". Nil when there's
     /// no best yet or nothing was banked. Pure; tested.
@@ -334,7 +374,8 @@ enum RunTip: String, CaseIterable {
     }
 
     /// Shown on every golden chest's arrival (not a once-ever tip).
-    static let golden = "A golden mimic! Double gold."
+    /// R4 (UX P2-3): no number, so it can never disagree with the seal's real multiplier.
+    static let golden = "A golden mimic! Extra gold!"
     /// The bag-jingle floor that first earns the tip.
     static let jingleFloor: Double = 0.10
 }
@@ -451,5 +492,52 @@ enum DailyClock {
     /// When the next Daily starts (the next 00:00 UTC).
     static func nextReset(after now: Date = Date()) -> Date? {
         calendar.nextDate(after: now, matching: DateComponents(hour: 0, minute: 0, second: 0), matchingPolicy: .nextTime)
+    }
+}
+
+/// R4 (QA-3 P2-5): VoiceOver's stage lines. "It's stirring." is said at most once per chest (a full bag's jingle floor
+/// sits just under the Stirring line, so the stage can bob across it every few seconds); Waking is always said.
+/// Pure; tested.
+struct AnnounceGate: Equatable {
+    private(set) var chest: Int = 0
+    private var stirredChest: Int?
+
+    init() {}
+
+    mutating func chestArrived(_ index: Int) {
+        chest = index
+    }
+
+    /// Whether a rise to `stage` is announced (and, for Stirring, marks this chest as said).
+    mutating func allowsStage(_ stage: MimicStage) -> Bool {
+        guard stage == .stirring else { return true }
+        if stirredChest == chest { return false }
+        stirredChest = chest
+        return true
+    }
+}
+
+extension AppRules {
+    /// R4 (QA-3 P2-4): a stage line said a beat late is still true when it fires: the same stage, a live chest, not
+    /// paused. So it never cuts "Chomp!" after the bite, or speaks over a bank. Pure; tested.
+    static func stageAnnouncementDue(_ announced: MimicStage, current: MimicStage, phase: RunPhase,
+                                     paused: Bool) -> Bool {
+        !paused && isLive(phase) && current == announced
+    }
+
+    /// R4 (ROUND-4 App 10): the Diagnostics panel (Settings › About, a 2 s press on the version line), one fact a
+    /// line, for the founder's device test (LAUNCH-RUNBOOK step 9). Pure; tested.
+    static func diagnosticsLines(channel: String, version: String, hinge: Double?, input: String,
+                                 handoff: Double?, relight: Double?, resumeAngle: Double, orientation: String)
+        -> [String] {
+        let a = { (v: Double?) in v.map { AppTrace.fixed($0, 1) + "°" } ?? "-" }
+        return [
+            "Build: \(channel) \(version)",
+            "Hinge now: \(hinge == nil ? "no reading" : a(hinge)) · lid: \(input)",
+            "Last hand-off to cover: \(a(handoff))",
+            "Last relight of inner: \(a(relight))",
+            "Resume needs: \(a(resumeAngle)) and still",
+            orientation,
+        ]
     }
 }

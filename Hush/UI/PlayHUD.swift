@@ -51,6 +51,16 @@ enum HushCopy {
         }
     }
 
+    /// R4 (QA-3 P2-4): only "Chomp!" and "It's waking. Freeze!" interrupt VoiceOver; everything else waits its turn,
+    /// so a bank and a tip on the same frame are both heard. Pure; tested.
+    static func queuesAnnouncement(_ event: HeistEvent) -> Bool {
+        switch event {
+        case .bitten: return false
+        case let .stageChanged(_, to): return to < .waking
+        default: return true
+        }
+    }
+
     /// R3 (UX P1-9): the noise meter, spoken. Pure; tested.
     static func stageWord(_ stage: MimicStage) -> String {
         switch stage {
@@ -79,7 +89,8 @@ struct PlayLayer: View {
 
     var body: some View {
         let fit = info.fit
-        let band = fit.viewRect(canvas: HUDLayout.hintBand)
+        // R4 (UX P1-1): the hint plate never reaches the pause stud (16 pt clear).
+        let band = fit.viewRect(canvas: HUDLayout.hintPlateRect)
         let paused = controller.isMenuOpen || controller.isClosingPaused
         ZStack {
             accessibilityHooks(fit)
@@ -180,18 +191,21 @@ struct HintLine: View {
     let reduceMotion: Bool
     @State private var pulse = false
 
+    /// R4 (ROUND-4 App 1): every plate's line shrinks to this, never further.
+    static let minScale: CGFloat = 0.7
+
     var body: some View {
         ZStack {
+            // R4 (juror P0-1, UX P1-1): one line, laid out inside the plate's text rect (clear of the brass
+            // end-caps), shrinking to 0.7 before it ever touches them.
             if let hint {
                 Text(HushCopy.hint(hint, slider: slider))
                     .font(HushType.hint(scale: scale))
                     .foregroundStyle(color(hint))
                     .lineLimit(1)
-                    .minimumScaleFactor(0.6)
-                    .padding(.horizontal, 14 * scale)
-                    .padding(.vertical, 4 * scale)
-                    .background(PlateBackground(style: hint == .freeze ? .urgent : .parchment, radius: 14 * scale))
-                    .scaleEffect(hint == .freeze && pulse && !reduceMotion ? 1.08 : 1)
+                    .minimumScaleFactor(HintLine.minScale)
+                    .onPlate(hint == .freeze ? .urgent : .parchment, radius: 14 * scale)
+                    .scaleEffect(hint == .freeze && pulse && !reduceMotion ? 1.06 : 1)
                     .id(hint)
                     .transition(.opacity.combined(with: .scale(scale: 0.94)))
                     .accessibilityLabel(HushCopy.hint(hint, slider: slider))
@@ -200,10 +214,8 @@ struct HintLine: View {
                     .font(.system(size: 22 * scale, weight: .bold, design: .rounded))
                     .foregroundStyle(PlateArt.text(.parchment))
                     .lineLimit(1)
-                    .minimumScaleFactor(0.6)
-                    .padding(.horizontal, 14 * scale)
-                    .padding(.vertical, 5 * scale)
-                    .background(PlateBackground(style: .parchment, radius: 14 * scale))
+                    .minimumScaleFactor(HintLine.minScale)
+                    .onPlate(.parchment, radius: 14 * scale)
                     .id(banner)
                     .transition(.opacity)
             }
@@ -378,9 +390,15 @@ struct LessonOverlay: View {
                     .allowsHitTesting(false)
             }
             if lesson.isFinal {
-                LessonFinalCard(controller: controller, compact: info.isCompact,
-                                width: min(info.size.width - 32, 400))
-                    .position(x: info.floorHalf.midX, y: info.floorHalf.midY)
+                // R4 (founder): at the accessibility cap the card scrolls inside the floor half, never clipped.
+                let card = LessonFinalCard(controller: controller, compact: info.isCompact,
+                                           width: min(info.size.width - 32, 400))
+                ViewThatFits(in: .vertical) {
+                    card
+                    ScrollView(showsIndicators: false) { card }
+                }
+                .frame(maxHeight: info.floorHalf.height)
+                .position(x: info.floorHalf.midX, y: info.floorHalf.midY)
             } else {
                 LessonStepCard(controller: controller, lesson: lesson, scale: fit.textScale)
                     .frame(width: band.width)
@@ -418,11 +436,9 @@ struct LessonOverlay: View {
                 .font(.system(size: 26 * s, weight: .heavy, design: .rounded))
                 .foregroundStyle(cue == .hold ? PlateArt.calm : PlateArt.text(.parchment))
                 .lineLimit(1)
-                .minimumScaleFactor(0.6)
+                .minimumScaleFactor(HintLine.minScale)
         }
-        .padding(.horizontal, 10 * s)
-        .padding(.vertical, 3 * s)
-        .background(PlateBackground(style: .parchment, radius: 12 * s))
+        .onPlate(.parchment, radius: 12 * s)
         .frame(maxWidth: slot.width)
         .position(x: slot.midX, y: slot.midY)
         .allowsHitTesting(false)
@@ -475,11 +491,12 @@ struct LessonStepCard: View {
                 }
                 .accessibilityElement(children: .ignore)
                 .accessibilityLabel("First Chest, step \(lesson.step) of 5")
+                // R4: up to two lines, inside the plate's text rect (never on the caps or the border).
                 Text(lesson.line)
                     .font(.system(size: 22 * scale, weight: .heavy, design: .rounded))
                     .foregroundStyle(lineColor)
                     .lineLimit(2)
-                    .minimumScaleFactor(0.75)
+                    .minimumScaleFactor(HintLine.minScale)
                     .fixedSize(horizontal: false, vertical: true)
                     .id(lesson.line)
                     .transition(.opacity)
@@ -501,10 +518,8 @@ struct LessonStepCard: View {
                 .accessibilityLabel("Skip the lesson")
             }
         }
-        .padding(.leading, 22 * scale)
-        .padding(.trailing, 14 * scale)
-        .padding(.vertical, 8 * scale)
-        .background(PlateBackground(style: plateStyle, radius: 20).allowsHitTesting(false))
+        .padding(.vertical, 2 * scale)
+        .onPlate(plateStyle, radius: 20)
         .animation(.easeOut(duration: 0.2), value: lesson.line)
         .accessibilityElement(children: .contain)
     }
@@ -531,7 +546,7 @@ struct LessonFinalCard: View {
 
     var body: some View {
         VStack(spacing: 14) {
-            Text("Lovely work, little thief.")
+            Text(LessonDisplay.finalTitle)
                 .font(HushType.title(compact))
                 .foregroundStyle(HushTheme.parchment)
                 .multilineTextAlignment(.center)

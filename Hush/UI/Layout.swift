@@ -86,6 +86,31 @@ enum HUDLayout {
     /// Scene's ChestLayout.pauseArea.
     static var pauseRect: CGRect { ChestLayout.pauseArea }
 
+    /// R4 (UX P1-1, juror P1-2): the gap kept between the hint plate and the pause stud.
+    static let pauseGap: CGFloat = 16
+
+    /// R4: where the hint plate may go: the hint band, kept `pauseGap` clear of the pause stud (centred while it can
+    /// be). The plate hugs its text inside this rect.
+    static var hintPlateRect: CGRect { hintPlateRect(band: hintBand, pause: pauseRect) }
+
+    /// Pure; tested.
+    static func hintPlateRect(band: CGRect, pause: CGRect, gap: CGFloat = pauseGap) -> CGRect {
+        let keepOut = pause.insetBy(dx: -gap, dy: -gap)
+        guard band.intersects(keepOut) else { return band }
+        let cx = band.midX
+        let onRight = keepOut.midX >= cx
+        // Shrink symmetrically about the band's centre while that keeps 60 % of it, else cut the stud's side only.
+        let half = min(max(onRight ? keepOut.minX - cx : cx - keepOut.maxX, 0), band.width / 2)
+        if half * 2 >= band.width * 0.6 {
+            return CGRect(x: cx - half, y: band.minY, width: half * 2, height: band.height)
+        }
+        if onRight {
+            return CGRect(x: band.minX, y: band.minY, width: max(keepOut.minX - band.minX, 0), height: band.height)
+        }
+        let minX = min(keepOut.maxX, band.maxX)
+        return CGRect(x: minX, y: band.minY, width: max(band.maxX - minX, 0), height: band.height)
+    }
+
     /// The IN BAG pouch (the drop target; `hud.bag`'s frame).
     static var bagRect: CGRect { ChestLayout.pouchRect }
 

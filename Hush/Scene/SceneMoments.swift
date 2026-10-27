@@ -11,6 +11,9 @@ struct SceneMomentFrame {
     var teethOverride: CGFloat?
     /// Bagged loot is hidden while its flyers are in the air (the bank).
     var hideBagged = false
+    /// R4: how far the between-chests shadow is down (0 … 1). The floor lifts its own lid-shut darkness by this much,
+    /// so the interior reads DIMMED (about 40 % of its light), never black (UX P2-4, tester 8).
+    var interiorCover: CGFloat = 0
 }
 
 /// The big beats, all cosmetic, timed on the scene's FX clock from the events that start them:
@@ -53,6 +56,9 @@ final class SceneMoments {
     private let bankValue: SceneLabel
     private let bankSub: SceneLabel
     private let creakLabel: SceneLabel
+    /// R4 (UX P2-4): "Next chest…" in the dimmed interior between chests.
+    private let nextLabel: SceneLabel
+    private var nextLevel: CGFloat = 0
     private let bannerRays: SKSpriteNode
     private let relicCard: SKNode
     private let bannerArt: SKSpriteNode
@@ -105,8 +111,11 @@ final class SceneMoments {
     static let bannerTime: Double = 1.9
     /// The bank group shows for this long; the relic card waits for it.
     static let bankGroupEnd: Double = 1.15
-    /// The shutter's darkness when the lid's shadow is down.
-    static let shutAlpha: CGFloat = 0.9
+    /// The shutter's darkness when the lid's shadow is down. R4 (UX P2-4): 0.9 → 0.6, and the floor's own lid-shut
+    /// darkness lifts under it (`SceneMomentFrame.interiorCover`): the interior keeps about 40 % of its light.
+    static let shutAlpha: CGFloat = 0.6
+    /// R4: "Next chest…" shows from this far into a bank (under the stack), until the next chest's shadow lifts.
+    static let nextChestFrom: Double = 0.8
 
     /// Moment flags (tests and the App's CI freezes).
     var biteActive: Bool { biteAge < 1.8 }
@@ -122,6 +131,11 @@ final class SceneMoments {
     var biteLossText: String { biteLoss.text }
     /// The bank stack's third line ("Hush Chain ×1.3"; tests).
     var bankSubText: String { bankSub.text }
+    /// R4: "Next chest…" is up (tests; the App hides its hint meanwhile), and the bank stack's chain line is drawn.
+    var nextChestShowing: Bool { !nextLabel.node.isHidden && nextLabel.node.alpha > 0.3 }
+    var bankSubShowing: Bool { !bankSub.node.isHidden }
+    /// R4: the share of the interior's light the between-chests shadow lets through (1 open … ≈ 0.4 shut).
+    private(set) var interiorLight: CGFloat = 1
 
     init() {
         let pal = ChestArt.palette
@@ -194,6 +208,11 @@ final class SceneMoments {
         creakN.node.zRotation = -0.08
         creakN.node.isHidden = true
 
+        let nextN = SceneLabel(size: 22, color: ScenePaint.ui(pal.candle, alpha: 0.92))
+        nextN.set("Next chest…")
+        nextN.node.position = ChestLayout.nextChestPoint
+        nextN.node.isHidden = true
+
         // R3: the relic card: a parchment plate with the relic and its name, over a sunburst.
         let bp = ChestLayout.relicBannerPoint
         let cardSize = ChestLayout.relicCardSize
@@ -242,7 +261,7 @@ final class SceneMoments {
             pops.append(l)
         }
         let fxNodes: [SKNode] = [raysN, cardN, eyebrowN.node, valueN.node, subN.node, chompN.node, loudN.node,
-                                 lossN.node, creakN.node]
+                                 lossN.node, creakN.node, nextN.node]
         for n in fxNodes { fxN.addChild(n) }
         for s in fl { floorN.addChild(s) }
         for l in pops { fxN.addChild(l.node) }
@@ -282,6 +301,7 @@ final class SceneMoments {
         bankValue = valueN
         bankSub = subN
         creakLabel = creakN
+        nextLabel = nextN
         bannerRays = raysN
         relicCard = cardN
         bannerArt = artN
@@ -334,9 +354,12 @@ final class SceneMoments {
         for s in flyers { s.isHidden = true }
         for l in popups { l.node.isHidden = true }
         for n in [shutter, lowerTeeth, chomp.node, tooLoud.node, biteLoss.node, bankEyebrow.node, bankValue.node,
-                  bankSub.node, creakLabel.node, bannerRays, relicCard, flash, danger, closeIn, black] as [SKNode] {
+                  bankSub.node, creakLabel.node, nextLabel.node, bannerRays, relicCard, flash, danger, closeIn,
+                  black] as [SKNode] {
             n.isHidden = true
         }
+        nextLevel = 0
+        interiorLight = 1
         throat.alpha = 0
     }
 
@@ -453,6 +476,16 @@ final class SceneMoments {
     private static func smooth(_ x: Double) -> Double {
         let t = min(max(x, 0), 1)
         return t * t * (3 - 2 * t)
+    }
+
+    /// R4: a bank flyer's point at `t` (0 … 1) on its way from the pouch to the BANKED coin stack: a low arc
+    /// (20 pt over the higher end) that stays inside the bag strip, under the meter. Pure; tested.
+    static func flightPoint(from a: CGPoint, t: CGFloat) -> CGPoint {
+        let to = ChestLayout.counterCoin
+        let k = min(max(t, 0), 1)
+        let c = CGPoint(x: (a.x + to.x) / 2 + 30, y: max(a.y, to.y) + 20)
+        let u = 1 - k
+        return CGPoint(x: u * u * a.x + 2 * u * k * c.x + k * k * to.x, y: u * u * a.y + 2 * u * k * c.y + k * k * to.y)
     }
 
     private static func popScale(_ age: Double) -> CGFloat {
@@ -609,13 +642,11 @@ final class SceneMoments {
                     continue
                 }
                 let k = CGFloat(min(t, 1))
-                // Out of the pouch, over, and down INTO the coin stack (under the "BANKED" label).
+                // Out of the pouch, over, and down INTO the coin stack (under the "BANKED" label). R4 (juror P2):
+                // a LOW arc inside the bag strip, under the meter and the plates' labels, never over them.
                 let to = ChestLayout.counterCoin
-                let c = CGPoint(x: (fl.from.x + to.x) / 2 + 30, y: max(fl.from.y, to.y) + 120)
-                let u = 1 - k
                 node.isHidden = false
-                node.position = CGPoint(x: u * u * fl.from.x + 2 * u * k * c.x + k * k * to.x,
-                                        y: u * u * fl.from.y + 2 * u * k * c.y + k * k * to.y)
+                node.position = SceneMoments.flightPoint(from: fl.from, t: k)
                 node.setScale(0.66 - 0.3 * k)
                 node.zRotation = k * 4
                 if t >= 1 {
@@ -629,7 +660,9 @@ final class SceneMoments {
             // One centred stack: "Hushed!" over "BANKED +179" over "Hush Chain ×1.3".
             SceneMoments.beat(bankValue, a, start: 0.15, end: SceneMoments.bankGroupEnd)
             SceneMoments.beat(bankEyebrow, a, start: 0.3, end: SceneMoments.bankGroupEnd, show: bankHushed)
-            SceneMoments.beat(bankSub, a, start: 0.45, end: SceneMoments.bankGroupEnd, show: bankChain)
+            // R4 (UX P2-8): no chain line in the First Chest lesson (the run's first chain gets the tip).
+            SceneMoments.beat(bankSub, a, start: 0.45, end: SceneMoments.bankGroupEnd,
+                              show: bankChain && s.mode != .lesson)
             if a >= 1.4 { exited = true }
         } else {
             bankValue.node.isHidden = true
@@ -638,6 +671,8 @@ final class SceneMoments {
             for n in flyers { n.isHidden = true }
         }
         f.chestOffset = min(max(offset, 0), 8)
+        f.interiorCover = min(max(cover * coverAlpha / SceneMoments.shutAlpha, 0), 1)
+        interiorLight = 1 - SceneMoments.shutAlpha * f.interiorCover
         shutLevel = cover * coverAlpha / SceneMoments.shutAlpha
         shutter.isHidden = cover <= 0.005 || coverAlpha <= 0.005
         shutter.yScale = max(cover, 0.01)
@@ -669,6 +704,25 @@ final class SceneMoments {
         } else {
             bannerRays.isHidden = true
             relicCard.isHidden = true
+        }
+
+        // R4 (UX P2-4): "Next chest…" between chests (not in the lesson, not over the relic card, not at the end).
+        var between = exited || (bankAge >= SceneMoments.nextChestFrom && bankAge < 2)
+        if s.mode == .lesson || torchAge != nil || bannerAge < SceneMoments.bannerTime || !relicQueue.isEmpty {
+            between = false
+        }
+        switch s.phase {
+        case .finished, .torchOut: between = false
+        default: break
+        }
+        let nextTarget: CGFloat = between ? 1 : 0
+        nextLevel += (nextTarget - nextLevel) * CGFloat(min(dt * 10, 1))
+        if nextLevel > 0.01 {
+            nextLabel.node.isHidden = false
+            nextLabel.node.alpha = nextLevel
+        } else {
+            nextLevel = 0
+            nextLabel.node.isHidden = true
         }
 
         // Popups.

@@ -43,25 +43,63 @@ enum ChestLayout {
     /// R3: every HUD piece keeps at least this far from the canvas edges (the canvas edges ARE the screen edges).
     static let edgeInset: CGFloat = 16
 
-    /// The noise meter plate on the front rim ("NOISE" at the left, the teeth at the full end), its segment well,
-    /// and the segment count. Drawn over everything on the floor. R3: shortened (it ends at x 520) so the Hush Chain
-    /// tab sits on the same rim, inside the frame.
-    static let meterRect = CGRect(x: 56, y: 104, width: 464, height: 32)
-    static let meterWell = CGRect(x: 142, y: 109, width: 330, height: 22)
+    /// The noise meter plate on the front rim (the stage word at the left, the teeth at the full end), its segment
+    /// well, and the segment count. Drawn over everything on the floor. R3: shortened so the Hush Chain tab sits on
+    /// the same rim. R4 (UX P1-2): shortened again (it ends at x 460, was 520) so the tab sits LEFT of the front-right
+    /// bracket, ≥ 16 screen pt from the edge on a phone.
+    static let meterRect = CGRect(x: 56, y: 104, width: 404, height: 32)
+    static let meterWell = CGRect(x: 142, y: 109, width: 270, height: 22)
     static let meterSegments = 20
     static let meterLabelCenter = CGPoint(x: 99, y: 120)
-    static let meterTeethCenter = CGPoint(x: 496, y: 120)
+    static let meterTeethCenter = CGPoint(x: 436, y: 120)
+    /// R4 (UX P2-6): the meter's word follows the stage, so it never relies on colour alone (`ChestCopy.meterWord`).
+    static let meterLabelWidth: CGFloat = 72
 
     /// R2: the App's hint line at the floor's back edge by the fold, between the lid and the loot (canvas y 404…452).
-    /// The scene keeps its HUD out of it.
-    static let hintBand = CGRect(x: 72, y: 404, width: 500, height: 48)
-    /// R3: the App's pause coin sits in its own brass socket in the floor's top-right corner (the frame draws the
-    /// socket there INSTEAD of a corner bracket, so the coin is never on the metalwork). 56 × 56, 20 pt from the
-    /// right edge, 28 pt from the fold.
+    /// The scene keeps its HUD out of it. R4 (juror P1-2): shortened on the right (x 60…524, was 72…572) so the plate
+    /// keeps ≥ 8 pt from the pause stud's seat at every phone scale (`pauseSeat(viewScale: minViewScale)` starts at
+    /// x ≈ 533; on the Duo at x ≈ 590). Its left end stays right of the candle (x ≤ 50).
+    static let hintBand = CGRect(x: 60, y: 404, width: 464, height: 48)
+    /// The pause coin's area on the Duo (view scale 1): 56 × 56 in the floor's top-right, right of the interior
+    /// (x ≥ 594 > the loot's 592), 20 pt from the edge, 28 pt from the fold. R4: there is NO corner bracket there (the
+    /// frame leaves that corner plain wood) and no square boss plate any more: the scene draws a round brass seat
+    /// (`SceneFloorHUD`) centred on `pauseCenter(viewScale:)`, sized to the App's coin at that scale.
     static let pauseArea = CGRect(x: 594, y: 372, width: 56, height: 56)
     static var pauseCenter: CGPoint { CGPoint(x: pauseArea.midX, y: pauseArea.midY) }
-    /// The socket's outer radius (frame art).
-    static let pauseSocketRadius: CGFloat = 37
+    /// R4: the App's brass coin (`BrassCoinButton`: 50 pt + its 5 pt outline) and its tap frame, in VIEW points, and
+    /// the inset the App keeps from the safe edge (`AppCanvas.pauseInset`). The seat mirrors the App's clamp.
+    static let pauseCoinViewDiameter: CGFloat = 55
+    static let pauseTapViewSide: CGFloat = 56
+    static let pauseViewInset: CGFloat = 16
+    /// The brass ring round the coin (view points).
+    static let pauseSeatViewRing: CGFloat = 4
+    /// The smallest canvas-to-view scale the game runs at (a 375 pt wide phone: 375 / 670 ≈ 0.56).
+    static let minViewScale: CGFloat = 0.55
+
+    /// R4: where the coin's centre lands at `viewScale` (view points per canvas point: 1 on the Duo, ≈ 0.6 on a
+    /// phone). The App pulls its coin in so its 56 pt tap frame keeps 16 pt from the screen edge
+    /// (`AppCanvas.pauseCenter`); this is the same clamp on the canvas, so the seat is always under the coin.
+    static func pauseCenter(viewScale: CGFloat) -> CGPoint {
+        let s = viewScale.isFinite && viewScale > 0.05 ? viewScale : 1
+        let maxX = canvas.width - (pauseViewInset + pauseTapViewSide / 2) / s
+        return CGPoint(x: min(pauseCenter.x, maxX), y: pauseCenter.y)
+    }
+
+    /// R4: the seat's outer radius (canvas points) at `viewScale`: the coin's radius plus a 4 pt brass ring.
+    static func pauseSeatRadius(viewScale: CGFloat) -> CGFloat {
+        let s = viewScale.isFinite && viewScale > 0.05 ? viewScale : 1
+        return (pauseCoinViewDiameter / 2 + pauseSeatViewRing) / s
+    }
+
+    /// R4: the seat's bounding square on the canvas at `viewScale` (the hint band never touches it).
+    static func pauseSeat(viewScale: CGFloat) -> CGRect {
+        let c = pauseCenter(viewScale: viewScale)
+        let r = pauseSeatRadius(viewScale: viewScale)
+        return CGRect(x: c.x - r, y: c.y - r, width: 2 * r, height: 2 * r)
+    }
+
+    /// The Duo seat's radius (kept for the old name).
+    static var pauseSocketRadius: CGFloat { pauseSeatRadius(viewScale: 1) }
 
     /// The candle on the left rim (R3: 16 pt from the edge).
     static let torchRect = CGRect(x: 16, y: 150, width: 34, height: 262)
@@ -71,16 +109,21 @@ enum ChestLayout {
     /// R3: the candle-low countdown ("0:12") hangs BESIDE the candle's brass dish, never over the candle.
     static let countdownRect = CGRect(x: 58, y: 146, width: 78, height: 40)
 
-    /// R3: the Hush Chain tab on the front rim, right of the meter, inside the frame: a small leather tab with the
-    /// linked-rings medallion, "HUSH CHAIN" in small caps and "GOLD ×1.2" under it.
-    static let chainRect = CGRect(x: 530, y: 100, width: 124, height: 40)
-    /// The medallion inside the tab.
-    static let chainCenter = CGPoint(x: 550, y: 120)
-    static let chainRadius: CGFloat = 16
-    /// The tab's text column (centre x) and its two lines.
-    static let chainTextX: CGFloat = 608
-    static let chainCaptionY: CGFloat = 130
-    static let chainValueY: CGFloat = 111
+    /// R3: the Hush Chain tab on the front rim, right of the meter, inside the frame. R4 (UX P1-2, juror P1-2): it
+    /// reads "CHAIN" over "GOLD ×1.2", sized to that text (the longest is "GOLD ×1.5"), and sits LEFT of the
+    /// front-right bracket (x ≤ 590 < 594): 80 canvas pt (≈ 48 screen pt on a phone) from the edge. The linked-rings
+    /// medallion sits over the tab's left clasp.
+    static let chainRect = CGRect(x: 470, y: 98, width: 120, height: 44)
+    /// The medallion (over the tab's left clasp).
+    static let chainCenter = CGPoint(x: 479, y: 120)
+    static let chainRadius: CGFloat = 15
+    /// The tab's text column (between the medallion and the right clasp + 8 pt) and its two lines.
+    static let chainTextRect = CGRect(x: 497, y: 106, width: 66, height: 30)
+    static var chainTextX: CGFloat { chainTextRect.midX }
+    static let chainCaptionY: CGFloat = 128
+    static let chainValueY: CGFloat = 112
+    /// The front-right corner bracket's arm along the front rim starts here (frame art).
+    static let frontRightBracketMinX: CGFloat = 594
 
     /// IN BAG (left plate): the brass clasp (with the shut-hold ring round it), the label and the number.
     static let bagValueRect = CGRect(x: 16, y: 12, width: 240, height: 80)
@@ -115,6 +158,8 @@ enum ChestLayout {
     static let bankSubY: CGFloat = 292
     /// R3: "CREAK!" (a slam) pops here, under the hint band.
     static let creakPoint = CGPoint(x: 335, y: 356)
+    /// R4 (UX P2-4): "Next chest…" in the dimmed interior between chests (under the bank stack's lowest line).
+    static let nextChestPoint = CGPoint(x: 335, y: 236)
 
     // MARK: Lid (local to the lid half: origin at the fold edge's left end, y up)
 
@@ -125,12 +170,17 @@ enum ChestLayout {
     static let lipBottom: CGFloat = 50
     static let lipHeight: CGFloat = 46
     /// R3: the gum's lower edge is a lip curve, not a ruler: lowest at the centre (`lipBottom`), rising this much at
-    /// the corners.
-    static let gumRise: CGFloat = 10
+    /// the corners. R4 (juror: "still a straight bar"): 10 → 14, and the lip's TOP edge curves too (`lipSag`), so the
+    /// upper jaw reads as a lip at every stage.
+    static let gumRise: CGFloat = 14
+    /// R4: the lip's top edge dips this much at the centre (level at the corners): the band is thickest mid-mouth.
+    static let lipSag: CGFloat = 5
     /// R3: how far the fangs slide up behind the lip when tucked, and how far they stay out while it sleeps (5–7 tips
-    /// always show: the canines about half, the rest about a third).
-    static let teethTuck: CGFloat = 44
+    /// always show: the canines about half, the rest about a third). R4: 44 → 40 (the sagging lip top).
+    static let teethTuck: CGFloat = 40
     static let teethAsleep: CGFloat = 0.4
+    /// R4: the fangs texture's height (taller: the deeper lip curve).
+    static let teethTextureHeight: CGFloat = 80
     /// The brass name plate between the lip and the eye: the name, and a sub-line with the trait and the tier.
     static let plateCenter = CGPoint(x: 335, y: 131)
     static let plateSize = CGSize(width: 460, height: 70)
@@ -166,6 +216,15 @@ enum ChestLayout {
     static let lidCapHeight: CGFloat = 90
     /// The repeating band of lid planks above the canvas lid (two planks).
     static let lidTileHeight: CGFloat = 120
+    /// R4 (tester 8: "empty wood panel"): the carved plaque in the extension above the lid on phones ("Iron-bound ·
+    /// Chest 4"). Shown when the extension is at least `plaqueMinExtension` tall; centred `plaqueLift` above the
+    /// canvas lid's top edge (lid-local y 456), clear of the App's teaching slot (below) and the Daily marker (above,
+    /// at the safe-area top).
+    static let plaqueSize = CGSize(width: 360, height: 50)
+    static let plaqueMinExtension: CGFloat = 100
+    static func plaqueCenterY(topExtension t: CGFloat) -> CGFloat {
+        lidSize.height + min(max(t * 0.18, plaqueSize.height / 2 + 12), 56)
+    }
     /// Below the floor: the chest's front wall (behind the satchel from y 104 down), then the tabletop.
     static let frontWallTop: CGFloat = 104
     static let frontWallMax: CGFloat = 210

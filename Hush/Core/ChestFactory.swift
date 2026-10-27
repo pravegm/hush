@@ -176,7 +176,8 @@ enum ChestFactory {
     }
 
     /// A free spot inside FloorSpace.interior: deeper items sit further back (smaller y) on average, with jitter.
-    /// Never overlaps (≥ radius sum + Tuning.lootGap).
+    /// Never overlaps (≥ radius sum + Tuning.lootGap). R4: never within radius + Tuning.lootGap of
+    /// `Tuning.lootKeepOut` (the pause coin's corner), in every mode.
     static func place(_ rng: inout SeededRandom, depth: Double, radius: CGFloat, among items: [LootItem]) -> CGPoint {
         let box: CGRect = FloorSpace.interior
         let r: Double = Double(radius)
@@ -184,7 +185,16 @@ enum ChestFactory {
         let maxX: Double = Double(box.maxX) - r
         let minY: Double = Double(box.minY) + r
         let maxY: Double = Double(box.maxY) - r
+        let keep: CGRect = Tuning.lootKeepOut
+        let keepMinX: Double = Double(keep.minX)
+        let keepMaxX: Double = Double(keep.maxX)
+        let keepMinY: Double = Double(keep.minY)
+        let keepMaxY: Double = Double(keep.maxY)
         func isFree(_ x: Double, _ y: Double) -> Bool {
+            // The keep-out: the box's nearest point to the centre must be at least radius + gap away.
+            let kx: Double = x - min(max(x, keepMinX), keepMaxX)
+            let ky: Double = y - min(max(y, keepMinY), keepMaxY)
+            if (kx * kx + ky * ky).squareRoot() < r + Tuning.lootGap { return false }
             for o in items {
                 let dx: Double = Double(o.position.x) - x
                 let dy: Double = Double(o.position.y) - y

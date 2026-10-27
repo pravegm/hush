@@ -94,6 +94,31 @@ final class SceneFloorHUD {
     private var crackAge: Double = 10
     private var chainLevel: CGFloat = 0
     private var shownChainTenths = -1
+    /// R4 (UX P1-2, testers 7 and 8): the multiplier the LAST bank used (from `chainUp`, the same number as the bank
+    /// stack's "Hush Chain ×1.2"), never the next bank's rate. nil: none yet this chain.
+    private var lastBankMultiplier: Double?
+    /// R4: the stage the meter's word shows.
+    private var shownStage: MimicStage = .asleep
+
+    // The pause coin's brass seat (R4).
+    private let seat: SKSpriteNode
+    /// R4: view points per canvas point (1 on the Duo, ≈ 0.6 on a phone): the seat sits under the App's coin.
+    var viewScale: CGFloat = 1 {
+        didSet {
+            if !viewScale.isFinite || viewScale <= 0.05 { viewScale = 1 }
+            if abs(viewScale - oldValue) > 0.0005 { placeSeat() }
+        }
+    }
+    /// The seat as drawn (canvas; tests).
+    var seatRect: CGRect {
+        CGRect(x: seat.position.x - seat.size.width / 2, y: seat.position.y - seat.size.height / 2,
+               width: seat.size.width, height: seat.size.height)
+    }
+    /// The meter's word now ("NOISE" / "STIRRING" / "WAKING!"; tests) and its drawn width.
+    var meterWordText: String { noiseLabel.text }
+    var meterWordWidth: CGFloat { noiseLabel.node.frame.width }
+    /// The chain tab's two lines as drawn (widths, tests: never past the tab's text column).
+    var chainTextWidths: [CGFloat] { [chainCaption.node.frame.width, chainValue.node.frame.width] }
     /// Whether the chain badge is showing (tests).
     var chainShowing: Bool { !chainRoot.isHidden && chainRoot.alpha > 0.05 }
     var chainCracking: Bool { crackAge < 0.8 }
@@ -122,9 +147,11 @@ final class SceneFloorHUD {
         let plate = SKSpriteNode(texture: SceneTextures.meterPlate, size: m.size)
         plate.zPosition = 0
         meterN.addChild(plate)
-        let noiseL = SceneLabel(size: 15, color: ScenePaint.ui(RGBA(hex: 0x2E1606)), outline: nil, minimumSize: 14,
-                                kern: 1.6)
-        noiseL.set("NOISE")
+        // R4 (UX P2-6): the word follows the stage (NOISE → STIRRING → WAKING!), so the meter never relies on colour.
+        let noiseL = SceneLabel(size: 15, color: ScenePaint.ui(SceneFloorHUD.meterInk(.asleep)), outline: nil,
+                                minimumSize: 12, kern: 1.0)
+        noiseL.maxWidth = ChestLayout.meterLabelWidth
+        noiseL.set(ChestCopy.meterWord(.asleep))
         noiseL.node.position = CGPoint(x: ChestLayout.meterLabelCenter.x - m.midX, y: ChestLayout.meterLabelCenter.y - m.midY)
         noiseL.node.zPosition = 2
         meterN.addChild(noiseL.node)
@@ -284,13 +311,15 @@ final class SceneFloorHUD {
         medalN.position = CGPoint(x: ChestLayout.chainCenter.x - chr.midX, y: ChestLayout.chainCenter.y - chr.midY)
         medalN.zPosition = 1
         chainN.addChild(medalN)
-        let cap = SceneLabel(size: 12, color: ScenePaint.ui(pal.gold), outline: nil, minimumSize: 12, kern: 0.6)
-        cap.set("HUSH CHAIN")
+        // R4 (UX P1-2): "CHAIN" over "GOLD ×1.2", inside the tab's text column (never past its clasp).
+        let cap = SceneLabel(size: 12, color: ScenePaint.ui(pal.gold), outline: nil, minimumSize: 12, kern: 1.4)
+        cap.maxWidth = ChestLayout.chainTextRect.width
+        cap.set("CHAIN")
         cap.node.position = CGPoint(x: ChestLayout.chainTextX - chr.midX, y: ChestLayout.chainCaptionY - chr.midY)
         cap.node.zPosition = 1
         chainN.addChild(cap.node)
-        let cv = SceneLabel(size: 16, color: ScenePaint.ui(pal.text), minimumSize: 13, strokeWidth: -3)
-        cv.maxWidth = 80
+        let cv = SceneLabel(size: 15, color: ScenePaint.ui(pal.text), minimumSize: 12, strokeWidth: -3)
+        cv.maxWidth = ChestLayout.chainTextRect.width
         cv.node.position = CGPoint(x: ChestLayout.chainTextX - chr.midX, y: ChestLayout.chainValueY - chr.midY)
         cv.node.zPosition = 1
         chainN.addChild(cv.node)
@@ -300,9 +329,16 @@ final class SceneFloorHUD {
         crackN.isHidden = true
         chainN.addChild(crackN)
 
+        // R4 (juror P1-2): the pause coin's round brass seat, under the App's coin wherever the App clamps it, sized
+        // to the coin at the device's scale. Over the interior's darkness and the loot (the coin covers that spot).
+        let seatR = ChestLayout.pauseSeatRadius(viewScale: 1)
+        let seatN = SKSpriteNode(texture: SceneTextures.pauseSeat, size: CGSize(width: seatR * 2, height: seatR * 2))
+        seatN.position = ChestLayout.pauseCenter(viewScale: 1)
+        seatN.zPosition = -2
+
         let rootN = SKNode()
-        let all: [SKNode] = [trackN, dishN, waxN, cdN, claspN, trackRing, ringN, ringGlowN, valueH, bagT.node, bagS.node, pGlow,
-                             pouchN, coinN, counterH, bankT.node, chainN, flameN]
+        let all: [SKNode] = [seatN, trackN, dishN, waxN, cdN, claspN, trackRing, ringN, ringGlowN, valueH, bagT.node,
+                             bagS.node, pGlow, pouchN, coinN, counterH, bankT.node, chainN, flameN]
         for node in all { rootN.addChild(node) }
 
         root = rootN
@@ -340,6 +376,23 @@ final class SceneFloorHUD {
         chainCaption = cap
         chainTab = tabN
         crack = crackN
+        seat = seatN
+    }
+
+    /// The seat under the App's coin at the current `viewScale`.
+    private func placeSeat() {
+        let r = ChestLayout.pauseSeatRadius(viewScale: viewScale)
+        seat.size = CGSize(width: r * 2, height: r * 2)
+        seat.position = ChestLayout.pauseCenter(viewScale: viewScale)
+    }
+
+    /// R4: the meter word's ink for a stage (dark on the brass recess; warmer, then red, as it wakes).
+    static func meterInk(_ stage: MimicStage) -> RGBA {
+        switch stage {
+        case .asleep: return RGBA(hex: 0x2E1606)
+        case .stirring: return RGBA(hex: 0x5A2C00)
+        case .waking, .biting: return RGBA(hex: 0x7A0A0A)
+        }
     }
 
     // MARK: Hooks from the scene's events
@@ -357,12 +410,33 @@ final class SceneFloorHUD {
     func popCounter() { counterPop = 0 }
     func torchLow() { lowFlash = 0 }
     func flare() { flareAge = 0 }
-    func chainUp() {
+    /// A Hushed bank grew the chain. `multiplier` is what THAT bank paid (`HeistEvent.chainUp`): the tab shows it from
+    /// this frame on, the same frame the bank stack's "Hush Chain ×1.2" starts, so the two never disagree.
+    func chainUp(multiplier: Double? = nil) {
         chainPopAge = 0
         crackAge = 10
+        if let m = multiplier, m.isFinite, m > 0 { lastBankMultiplier = m }
     }
 
-    func chainBroken() { crackAge = 0 }
+    func chainBroken() {
+        crackAge = 0
+        lastBankMultiplier = nil
+    }
+
+    /// R4: the tab's number for a snapshot: the last bank's multiplier while the chain lives (from `chainUp`, else
+    /// the chain's own rate for its length, `Noise.chainMultiplier(chain)`, which is what that bank paid). nil hides it.
+    static func chainShown(chain: Int, lastBank: Double?) -> Double? {
+        guard chain >= 1 else { return nil }
+        let m = lastBank ?? Noise.chainMultiplier(chain)
+        guard m.isFinite, m > 1.001 else { return nil }
+        return m
+    }
+
+    /// "GOLD ×1.2" for a multiplier (tenths).
+    static func chainText(_ m: Double) -> String {
+        let tenths = Int((m.isFinite ? m * 10 : 10).rounded())
+        return "GOLD ×\(tenths / 10).\(tenths % 10)"
+    }
 
     /// R3: a slam ("CREAK!"): the meter flashes red and jolts.
     func creak() { creakAge = 0 }
@@ -376,6 +450,7 @@ final class SceneFloorHUD {
         crackAge = 10
         chainPopAge = 10
         creakAge = 10
+        lastBankMultiplier = nil
     }
 
     /// Where the candle flame sits now (for smoke, "+6s" and "−10s").
@@ -436,6 +511,12 @@ final class SceneFloorHUD {
         }
         let m = ChestLayout.meterRect
         meterRoot.position = CGPoint(x: m.midX + meterShake.x, y: m.midY + meterShake.y)
+        // R4: the meter's word follows the stage (rebuilt only when the stage changes).
+        if s.stage != shownStage {
+            shownStage = s.stage
+            noiseLabel.setColor(ScenePaint.ui(SceneFloorHUD.meterInk(s.stage)))
+            noiseLabel.set(ChestCopy.meterWord(s.stage))
+        }
 
         // The candle.
         let total = s.torchTotal
@@ -570,13 +651,17 @@ final class SceneFloorHUD {
         counterHolder.setScale(pop(counterPop))
         coin.setScale(pop(counterPop))
 
-        // The Hush Chain medallion.
-        let active = s.chain >= 1 && s.chainMultiplier.isFinite && s.chainMultiplier > 1.001
-        if active {
-            let tenths = Int((s.chainMultiplier * 10).rounded())
+        // The Hush Chain tab. R4: it shows what the LAST bank paid (the bank stack's number), and stays out of the
+        // First Chest lesson (UX P2-8: the run's first chain gets the tip instead).
+        if s.chain < 1 { lastBankMultiplier = nil }
+        let lesson = s.mode == .lesson
+        let shownMultiplier = lesson ? nil : SceneFloorHUD.chainShown(chain: s.chain, lastBank: lastBankMultiplier)
+        let active = shownMultiplier != nil
+        if let mult = shownMultiplier {
+            let tenths = Int((mult * 10).rounded())
             if tenths != shownChainTenths {
                 shownChainTenths = tenths
-                chainValue.set("GOLD ×\(tenths / 10).\(tenths % 10)")
+                chainValue.set(SceneFloorHUD.chainText(mult))
             }
         }
         chainPopAge += dt

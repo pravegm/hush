@@ -38,7 +38,13 @@ struct HomeView: View {
             .position(x: lid.midX, y: lid.midY)
 
             if info.hasFold {
-                HomeMenu(controller: controller, store: store, compact: c)
+                // R4 (founder): at the accessibility cap the menu scrolls rather than clip at the fold.
+                ViewThatFits(in: .vertical) {
+                    HomeMenu(controller: controller, store: store, compact: c)
+                    ScrollView(showsIndicators: false) {
+                        HomeMenu(controller: controller, store: store, compact: c)
+                    }
+                }
                     .frame(width: min(floor.width - 32, 520))
                     .frame(height: floor.height, alignment: .center)
                     .position(x: floor.midX, y: floor.midY)
@@ -53,6 +59,10 @@ struct HomeView: View {
                     }
                     VStack {
                         Spacer(minLength: 0)
+                        HomeMenu(controller: controller, store: store, compact: c)
+                    }
+                    // R4 (founder): at the accessibility cap the menu scrolls rather than clip.
+                    ScrollView(showsIndicators: false) {
                         HomeMenu(controller: controller, store: store, compact: c)
                     }
                 }
@@ -82,7 +92,8 @@ struct HomeView: View {
         if lid.speed > Tuning.loudSpeed { return "Easy! It's a mimic…" }
         if lid.openness > 0.85 { return "It's watching you." }
         if lid.openness > 0.3 { return "Shh… something's peeking." }
-        return hinge ? "Lift the lid… slowly." : "Drag its lid up… slowly."
+        // R4 (tester 8): the phone's words are the lever's ("slide"), the same verb the run and the lesson use.
+        return hinge ? "Lift the lid… slowly." : "Slide its lid up… slowly."
     }
 }
 
@@ -237,9 +248,15 @@ struct HomeMenu: View {
                     Text("Daily Dungeon")
                         .layoutPriority(1)
                     Spacer(minLength: 6)
-                    Text(dailyStatus(data))
+                    // R4 (UX P2-7, frame 44): never "Today's try…": it wraps onto a second line (the row grows).
+                    Text(Self.dailyStatus(scoredReady: controller.dailyScoredAvailable,
+                                          todayGold: data.dailyRecord(day: controller.today)?.gold))
                         .font(HushType.caption(compact))
                         .foregroundStyle(controller.dailyScoredAvailable ? HushTheme.goldLight : HushTheme.mist)
+                        .multilineTextAlignment(.trailing)
+                        .lineLimit(2)
+                        .minimumScaleFactor(0.8)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
             }
             HStack(spacing: 10) {
@@ -264,10 +281,10 @@ struct HomeMenu: View {
         }
     }
 
-    private func dailyStatus(_ data: ProgressData) -> String {
-        let today = controller.today
-        if controller.dailyScoredAvailable { return "Today's try ready" }
-        if let r = data.dailyRecord(day: today) { return "\(r.gold.formatted()) today" }
+    /// The Daily button's status. Pure; tested.
+    static func dailyStatus(scoredReady: Bool, todayGold: Int?) -> String {
+        if scoredReady { return "Today's try ready" }
+        if let gold = todayGold { return "\(gold.formatted()) today" }
         return "Practice"
     }
 }

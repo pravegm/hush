@@ -75,9 +75,55 @@ extension ChestArt {
         return p
     }
 
-    /// Insets for stretching `plateSliceImage` (keep the caps and the stitched corners).
+    /// Insets for stretching `plateSliceImage` (keep the caps and the stitched corners). R4 (juror P0-1, UX P1-1): the
+    /// left / right insets cover the brass end-cap (x 1…17 in the 56 pt slice) plus 8 pt, and the stitched border.
+    /// They are NOT the text padding: lay text out in `plateTextRect(in:style:)`.
     static func plateInsets(_ style: PlateStyle) -> PlateInsets {
         PlateInsets(top: 20, left: 30, bottom: 20, right: 30)
+    }
+
+    /// R4: the brass end-caps' rects in a plate of `size` (y up; symmetric, so y-down is the same).
+    static func plateCapRects(size: CGSize) -> [CGRect] {
+        let cap = plateCapWidth(size)
+        let capH = max(min(size.height * 0.62, size.height - 10), 6)
+        let y = (size.height - capH) / 2
+        return [CGRect(x: 1, y: y, width: cap, height: capH),
+                CGRect(x: size.width - cap - 1, y: y, width: cap, height: capH)]
+    }
+
+    /// R4: the stitched (dashed) border's rect in a plate of `size` (its line is 1.6 pt wide, centred on this rect).
+    static func plateStitchRect(size: CGSize) -> CGRect {
+        let inner = CGRect(x: 2, y: 2, width: max(size.width - 4, 1), height: max(size.height - 4, 1))
+        let faceR = inner.insetBy(dx: 1.6, dy: 1.6)
+        let cap = plateCapWidth(size)
+        return faceR.insetBy(dx: min(cap + 3, faceR.width / 3), dy: min(5.5, faceR.height / 4))
+    }
+
+    /// R4 (juror P0-1, UX P1-1): where a plate's TEXT goes, in a plate of `size` points. Inside the stitched border
+    /// with 3 pt to spare, and ≥ 8 pt clear of both brass end-caps, for `plateImage(size:)` plates and for stretched
+    /// `plateSliceImage` plates alike (a slice's caps keep the 56 pt slice's 16 pt width, so the side inset never uses
+    /// less). Symmetric (y-up = y-down). Lay the text out in this rect, on one line with `minimumScaleFactor(0.7)`
+    /// (lesson cards may wrap to 2 lines and grow the plate). Never empty: at least 1 × 1 at the plate's centre.
+    static func plateTextRect(in size: CGSize, style: PlateStyle) -> CGRect {
+        _ = style
+        let w = max(size.width.isFinite ? size.width : 0, 0)
+        let h = max(size.height.isFinite ? size.height : 0, 0)
+        let ins = plateTextInsets(size: CGSize(width: w, height: h))
+        let tw = max(w - ins.left - ins.right, 1)
+        let th = max(h - ins.top - ins.bottom, 1)
+        return CGRect(x: (w - tw) / 2, y: (h - th) / 2, width: tw, height: th)
+    }
+
+    /// R4: the text insets behind `plateTextRect` (the same on both sides; top = bottom).
+    static func plateTextInsets(size: CGSize) -> PlateInsets {
+        // The widest cap either way the plate is drawn (its own size, or a stretched 56 pt slice).
+        let cap = max(plateCapWidth(size), size.height >= 34 ? 16 : 0)
+        let stitch = min(cap + 3, max(size.width - 7.2, 1) / 3) + 3.6
+        // Clear of the cap (+ 8) and inside the stitch line (+ 0.8 line + 3).
+        let side = max(1 + cap + 8, stitch + 3.8).rounded(.up)
+        let vStitch = 3.6 + min(5.5, max(size.height - 7.2, 1) / 4)
+        let top = min(max(vStitch + 2.4, 4), max(size.height * 0.3, 2)).rounded(.up)
+        return PlateInsets(top: top, left: side, bottom: top, right: side)
     }
 
     /// Draws a plate filling `size` (y up, origin bottom-left).
@@ -119,8 +165,7 @@ extension ChestArt {
         }
         ctx.restoreGState()
         // The stitched edge.
-        let cap = plateCapWidth(size)
-        let stitchR = faceR.insetBy(dx: min(cap + 3, faceR.width / 3), dy: min(5.5, faceR.height / 4))
+        let stitchR = plateStitchRect(size: size)
         if stitchR.width > 4 && stitchR.height > 4 {
             let st = CGMutablePath()
             ArtPrim.roundedRect(st, stitchR, corner: max(plateCorner(size) - 5, 2))
@@ -130,9 +175,8 @@ extension ChestArt {
             ctx.restoreGState()
         }
         // Brass end-caps (clasps half over the edge) with a rivet each.
-        let capH = max(min(size.height * 0.62, size.height - 10), 6)
-        for x in [CGFloat(1), size.width - cap - 1] {
-            let r = CGRect(x: x, y: (size.height - capH) / 2, width: cap, height: capH)
+        let cap = plateCapWidth(size)
+        for r in plateCapRects(size: size) {
             let p = Painter.roundRect(r, min(cap * 0.38, 6))
             Painter.chunky(ctx, p, ScenePaint.brass, outline: 1.3, light: 0.45, shade: 0.4,
                            from: CGPoint(x: r.minX, y: r.maxY), to: CGPoint(x: r.maxX, y: r.minY))

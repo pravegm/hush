@@ -56,7 +56,7 @@
 # (1 = exit 1 when a check FAILs; default 0: the frames and the PASS/FAIL table are the evidence), INNER_CANVAS
 # ("669x951"), STORE_LIST / STORE_FILTER / STORE_ANGLE (the store pass).
 # Writes: $OUT/*.png (lit panel), $OUT/raw/<shot>-inner|cover.png, $OUT/logs/<launch>.txt (app stdout+stderr),
-# $OUT/logs/run.txt (this script), $OUT/checks.tsv (check <TAB> PASS|FAIL|INFO <TAB> detail) and, when
+# $OUT/logs/run.txt (this script), $OUT/checks.tsv (check <TAB> PASS|FAIL|INFO|INCONCLUSIVE <TAB> detail) and, when
 # $GITHUB_STEP_SUMMARY is set, a summary table.
 set -uo pipefail
 
@@ -81,7 +81,7 @@ to() {
   else perl -e 'alarm shift; exec @ARGV or die "exec failed: $!\n"' "$s" "$@"; fi
 }
 
-# result <CHECK> <PASS|FAIL|INFO> <detail>: one line in the run log ("SLOW-OPEN PASS (…)") and in checks.tsv.
+# result <CHECK> <PASS|FAIL|INFO|INCONCLUSIVE> <detail>: one line in the run log ("SLOW-OPEN PASS (…)") and in checks.tsv.
 result() {
   log "$1 $2 ($3)"
   printf '%s\t%s\t%s\n' "$1" "$2" "$3" >> "$CHECKS"
@@ -133,6 +133,16 @@ hinge_sweep() {   # hinge_sweep <to> <seconds>: continuous 60 Hz stream so the a
   to $(( ${2%.*} + 20 )) hinge -d "$UDID" sweep "$CUR" "$1" "$2" >>"$RUNLOG" 2>&1 || log "WARN sweep $CUR -> $1 exited non-zero"
   CUR="$1"
 }
+# hinge_wiggle <angle> <n> (R4): n tiny 1° sweeps (angle → angle−1 → angle, 0.4 s each way, ~2.5°/s: silent) so hinge
+# samples keep flowing through a "hold" (a perfectly still hold made the tool deliver the next fast sweep as 1–2
+# samples, duo run 40533062342).
+hinge_wiggle() {
+  (( HAVE_HINGE )) || return 1
+  local i
+  for (( i = 0; i < $2; i++ )); do hinge_sweep $(( $1 - 1 )) 0.4; hinge_sweep "$1" 0.4; done
+}
+# A slam whose logged peak lid speed is under this (°/s) is retried once, then INCONCLUSIVE if the noise didn't move.
+SLAM_MIN_PEAK="${SLAM_MIN_PEAK:-60}"
 
 # brightness of a PNG, 0-255 (sips → 16×16 BMP)
 brightness() {
@@ -186,6 +196,19 @@ after() { tail -n +"$(( $2 + 1 ))" "$1" 2>/dev/null; }     # after <file> <line>
 between() { awk -v a="$2" -v b="$3" 'NR > a + 0 && NR <= b + 0' "$1" 2>/dev/null; }
 # lid_vals <field>: from "HUSH-T lid <o> speed <v> angle <θ> noise <n> stage <s>" lines on stdin, the <field> values.
 lid_vals() { awk -v k="$1" '/HUSH-T lid / { for (i = 1; i < NF; i++) if ($i == k) print $(i + 1) }'; }
+# slam_samples <file> <line> (R4): how many samples the app saw during a slam from ~150 to 104: the distinct lid angles
+# logged after <line> that differ from the one before (starting from the hold's last angle, at or before <line>), up
+# to the first angle <= 106°, and the raw HUSH-H lines in that span. Duo run 40533062342's failing slam reads 1
+# (146.7 -> 136.0 -> 103.2); a streamed 0.3 s slam at 10 Hz lid lines reads 2-4.
+slam_samples() {
+  awk -v a="$2" '
+    /HUSH-T lid / { v = ""; for (i = 1; i < NF; i++) if ($i == "angle" && $(i + 1) ~ /^[0-9.]+$/) v = $(i + 1) + 0 }
+    !/HUSH-T lid / { v = "" }
+    NR <= a + 0 { if (v != "") prev = v; next }
+    /^HUSH-H / { h++ }
+    v != "" { if (v <= 106) exit; if (prev == "" || v != prev) m++; prev = v }
+    END { printf "%d (lid-angle changes before 106°), HUSH-H=%d\n", m, h }' "$1" 2>/dev/null
+}
 max_of() { awk 'BEGIN { m = "" } $1 ~ /^-?[0-9.]+$/ { if (m == "" || $1 + 0 > m + 0) m = $1 } END { print (m == "" ? "none" : m) }'; }
 min_of() { awk 'BEGIN { m = "" } $1 ~ /^-?[0-9.]+$/ { if (m == "" || $1 + 0 < m + 0) m = $1 } END { print (m == "" ? "none" : m) }'; }
 lt() { [[ "$1" =~ ^-?[0-9.]+$ ]] && awk -v a="$1" -v b="$2" 'BEGIN { exit !(a + 0 < b + 0) }'; }   # lt <a> <b>: a < b
@@ -311,6 +334,18 @@ if [[ " $PASSES " == *" hinge "* ]]; then
   #    R2: `freezeOn=bite` stops the session 0.3 s after the bite (DemoMode), and the inner panel is shot the moment
   #    `HUSH-T freeze bite` appears (shoot_now), so duo-h2-slam-bite shows the CHOMP and the "Too loud! −N" callout,
   #    not the next chest (tester2-duo: "the slam frame showed nothing"). A later full shot is kept for comparison.
+  #    R4 (duo run 40533062342: SLAM FAIL at peakSpeed 24.4°/s): after the 2 s still hold the `hinge` tool delivered the
+  #    150 → 104 slam as 1–2 samples (lid lines 146.7 → 136.0 → 103.2, speed 0), and the app's gap-aware speed rightly
+  #    refuses to differentiate across that silence (the same slam in SLAM-CREAK read 91°/s). So:
+  #     - the hold is no longer perfectly still: after the STILL-RUN reading, 2 tiny 1° wiggles (150 → 149 → 150, 0.4 s
+  #       each way, ~2.5°/s: silent, under quietSpeed 12) keep hinge samples flowing up to the slam;
+  #     - a slam whose logged peak is under SLAM_MIN_PEAK (60°/s) and that hit nothing is retried once: a gentle
+  #       re-open to 150 over 8 s (~6°/s, silent), the wiggles again, the slam again;
+  #     - if the retry still under-delivers (peak < 60°/s and the noise rose < 0.05), the result is INCONCLUSIVE (the
+  #       tool, not the app), never FAIL. FAIL is kept for a slam that reached ≥ 60°/s (or moved the noise) and still
+  #       didn't wake or bite;
+  #     - every SLAM line records the slam's sample count (distinct lid angles logged inside 106–149° during the slam,
+  #       plus the raw HUSH-H lines) and the attempt number.
   hinge_set 105
   launch slam "screen=run;mode=run;seed=7;freezeOn=bite" 1
   SM="$OUT_ABS/logs/slam.txt"
@@ -318,19 +353,36 @@ if [[ " $PASSES " == *" hinge "* ]]; then
   h0=$(nlines "$SM"); sleep 1.5
   hl2=$(sed -n "$(( h0 + 1 )),\$p" "$SM" | lid_vals speed | grep -E '^-?[0-9.]+$' | tail -1)
   result STILL-RUN INFO "last speed 1.5 s into the hold at 150 (real run)=${hl2:-none}"
-  sleep 0.5
-  s0=$(nlines "$SM")
-  hinge_sweep 104 0.3
-  # The bite usually lands while the sweep call is still returning; catch the freeze line as soon as it is there.
-  if wait_for "$SM" "HUSH-T freeze bite" 3; then shoot_now duo-h2-slam-bite; froze="froze on the bite"
-  else froze="no 'HUSH-T freeze bite' within 3 s"; fi
-  sleep 0.5
-  hit=$(after "$SM" "$s0" | grep -m1 -E "HUSH-T (event bitten|event stageChanged .*to=(waking|biting)|lid .* stage (waking|biting))" | tr -d '\r')
-  bit=$(after "$SM" "$s0" | grep -m1 -E "HUSH-T event bitten" | tr -d '\r')
-  peak=$(after "$SM" "$s0" | lid_vals speed | max_of)
-  pn=$(after "$SM" "$s0" | lid_vals noise | max_of)
-  d="peakSpeed=${peak}°/s maxNoise=$pn first: ${hit:-none}; bite: ${bit:-none}; $froze"
-  if [[ -n "$hit" ]]; then result SLAM PASS "$d"; else result SLAM FAIL "$d"; fi
+  attempt=1; froze=""; hit=""; bit=""; peak=none; pn=none; n0=none; ns=""
+  while :; do
+    hinge_wiggle 150 2
+    n0=$(head -n "$(nlines "$SM")" "$SM" | lid_vals noise | grep -E '^-?[0-9.]+$' | tail -1)
+    s0=$(nlines "$SM")
+    hinge_sweep 104 0.3
+    # The bite usually lands while the sweep call is still returning; catch the freeze line as soon as it is there.
+    if wait_for "$SM" "HUSH-T freeze bite" 3; then shoot_now duo-h2-slam-bite; froze="froze on the bite"
+    else froze="no 'HUSH-T freeze bite' within 3 s"; fi
+    sleep 0.5
+    hit=$(after "$SM" "$s0" | grep -m1 -E "HUSH-T (event bitten|event stageChanged .*to=(waking|biting)|lid .* stage (waking|biting))" | tr -d '\r')
+    bit=$(after "$SM" "$s0" | grep -m1 -E "HUSH-T event bitten" | tr -d '\r')
+    peak=$(after "$SM" "$s0" | lid_vals speed | max_of)
+    pn=$(after "$SM" "$s0" | lid_vals noise | max_of)
+    ns=$(slam_samples "$SM" "$s0")
+    log "SLAM attempt $attempt: peakSpeed=${peak}°/s noise ${n0:-none} -> $pn; $ns; ${hit:-no hit}"
+    [[ -n "$hit" ]] && break
+    { [[ "$peak" == none ]] || lt "$peak" "$SLAM_MIN_PEAK"; } || break
+    (( attempt >= 2 )) && break
+    attempt=2
+    log "SLAM: peak ${peak}°/s < ${SLAM_MIN_PEAK}°/s and no hit (the hinge tool under-delivered?): re-open gently and slam again"
+    hinge_sweep 150 8
+    sleep 1
+  done
+  rise=$(awk -v a="${n0:-0}" -v b="$pn" 'BEGIN { if (b !~ /^-?[0-9.]+$/) print "none"; else printf "%.2f\n", b - (a ~ /^-?[0-9.]+$/ ? a : 0) }')
+  d="attempt $attempt/2; peakSpeed=${peak}°/s; slam samples: $ns; noise ${n0:-none} -> $pn (rise $rise); first: ${hit:-none}; bite: ${bit:-none}; $froze"
+  if [[ -n "$hit" ]]; then result SLAM PASS "$d"
+  elif { [[ "$peak" == none ]] || lt "$peak" "$SLAM_MIN_PEAK"; } && { [[ "$rise" == none ]] || lt "$rise" 0.05; }; then
+    result SLAM INCONCLUSIVE "$d (the hinge tool under-delivered the slam twice: peak < ${SLAM_MIN_PEAK}°/s, noise unchanged)"
+  else result SLAM FAIL "$d"; fi
   [[ -f "$OUT_ABS/duo-h2-slam-bite.png" ]] || shoot_now duo-h2-slam-bite
   shoot duo-h2-after-slam inner
 
@@ -554,7 +606,8 @@ if [[ " $PASSES " == *" ui "* ]]; then
   hinge_sweep 105 4; sleep 2.5; shoot duo-ui-lesson-after-pose inner
   hinge_sweep 150 2
   launch ui-results "screen=results;seed=7;progress=mid;pilot=casual" 1; sleep 3; shoot duo-ui-results inner
-  launch ui-codex "screen=codex;progress=late" 1; sleep 2; shoot duo-ui-codex inner
+  # R4 (NEEDS App R3: "Codex 9/24 vs 22/24"): the same `mid` preset as ui-home / ui-results, so the three agree.
+  launch ui-codex "screen=codex;progress=mid" 1; sleep 2; shoot duo-ui-codex inner
   launch ui-settings "screen=settings" 1; sleep 2; shoot duo-ui-settings inner
   # Book pose: no orient request, so the sim keeps its own landscape inner canvas → the "Stand it up like a little
   # laptop" pose card (Brim's ui-book got its 2853 x 2007 book card the same way, after portrait launches).
@@ -608,8 +661,8 @@ if [[ " $PASSES " == *" store "* ]]; then
 fi
 
 ls -la "$OUT_ABS" | tee -a "$RUNLOG" >&2
-log "checks: $(awk -F'\t' '$2=="PASS"' "$CHECKS" | wc -l | tr -d ' ') PASS, $(awk -F'\t' '$2=="FAIL"' "$CHECKS" | wc -l | tr -d ' ') FAIL"
-grep -E $'\t(PASS|FAIL)\t' "$CHECKS" | awk -F'\t' '{ printf "%s %s (%s)\n", $1, $2, $3 }' || true
+log "checks: $(awk -F'\t' '$2=="PASS"' "$CHECKS" | wc -l | tr -d ' ') PASS, $(awk -F'\t' '$2=="FAIL"' "$CHECKS" | wc -l | tr -d ' ') FAIL, $(awk -F'\t' '$2=="INCONCLUSIVE"' "$CHECKS" | wc -l | tr -d ' ') INCONCLUSIVE"
+grep -E $'\t(PASS|FAIL|INCONCLUSIVE)\t' "$CHECKS" | awk -F'\t' '{ printf "%s %s (%s)\n", $1, $2, $3 }' || true
 write_summary
 if [[ "$STRICT" == 1 ]] && grep -q $'\tFAIL\t' "$CHECKS"; then exit 1; fi
 exit 0

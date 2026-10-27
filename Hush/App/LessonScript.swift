@@ -48,6 +48,20 @@ struct LessonDisplay: Equatable {
     /// R3 (UX P0-1): the lid marker's cue in the pose step, from the SAME angle branch as the line (nil: no lid marker,
     /// e.g. the lever on a phone).
     var liftCue: LessonScript.LiftCue? = nil
+
+    /// R4 (QA-3 P2, UX P2-9): what VoiceOver hears when the lesson moves on: a new step, a praise beat, a warning, the
+    /// final card. Nil when nothing new is said (the pose step's line following the angle isn't re-read). Pure; tested.
+    static func announcement(from old: LessonDisplay?, to new: LessonDisplay) -> String? {
+        if new.isFinal { return old?.isFinal == true ? nil : LessonDisplay.finalTitle }
+        guard let old else { return new.line }
+        if old.step != new.step || old.praise != new.praise || old.warning != new.warning || old.isFinal {
+            return new.line
+        }
+        return nil
+    }
+
+    /// The final card's title.
+    static let finalTitle = "Lovely work, little thief."
 }
 
 /// The First Chest lesson's script (GAME-DESIGN §8): one sentence per step, passed by doing. Pure; tested.
@@ -125,6 +139,8 @@ struct LessonScript: Equatable {
 
     /// Skip is offered after step 2 (or any time on a replay).
     var canSkip: Bool { replay || step.rawValue >= Step.grab.rawValue }
+    /// R4 (QA-3 P2-3): the lesson is banked: its praise beat or the final card (the closing pause stays away).
+    var isFinishing: Bool { step == .done || next == .done }
     var isPraising: Bool { praiseUntil != nil }
     var isSlower: Bool { time < slowerUntil }
 
@@ -299,7 +315,8 @@ struct LessonScript: Equatable {
             }
             return slider ? "Slide the lever up… slowly. Watch the noise." : "Open the lid… slowly. Watch the noise."
         case .grab:
-            return "Drag the coin into your bag."
+            // R4 (tester 7): several coins show, so any of them will do.
+            return "Drag a coin into your bag."
         case .freeze:
             if !stirred { return "Shh… did you hear that?" }
             return movedDuringFreeze ? "Freeze! Not a twitch." : "It's stirring. Freeze!"

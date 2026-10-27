@@ -1025,7 +1025,7 @@ struct CopyTests {
         #expect(HushCopy.wordCount(RunTip.golden) <= 6)
         #expect(RunTip.chain.text == "Hush Chain! Sleepy banks pay more")
         #expect(RunTip.chainBroken.text == "It stirred. Chain broken.")
-        #expect(RunTip.golden == "A golden mimic! Double gold.")
+        #expect(RunTip.golden == "A golden mimic! Extra gold!")
     }
 
     /// R3 (decision 3): one verb, "bank", in the lid's words on a fold and the lever's without.
@@ -1147,7 +1147,7 @@ struct CopyTests {
 
     @Test func homeCaptionTeaches() {
         #expect(HomeView.caption(HomeLid(openness: 0, speed: 0), hinge: true) == "Lift the lid… slowly.")
-        #expect(HomeView.caption(HomeLid(openness: 0, speed: 0), hinge: false).hasPrefix("Drag"))
+        #expect(HomeView.caption(HomeLid(openness: 0, speed: 0), hinge: false) == "Slide its lid up… slowly.")
         #expect(HomeView.caption(HomeLid(openness: 0.5, speed: 0), hinge: true).contains("peeking"))
         #expect(HomeView.caption(HomeLid(openness: 0.5, speed: 80), hinge: true).contains("mimic"))
     }
@@ -1245,8 +1245,17 @@ struct CopyTests {
         let large = HushType.scaled(base, .body, category: .large)
         let xxl = HushType.scaled(base, .body, category: .accessibilityExtraExtraExtraLarge)
         #expect(abs(large - base) < 0.5)
-        #expect(xxl <= base * HushType.maxGrowth + 0.001)
+        #expect(xxl <= base * HushType.maxGrowth(.body) + 0.001)
         #expect(xxl >= large)
+        // R4 (founder, CI R4): the cap is at the accessibility sizes only. XXXL grows as iOS scales it, and an AX size
+        // is larger than XXXL (frames 41 ≠ 45), but by no more than `accessibilityGrowth`.
+        let xxxl = HushType.scaled(base, .body, category: .extraExtraExtraLarge)
+        let axl = HushType.scaled(base, .body, category: .accessibilityLarge)
+        let native = UIFontMetrics(forTextStyle: .body).scaledValue(
+            for: base, compatibleWith: UITraitCollection(preferredContentSizeCategory: .extraExtraExtraLarge))
+        #expect(abs(xxxl - native) < 0.01)
+        #expect(axl > xxxl + 0.5)
+        #expect(axl <= xxxl * HushType.accessibilityGrowth + 0.001)
     }
 }
 
@@ -1443,5 +1452,262 @@ struct OpaquePNGTests {
         let png = try #require(OpaquePNG.encode(cg))
         #expect(OpaquePNG.colorType(png) == 2)
         #expect(UIImage(data: png) != nil)
+    }
+}
+
+// MARK: - R4: polish to "yes"
+
+@MainActor
+struct R4Tests {
+    /// App 1 (juror P0-1, UX P1-1): a plate's text is laid out inside `ChestArt.plateTextRect`, clear of the brass
+    /// end-caps plus 8 pt, and the plate never grows past the width it was given.
+    @Test func plateTextStaysOffTheCaps() {
+        for style in PlateStyle.allCases {
+            for (textWidth, maxWidth) in [(CGFloat(180), CGFloat(500)), (CGFloat(900), CGFloat(500)),
+                                          (CGFloat(60), CGFloat(320))] {
+                let plate = PlateFit.plateSize(maxWidth: maxWidth, style: style) { w in
+                    CGSize(width: min(w ?? textWidth, textWidth), height: 30)
+                }
+                #expect(plate.width <= maxWidth + 0.001)
+                let r = PlateFit.textRect(in: plate, style: style)
+                let cap = ChestArt.plateCapWidth(plate)
+                #expect(r.minX >= cap + 8 - 1)
+                #expect(plate.width - r.maxX >= cap + 8 - 1)
+                #expect(r.minY >= -0.001 && r.maxY <= plate.height + 0.001)
+                // A short line hugs: the text gets its whole width.
+                if textWidth < maxWidth / 2 { #expect(r.width >= textWidth - 1) }
+            }
+        }
+        #expect(HintLine.minScale == 0.7)
+    }
+
+    /// App 1: the hint plate keeps 16 pt from the pause stud, centred while it can be.
+    @Test func hintPlateClearsThePauseStud() {
+        let live = HUDLayout.hintPlateRect
+        #expect(!live.intersects(HUDLayout.pauseRect.insetBy(dx: -HUDLayout.pauseGap + 0.5,
+                                                              dy: -HUDLayout.pauseGap + 0.5)))
+        let band = CGRect(x: 72, y: 404, width: 500, height: 48)
+        let stud = CGRect(x: 520, y: 400, width: 56, height: 56)
+        let r = HUDLayout.hintPlateRect(band: band, pause: stud)
+        #expect(r.maxX <= stud.minX - HUDLayout.pauseGap + 0.001)
+        #expect(abs(r.midX - band.midX) < 0.001)
+        let far = CGRect(x: 600, y: 300, width: 56, height: 56)
+        #expect(HUDLayout.hintPlateRect(band: band, pause: far) == band)
+    }
+
+    /// App 2: one prompt at a time. The bank beat and the relic card hide the hint (a live "Freeze!" still shows), and
+    /// the lesson's pay-off never sits behind the closing card (QA-3 P2-3).
+    @Test func onePromptAtATime() {
+        #expect(AppRules.promptBlocked(phase: .banked(elapsed: 0.3), relicCardUp: false))
+        #expect(AppRules.promptBlocked(phase: .looting, relicCardUp: true))
+        #expect(!AppRules.promptBlocked(phase: .looting, relicCardUp: false))
+        #expect(AppRules.hintSuppressed(.dragToBag, phase: .looting, relicCardUp: true))
+        #expect(AppRules.hintSuppressed(.shutToBank, phase: .banked(elapsed: 0.1), relicCardUp: false))
+        #expect(!AppRules.hintSuppressed(.freeze, phase: .looting, relicCardUp: true))
+        #expect(!AppRules.hintSuppressed(.dragToBag, phase: .looting, relicCardUp: false))
+        var script = LessonScript(start: .bank)
+        #expect(!script.isFinishing)
+        let actions = script.update(LessonScript.Input(time: 1, events: [.banked(value: 8, items: 1, hushed: true)]))
+        #expect(actions.isEmpty)
+        #expect(script.isFinishing)
+        #expect(LessonScript(start: .done).isFinishing)
+        #expect(!AppRules.closingApplies(.looting, lessonFinishing: true))
+        #expect(AppRules.closingApplies(.looting, lessonFinishing: false))
+    }
+
+    /// App 3 (QA-3 P1-1): an input switch to the hinge mid-run holds; a switch to the lever keeps the lid's openness.
+    @Test func inputSwitchRules() {
+        #expect(AppRules.switchHolds(from: .slider, to: .hinge, liveRun: true))
+        #expect(AppRules.switchHolds(from: .fixed, to: .hinge, liveRun: true))
+        #expect(!AppRules.switchHolds(from: .hinge, to: .hinge, liveRun: true))
+        #expect(!AppRules.switchHolds(from: .slider, to: .hinge, liveRun: false))
+        #expect(!AppRules.switchHolds(from: .hinge, to: .slider, liveRun: true))
+        #expect(AppRules.switchKeepsOpenness(from: .hinge, to: .slider, liveRun: true))
+        #expect(!AppRules.switchKeepsOpenness(from: .slider, to: .slider, liveRun: true))
+        #expect(!AppRules.switchKeepsOpenness(from: .hinge, to: .slider, liveRun: false))
+    }
+
+    /// Founder (CI R4, frame 32): a fold layout never draws or takes the lever, whoever drives the lid; without a fold
+    /// ("Play anyway" landscape, a phone) the lever shows for the slider, the pilot and a `lid=` hold.
+    @Test func aFoldLayoutNeverUsesTheLever() {
+        for input in [AppInputKind.slider, .pilot, .fixed, .hinge] {
+            #expect(!AppRules.usesSlider(playRoute: true, layoutHasFold: true, input: input))
+            #expect(!AppRules.usesSlider(playRoute: false, layoutHasFold: false, input: input))
+            #expect(AppRules.usesSlider(playRoute: true, layoutHasFold: false, input: input) == (input != .hinge))
+        }
+    }
+
+    /// App 3 (QA-3 P1-1 and its P2): the real controller. A lever run handed to the hinge (a fold appears, or the
+    /// player leaves "Play anyway" for portrait) is held in the closing pause and doesn't step; "Play anyway" mid-run
+    /// hands the lever the lid where it is, so the open chest never snaps shut or auto-banks.
+    @Test func playAnywayHandOversNeverJumpTheLid() {
+        var data = ProgressData()
+        data.lessonDone = true
+        data.runs = 10
+        let controller = GameController(store: ProgressStore(inMemory: data), settings: SettingsStore(defaults: nil))
+        controller.play()
+        #expect(controller.input == .slider)
+        let frame = 1.0 / 60.0
+        var t = 2_000.0
+        // Open gently on the lever, to half.
+        controller.sliderTouch(began: true, ended: false, fraction: 0, time: t)
+        for i in 1...150 {
+            t += frame
+            controller.sliderTouch(began: false, ended: false, fraction: Double(i) / 150 * 0.5, time: t)
+            _ = controller.advance(dt: frame, now: t)
+        }
+        controller.sliderTouch(began: false, ended: true, fraction: 0.5, time: t)
+        t += frame
+        let open = controller.advance(dt: frame, now: t).0.openness
+        #expect(open > 0.3)
+
+        // The inner display in portrait (a fold): the run goes to the hinge, held, and doesn't step.
+        controller.updateCanvas(CGSize(width: 669, height: 951), hasFold: true, turned: false)
+        #expect(controller.input == .hinge)
+        #expect(controller.isClosingPaused)
+        #expect(!controller.usesSlider)
+        t += frame
+        let held = controller.advance(dt: frame, now: t).0
+        for _ in 0..<30 {
+            t += frame
+            _ = controller.advance(dt: frame, now: t)
+        }
+        t += frame
+        #expect(controller.advance(dt: frame, now: t).0.time == held.time)
+
+        // "Play anyway" mid-run: the lever starts where the lid is (not where it was left: 0 on a hinge run).
+        controller.slider.reset(openness: 0)
+        controller.choosePlayAnyway()
+        #expect(controller.input == .slider)
+        #expect(abs(controller.slider.openness - open) < 0.001)
+        controller.updateCanvas(CGSize(width: 951, height: 669), hasFold: false, turned: false)
+        #expect(controller.input == .slider)
+        #expect(controller.usesSlider)
+        var banked = false
+        var last = held
+        for _ in 0..<90 {
+            t += frame
+            let (s, events) = controller.advance(dt: frame, now: t)
+            last = s
+            if events.contains(where: { e in
+                if case .banked = e { return true }
+                return false
+            }) { banked = true }
+        }
+        #expect(!banked)
+        #expect(last.openness > 0.3)
+
+        // Back to portrait: "Play anyway" ends, the hinge takes over held (QA-3 P1-1).
+        controller.updateCanvas(CGSize(width: 669, height: 951), hasFold: true, turned: false)
+        #expect(!controller.playAnyway)
+        #expect(controller.input == .hinge)
+        #expect(controller.isClosingPaused)
+        t += frame
+        let again = controller.advance(dt: frame, now: t).0
+        for _ in 0..<30 {
+            t += frame
+            _ = controller.advance(dt: frame, now: t)
+        }
+        t += frame
+        #expect(controller.advance(dt: frame, now: t).0.time == again.time)
+        controller.goHome()
+    }
+
+    /// App 4 (QA-3 P2-4/5, UX P2-9): VoiceOver. Stirring once per chest, a late stage line re-checked when it fires,
+    /// only "Chomp!" and Waking interrupt, and the lesson's steps are announced.
+    @Test func voiceOverAnnouncements() {
+        var gate = AnnounceGate()
+        gate.chestArrived(0)
+        let first = gate.allowsStage(.stirring)
+        let second = gate.allowsStage(.stirring)
+        let waking1 = gate.allowsStage(.waking)
+        let waking2 = gate.allowsStage(.waking)
+        #expect(first && !second && waking1 && waking2)
+        gate.chestArrived(1)
+        let next = gate.allowsStage(.stirring)
+        #expect(next)
+
+        #expect(AppRules.stageAnnouncementDue(.waking, current: .waking, phase: .looting, paused: false))
+        #expect(!AppRules.stageAnnouncementDue(.waking, current: .biting, phase: .bitten(elapsed: 0.1), paused: false))
+        #expect(!AppRules.stageAnnouncementDue(.stirring, current: .asleep, phase: .looting, paused: false))
+        #expect(!AppRules.stageAnnouncementDue(.stirring, current: .stirring, phase: .looting, paused: true))
+
+        #expect(!HushCopy.queuesAnnouncement(.bitten(lostValue: 40)))
+        #expect(!HushCopy.queuesAnnouncement(.stageChanged(from: .stirring, to: .waking)))
+        #expect(HushCopy.queuesAnnouncement(.stageChanged(from: .asleep, to: .stirring)))
+        #expect(HushCopy.queuesAnnouncement(.banked(value: 10, items: 1, hushed: true)))
+
+        let open = LessonScript(start: .open).display(slider: true, angle: nil, hint: nil)
+        #expect(LessonDisplay.announcement(from: nil, to: open) == open.line)
+        #expect(LessonDisplay.announcement(from: open, to: open) == nil)
+        let grab = LessonScript(start: .grab).display(slider: true, angle: nil, hint: nil)
+        #expect(LessonDisplay.announcement(from: open, to: grab) == "Drag a coin into your bag.")
+        let pose1 = LessonScript(start: .pose).display(slider: false, angle: 60, hint: nil)
+        let pose2 = LessonScript(start: .pose).display(slider: false, angle: 100, hint: nil)
+        #expect(pose1.line != pose2.line)
+        #expect(LessonDisplay.announcement(from: pose1, to: pose2) == nil)
+        let final = LessonScript(start: .done).display(slider: true, angle: nil, hint: nil)
+        #expect(final.isFinal)
+        #expect(LessonDisplay.announcement(from: grab, to: final) == LessonDisplay.finalTitle)
+        #expect(LessonDisplay.announcement(from: final, to: final) == nil)
+    }
+
+    /// App 5: copy.
+    @Test func r4Copy() {
+        #expect(HomeView.caption(HomeLid(openness: 0, speed: 0), hinge: false).hasPrefix("Slide"))
+        #expect(!HomeView.caption(HomeLid(openness: 0, speed: 0), hinge: false).contains("Drag"))
+        #expect(LessonScript(start: .grab).line(slider: true, angle: nil, hint: nil) == "Drag a coin into your bag.")
+        #expect(RunTip.golden == "A golden mimic! Extra gold!")
+        #expect(!RunTip.golden.contains("×") && !RunTip.golden.lowercased().contains("double"))
+        // "15 chests opened": counted as the strip shows them (the one the candle went out on too).
+        var r = makeRun(gold: 3_000, banked: 6, hushed: 1, bites: 1)
+        #expect(AppRules.chestsOpened(r) == 7)
+        #expect(AppRules.story(r, outcome: RecordOutcome(), relicName: { _ in "" })
+            == "7 chests opened before the candle gave out.")
+        r.chestLog = Array(repeating: ChestOutcome(tier: .wooden, golden: false, value: 50, hushed: false,
+                                                   bitten: false), count: 15)
+        #expect(AppRules.chestsOpened(r) == 15)
+        #expect(AppRules.story(r, outcome: RecordOutcome(), relicName: { _ in "" }).hasPrefix("15 chests opened"))
+    }
+
+    /// App 7 (UX P2-7): large Dynamic Type wraps instead of truncating.
+    @Test func largeTypeWraps() {
+        #expect(CodexView.nameLines(.large) == 2)
+        #expect(CodexView.nameLines(.xxLarge) == 3)
+        #expect(CodexView.nameLines(.accessibility3) == 3)
+        // Home's Daily status wraps (lineLimit 2) instead of truncating; its words don't change with the size.
+        #expect(HomeMenu.dailyStatus(scoredReady: true, todayGold: nil) == "Today's try ready")
+        #expect(HomeMenu.dailyStatus(scoredReady: false, todayGold: 1_200).hasSuffix("today"))
+        #expect(HomeMenu.dailyStatus(scoredReady: false, todayGold: nil) == "Practice")
+        #expect(FadingScroll<EmptyView>.chevronStrip >= 16)
+    }
+
+    /// App 8 (juror P1-4): the pose card's Duo is drawn from the game's art (the sleeping eye at card size).
+    @Test func poseArtDrawsAtCardSize() {
+        let eye = ChestArt.mimicEye(wake: 0.06, size: CGSize(width: 110, height: 80))
+        #expect(!eye.white.isEmpty && !eye.lidTop.isEmpty)
+        #expect(!ChestArt.mimicEyeBed(size: CGSize(width: 110, height: 80)).isEmpty)
+        #expect(ChestArt.lootImage(.copper, radius: 12) != nil)
+        #expect(ChestArt.glyphImage(.arrowUp, side: 24) != nil)
+    }
+
+    /// App 10: Diagnostics. The channel is reported, never used to show UI; the panel lists the live hinge and the
+    /// hand-off and relight angles.
+    @Test func diagnosticsReportTheChannelAndAngles() throws {
+        #expect(BuildChannel.kind(isDebug: true, receiptName: "sandboxReceipt") == .debug)
+        #expect(BuildChannel.kind(isDebug: false, receiptName: "sandboxReceipt") == .testFlight)
+        #expect(BuildChannel.kind(isDebug: false, receiptName: "receipt") == .appStore)
+        #expect(BuildChannel.kind(isDebug: false, receiptName: nil) == .appStore)
+        let lines = AppRules.diagnosticsLines(channel: "TestFlight", version: "1.0 (14)", hinge: 104.25, input: "hinge",
+                                              handoff: 12, relight: nil, resumeAngle: 95, orientation: "mask portrait")
+        #expect(lines.first == "Build: TestFlight 1.0 (14)")
+        #expect(lines.contains { $0.hasPrefix("Hinge now: 104.") })
+        #expect(lines.contains("Last hand-off to cover: 12.0°"))
+        #expect(lines.contains("Last relight of inner: -"))
+        #expect(lines.contains("Resume needs: 95.0° and still"))
+        let none = AppRules.diagnosticsLines(channel: "App Store", version: "1.0 (1)", hinge: nil, input: "lever",
+                                             handoff: nil, relight: nil, resumeAngle: 95, orientation: "")
+        #expect(none.contains("Hinge now: no reading · lid: lever"))
+        #expect(SettingsView.versionText.hasPrefix("Version "))
     }
 }
