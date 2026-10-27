@@ -6,15 +6,17 @@ name: Duo
 # route: there is no CLI rotate and `simctl io … screenConfig` crash-loops SpringBoard), giving the tabletop canvas.
 # Script: ci/duo.sh. Hinge checks (design/ROUND-1.md, ROUND-2.md, ROUND-3.md): SLOW-OPEN, STILL, SLAM (shot on the
 # bite), SLAM-CREAK (R3: an attract slam shot on the CREAK accent), UPRIGHT-NO-PAUSE, CLOSE-PAUSE (70°),
-# REOPEN-NO-BITE, COVER-SLOW-CLOSE and COVER-SLOW-REOPEN (R3: the cover display is always a pause) (+ PORTRAIT,
-# POSE-CARD), printed as "<CHECK> PASS|FAIL (…)" in logs/run.txt and as a table in the job summary. Frames: closed 105,
+# REOPEN-NO-BITE, COVER-SLOW-CLOSE and COVER-SLOW-REOPEN (R3: the cover display is always a pause), FLAT-OPEN,
+# WATCHDOG and LANDSCAPE-PLAY (R6: never stuck when opened flat or left in landscape) (+ PORTRAIT, POSE-CARD), printed
+# as "<CHECK> PASS|FAIL|INCONCLUSIVE (…)" in logs/run.txt and as a table in the job summary. R6: the landscape drag
+# XCUITest also runs here, on the real Duo landscape (non-fatal, input `uitest`). Frames: closed 105,
 # half 135, wide 160, cover shut, reopened, and UI frames incl. the held book-pose card (pose=book). The App Store Duo
 # set is store.yml's (PASSES=store). Manual only (expensive: ~50–80 macOS minutes).
 on:
   workflow_dispatch:
     inputs:
       passes:
-        description: "Passes: hinge (the 9 checks), frames (105/135/160/cover), ui (home, lesson, results, codex, settings, book-pose card, cover); store = the App Store Duo set"
+        description: "Passes: hinge (the 12 checks), frames (105/135/160/cover), ui (home, lesson, results, codex, settings, book-pose card, cover); store = the App Store Duo set"
         type: string
         default: "hinge frames ui"
       orient:
@@ -25,6 +27,10 @@ on:
         description: "Fail the job when a hinge check FAILs (default: report only)"
         type: boolean
         default: false
+      uitest:
+        description: "R6: also run the landscape drag XCUITest on the Duo (non-fatal, ~10-15 min)"
+        type: boolean
+        default: true
 
 concurrency:
   group: duo-${{ github.ref }}
@@ -33,7 +39,7 @@ concurrency:
 jobs:
   duo:
     runs-on: xcode-27
-    timeout-minutes: 150
+    timeout-minutes: 180
     env:
       XCODE_APP: /Applications/Xcode_27.1.app
       RUNTIME_ID: com.apple.CoreSimulator.SimRuntime.iOS-27-1
@@ -116,7 +122,7 @@ jobs:
           gtimeout 30 xcrun simctl io "$UDID" enumerate || true
 
       - name: Capture
-        timeout-minutes: 80
+        timeout-minutes: 90
         env:
           UDID: ${{ steps.sim.outputs.udid }}
           PASSES: ${{ inputs.passes }}
@@ -124,6 +130,54 @@ jobs:
           STRICT: ${{ inputs.strict && '1' || '0' }}
           OUT: duo-screens
         run: bash ci/duo.sh
+
+      - name: Landscape drag on the Duo (UI test, non-fatal)
+        # R6 (ROUND-6 CI 1): HushUITests' testLandscapeTurnedDragBagsALitItem on the real Duo, where a landscape
+        # interface is what iOS really does (ci.yml runs it on a phone sim, where only `quarter=3` can force k = 3).
+        # XCUIDevice .landscapeRight (= interface .landscapeLeft, k = 3) + `orient=landscape;quarter=3`, `lid=0.9` so no
+        # hinge is needed (it is set to 150 anyway, so the inner display is lit). Runs after the capture so it can't
+        # disturb ci/duo.sh. Ad-hoc signature retry as in ci.yml. Verdict in the summary; xcresult in duo-screens/.
+        if: ${{ !cancelled() && inputs.uitest }}
+        continue-on-error: true
+        timeout-minutes: 30
+        env:
+          UDID: ${{ steps.sim.outputs.udid }}
+        run: |
+          set +e
+          command -v hinge >/dev/null && gtimeout 20 hinge -d "$UDID" -t 3 150
+          T=HushUITests/TurnedDragUITests/testLandscapeTurnedDragBagsALitItem
+          mkdir -p duo-screens
+          run_ui() {
+            gtimeout 1500 xcodebuild test -project Hush.xcodeproj -scheme HushUITests -destination "id=$UDID" \
+              -derivedDataPath build -only-testing:"$T" -resultBundlePath "duo-screens/uitest-$1.xcresult" "${@:2}" \
+              > "duo-screens/uitest-$1.log" 2>&1
+            grep -E "error:|Test [Cc]ase .*(passed|failed|skipped)|XCTSkip|Executed|\*\* TEST" "duo-screens/uitest-$1.log" | tail -30
+          }
+          run_ui unsigned CODE_SIGNING_ALLOWED=NO
+          LOG=duo-screens/uitest-unsigned.log
+          if ! grep -qE "Test [Cc]ase .*(passed|failed|skipped)" "$LOG"; then
+            echo "::warning::UI test did not run unsigned; retrying with an ad-hoc signature"
+            run_ui adhoc CODE_SIGN_IDENTITY=- CODE_SIGNING_REQUIRED=NO
+            LOG=duo-screens/uitest-adhoc.log
+          fi
+          if grep -qE "Test [Cc]ase .*testLandscapeTurnedDragBagsALitItem.* passed" "$LOG"; then
+            v="**PASS**: a real drag through the landscape (k = 3) layout bagged the item."
+          elif grep -qE "Test [Cc]ase .*testLandscapeTurnedDragBagsALitItem.* skipped" "$LOG"; then
+            v="SKIPPED: $(grep -m1 -oE "(No \`[a-z.]+\` accessibility element[^:]*|Landscape drag: the layout is k=[0-9]+[^(]*)" "$LOG" || echo 'see the log')."
+            echo "::warning::Landscape drag UI test skipped on the Duo"
+          elif grep -qE "Test [Cc]ase .*testLandscapeTurnedDragBagsALitItem.* failed" "$LOG"; then
+            v="**FAIL**: $(grep -m1 -oE "Landscape turned drag from[^(]*" "$LOG" || echo 'see the log')"
+            echo "::warning::Landscape drag UI test FAILED on the Duo: the k = 3 touch mapping may be wrong"
+          else
+            v="did not run (see $LOG)."
+            echo "::warning::Landscape drag UI test did not run on the Duo"
+          fi
+          {
+            echo "### Landscape drag on the Duo (HushUITests)"
+            echo ""
+            echo "$v Attachments (screenshots, drag and canvas text) in \`duo-screens/uitest-*.xcresult\`."
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit 0
 
       - name: Upload
         if: always()

@@ -83,7 +83,7 @@
 23-codex-late|screen=codex;progress=late|6|Codex: 22 of 24 relics|HUSH-T canvas
 24-settings|screen=settings|5|Settings: Sound, Haptics, Play sound on silent, Reduce motion, Replay First Chest, About, Credits, Done|HUSH-T canvas
 # R4 25: "Play anyway" appears after 8 s on the card (PoseCards, QA-2 P2-4), so the wait is 11 s.
-25-pose|screen=pose;pose=book;fold=1|11|Pose card (R3) at a compact width: "Turn it sideways. Lift the glowing half.", the glowing half (R4 App: a drawn Duo-shaped chest), "I've stood it up" and, after 8 s, "Play anyway". The real landscape card is the Duo's duo-ui-pose-card|HUSH-T pose standUp
+25-pose|screen=home;progress=mid;fold=1|6|R6: no blocking book card any more; Home on the Duo layout (a landscape Duo now draws the right way up, k odd; the non-blocking tip is a Duo-only frame, duo-ui-pose-card)|HUSH-T canvas
 26-daily|screen=run;mode=daily;seed=7;progress=mid;pilot=expert;freezeOn=reveal|25|Daily Dungeon in play: the "DAILY DUNGEON · <date>" plaque on the lid, the day's chest open with its loot lit (today's best shows only after a first try)|HUSH-T freeze reveal
 27-cover|screen=cover;progress=mid|5|Cover-display card off a run: the sleeping mimic, "Open me… gently" / "There's gold in here. And something else." (mid-run it says "Open to carry on": the Duo's duo-h7 frame); no hairlines, no clipped "z" (juror P1-3)|HUSH-T canvas
 # The Duo layout on a phone (fold=1): the fold band at mid-height, no slider. turn defaults on with a fold, so 30/31

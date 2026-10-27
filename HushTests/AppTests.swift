@@ -1,5 +1,6 @@
 import CoreGraphics
 import Foundation
+import QuartzCore
 import SwiftUI
 import Testing
 import UIKit
@@ -496,7 +497,6 @@ struct TurnedRoundTests {
         #expect(AppRules.turnsRound(wanted: true, pose: .play, portrait: true, hasFold: true))
         #expect(!AppRules.turnsRound(wanted: false, pose: .play, portrait: true, hasFold: true))
         #expect(!AppRules.turnsRound(wanted: true, pose: .play, portrait: true, hasFold: false))
-        #expect(!AppRules.turnsRound(wanted: true, pose: .standUp, portrait: false, hasFold: true))
         #expect(!AppRules.turnsRound(wanted: true, pose: .cover, portrait: true, hasFold: true))
         #expect(!AppRules.turnsRound(wanted: true, pose: .play, portrait: false, hasFold: true))
         // QA-1 P2-6: a Game Center sheet un-turns the app.
@@ -516,21 +516,15 @@ struct TurnedRoundTests {
         #expect(AppRules.deferredEdges(live: false, turnedRound: true) == [])
     }
 
-    @Test func liftSideFollowsTheInterface() {
-        #expect(AppRules.liftSide(interface: .landscapeRight, turned: true) == .right)
-        #expect(AppRules.liftSide(interface: .landscapeRight, turned: false) == .left)
-        #expect(AppRules.liftSide(interface: .landscapeLeft, turned: true) == .left)
-        #expect(AppRules.liftSide(interface: .landscapeLeft, turned: false) == .right)
-    }
-
     @Test func poses() {
         let inner = CGSize(width: 669, height: 951)
         let book = CGSize(width: 951, height: 669)
         let cover = CGSize(width: 393, height: 520)
         let phone = CGSize(width: 402, height: 874)
         #expect(AppRules.pose(canvas: inner, hingeSeen: true, isShut: false) == .play)
-        #expect(AppRules.pose(canvas: book, hingeSeen: true, isShut: false) == .standUp)
-        #expect(AppRules.pose(canvas: book, hingeSeen: false, isShut: false) == .standUp)
+        // R6: book pose plays (it never blocks), drawn with quarter turns.
+        #expect(AppRules.pose(canvas: book, hingeSeen: true, isShut: false) == .play)
+        #expect(AppRules.pose(canvas: book, hingeSeen: false, isShut: false) == .play)
         #expect(AppRules.pose(canvas: cover, hingeSeen: true, isShut: true) == .cover)
         #expect(AppRules.pose(canvas: phone, hingeSeen: false, isShut: false) == .play)
         #expect(AppRules.hasFold(canvas: inner, hingeSeen: true, demoFold: false))
@@ -538,17 +532,18 @@ struct TurnedRoundTests {
         #expect(!AppRules.hasFold(canvas: phone, hingeSeen: false, demoFold: false))
         #expect(AppRules.hasFold(canvas: phone, hingeSeen: false, demoFold: true))
         #expect(!AppRules.hasFold(canvas: book, hingeSeen: true, demoFold: false))
+        // R6: RootView judges the fold on the portrait-equivalent canvas, so book pose is a fold.
+        #expect(AppRules.hasFold(canvas: AppRules.portraitSize(book), hingeSeen: true, demoFold: false))
     }
 
-    /// UX: a phone never shows the book-pose card (R1's frame 25).
+    /// UX: a phone never shows the book-pose prompt (R1's frame 25). R6: it is the non-blocking tip.
     @Test func phoneNeverShowsTheBookCard() {
         let phone = CGSize(width: 402, height: 874)
-        #expect(!AppRules.allowsForcedPose(.standUp, screen: phone, demoFold: false))
-        #expect(AppRules.allowsForcedPose(.standUp, screen: phone, demoFold: true))
-        #expect(AppRules.allowsForcedPose(.standUp, screen: CGSize(width: 669, height: 951), demoFold: false))
-        #expect(AppRules.allowsForcedPose(.cover, screen: phone, demoFold: false))
-        #expect(StandUpCard.splitsOnFold(CGSize(width: 951, height: 669)))
-        #expect(!StandUpCard.splitsOnFold(CGSize(width: 402, height: 874)))
+        #expect(!AppRules.allowsForcedPoseTip(screen: phone, demoFold: false))
+        #expect(AppRules.allowsForcedPoseTip(screen: phone, demoFold: true))
+        #expect(AppRules.allowsForcedPoseTip(screen: CGSize(width: 669, height: 951), demoFold: false))
+        #expect(!AppRules.showsPoseTip(duo: false, route: .home, lessonStep: nil, device: .landscapeLeft,
+                                       dismissed: false))
     }
 
     @Test func orientationMasks() {
@@ -584,14 +579,13 @@ struct TurnedRoundTests {
     }
 
     /// R3 (founder decision 1): the "cover-open" fallback is gone. A cover-sized canvas on a Duo is always the cover
-    /// display (a pause), whatever the hinge says; "Play anyway" plays a landscape book pose.
+    /// display (a pause), whatever the hinge says; R6: a landscape inner display plays.
     @Test func aSmallCanvasIsAlwaysTheCover() {
         for small in [CGSize(width: 466, height: 678), CGSize(width: 469, height: 669), CGSize(width: 669, height: 469)] {
             #expect(AppRules.pose(canvas: small, hingeSeen: true, isShut: false) == .cover)
-            #expect(AppRules.pose(canvas: small, hingeSeen: true, isShut: false, playAnyway: true) == .cover)
         }
         let book = CGSize(width: 951, height: 669)
-        #expect(AppRules.pose(canvas: book, hingeSeen: true, isShut: false, playAnyway: true) == .play)
+        #expect(AppRules.pose(canvas: book, hingeSeen: true, isShut: false) == .play)
         #expect(AppRules.canvasClass(CGSize(width: 466, height: 678)) == .small)
         #expect(AppRules.canvasClass(CGSize(width: 669, height: 951)) == .inner)
         #expect(AppRules.canvasClass(.zero) == nil)
@@ -653,36 +647,22 @@ struct TurnedRoundTests {
         #expect(!OrientationLock.trustsStoredHinge(false, screen: CGSize(width: 466, height: 678)))
     }
 
-    /// R3 (UX P1-6, QA-2 P2-4): the pose card's words and its way out.
-    @Test func poseCardCopyAndWayOut() {
-        #expect(StandUpCard.title == "Turn it sideways. Lift the glowing half.")
-        #expect(!StandUpCard.title.contains("round"))
-        #expect(StandUpCard.wayOut == "Play anyway")
-        #expect(!StandUpCard.showsWayOut(refused: false, waited: false))
-        #expect(StandUpCard.showsWayOut(refused: true, waited: false))
-        #expect(StandUpCard.showsWayOut(refused: false, waited: true))
+    /// R6: the blocking card's words and "Play anyway" are gone; the tip says one short thing.
+    @Test func poseTipCopy() {
+        #expect(PoseTip.text == "Stand it up like a little laptop")
+        #expect(HushCopy.wordCount(PoseTip.text) <= 7)
+        #expect(!PoseTip.text.contains("round"))
     }
 
     @Test func poseReasonsSayWhy() {
         #expect(AppRules.poseReason(.cover, canvas: CGSize(width: 469, height: 669), forced: false, angle: 104.2)
                 == "cover-sized 469x669 angle=104.2")
-        #expect(AppRules.poseReason(.standUp, canvas: CGSize(width: 951, height: 669), forced: false, angle: nil)
-                == "landscape 951x669 angle=-")
         #expect(AppRules.poseReason(.play, canvas: CGSize(width: 669, height: 951), forced: false, angle: 120)
                 == "portrait 669x951")
         #expect(AppRules.poseReason(.play, canvas: CGSize(width: 951, height: 669), forced: false, angle: 104)
-                .hasPrefix("play-anyway"))
-        #expect(AppRules.poseReason(.standUp, canvas: CGSize(width: 669, height: 951), forced: true, angle: nil)
+                == "landscape-play 951x669")
+        #expect(AppRules.poseReason(.cover, canvas: CGSize(width: 669, height: 951), forced: true, angle: nil)
                 .hasPrefix("forced"))
-    }
-
-    /// P0-1: a ≥ 15° lift into the play range under the book card asks iOS for portrait.
-    @Test func liftUnderTheBookCardAsksForPortrait() {
-        #expect(AppRules.liftedFromBook(angle: 120, angleAtCard: 178))
-        #expect(!AppRules.liftedFromBook(angle: 170, angleAtCard: 178))      // still near flat
-        #expect(!AppRules.liftedFromBook(angle: 120, angleAtCard: 112))      // barely moved
-        #expect(!AppRules.liftedFromBook(angle: 60, angleAtCard: 178))       // out of the play range
-        #expect(!AppRules.liftedFromBook(angle: 120, angleAtCard: nil))
     }
 
     /// P1-7: camera end up while turned, with the hinge open, reads upside down.
@@ -1537,10 +1517,10 @@ struct R4Tests {
         }
     }
 
-    /// App 3 (QA-3 P1-1 and its P2): the real controller. A lever run handed to the hinge (a fold appears, or the
-    /// player leaves "Play anyway" for portrait) is held in the closing pause and doesn't step; "Play anyway" mid-run
-    /// hands the lever the lid where it is, so the open chest never snaps shut or auto-banks.
-    @Test func playAnywayHandOversNeverJumpTheLid() {
+    /// App 3 (QA-3 P1-1): the real controller. A lever run handed to the hinge (a fold appears) is held in the closing
+    /// pause and doesn't step. R6: "Play anyway" is gone: the same Duo turned landscape (k = 1) stays on the hinge,
+    /// still a fold, never the lever, and the turn alone never pauses or re-holds the run.
+    @Test func foldHandOversNeverJumpTheLid() {
         var data = ProgressData()
         data.lessonDone = true
         data.runs = 10
@@ -1575,41 +1555,13 @@ struct R4Tests {
         t += frame
         #expect(controller.advance(dt: frame, now: t).0.time == held.time)
 
-        // "Play anyway" mid-run: the lever starts where the lid is (not where it was left: 0 on a hinge run).
-        controller.slider.reset(openness: 0)
-        controller.choosePlayAnyway()
-        #expect(controller.input == .slider)
-        #expect(abs(controller.slider.openness - open) < 0.001)
-        controller.updateCanvas(CGSize(width: 951, height: 669), hasFold: false, turned: false)
-        #expect(controller.input == .slider)
-        #expect(controller.usesSlider)
-        var banked = false
-        var last = held
-        for _ in 0..<90 {
-            t += frame
-            let (s, events) = controller.advance(dt: frame, now: t)
-            last = s
-            if events.contains(where: { e in
-                if case .banked = e { return true }
-                return false
-            }) { banked = true }
-        }
-        #expect(!banked)
-        #expect(last.openness > 0.3)
-
-        // Back to portrait: "Play anyway" ends, the hinge takes over held (QA-3 P1-1).
-        controller.updateCanvas(CGSize(width: 669, height: 951), hasFold: true, turned: false)
-        #expect(!controller.playAnyway)
+        // R6: the Duo turned landscape (book pose / flat): still the hinge, still a fold, no lever, k odd.
+        controller.updateCanvas(CGSize(width: 951, height: 669), hasFold: true, quarterTurns: 1)
         #expect(controller.input == .hinge)
-        #expect(controller.isClosingPaused)
-        t += frame
-        let again = controller.advance(dt: frame, now: t).0
-        for _ in 0..<30 {
-            t += frame
-            _ = controller.advance(dt: frame, now: t)
-        }
-        t += frame
-        #expect(controller.advance(dt: frame, now: t).0.time == again.time)
+        #expect(controller.layoutHasFold)
+        #expect(!controller.usesSlider)
+        #expect(controller.quarterTurns == 1)
+        #expect(controller.pose == .play)
         controller.goHome()
     }
 
@@ -1935,5 +1887,468 @@ struct R5Tests {
         #expect(BadgePainter.motif(index: index(Achievements.firstRelic)) == .lantern)
         #expect(Set(BadgePainter.motifs).count == BadgePainter.motifs.count)
         #expect(BadgePainter.motifs.count == Achievements.all.count)
+    }
+}
+
+// MARK: - R6: "any way up", never stuck
+
+@MainActor
+struct R6Tests {
+    private func makeController() -> GameController {
+        var data = ProgressData()
+        data.lessonDone = true
+        data.runs = 10
+        return GameController(store: ProgressStore(inMemory: data), settings: SettingsStore(defaults: nil))
+    }
+
+    /// A live hinge run on the Duo's inner display (no hinge report yet: held on the closing card).
+    private func makeFoldRun() -> GameController {
+        let controller = makeController()
+        controller.updateCanvas(CGSize(width: 669, height: 951), hasFold: true, quarterTurns: 2)
+        controller.play()
+        return controller
+    }
+
+    private let duoPortrait = CGSize(width: 669, height: 951)
+    private let duoLandscape = CGSize(width: 951, height: 669)
+
+    // MARK: Item 1: the founder's rule, every case
+
+    /// ROUND-6's table, all 4 interfaces × turn round on/off × fold/no fold, plus `.unknown` keeping the last value.
+    @Test func quarterTurnsTable() {
+        let table: [(UIInterfaceOrientation, on: Int, off: Int)] = [
+            (.portrait, 2, 0), (.landscapeRight, 1, 3), (.landscapeLeft, 3, 1), (.portraitUpsideDown, 0, 2),
+        ]
+        for row in table {
+            #expect(AppRules.quarterTurns(interface: row.0, turnRound: true, hasFold: true) == row.on)
+            #expect(AppRules.quarterTurns(interface: row.0, turnRound: false, hasFold: true) == row.off)
+            #expect(AppRules.quarterTurns(interface: row.0, turnRound: true, hasFold: false) == 0)
+            #expect(AppRules.quarterTurns(interface: row.0, turnRound: false, hasFold: false) == 0)
+        }
+        for last in 0...3 {
+            #expect(AppRules.quarterTurns(interface: .unknown, turnRound: true, hasFold: true, last: last) == last)
+            #expect(AppRules.quarterTurns(interface: .unknown, turnRound: false, hasFold: true, last: last) == last)
+            #expect(AppRules.quarterTurns(interface: .unknown, turnRound: true, hasFold: false, last: last) == 0)
+        }
+        #expect(AppRules.normalisedTurns(-1) == 3)
+        #expect(AppRules.normalisedTurns(6) == 2)
+    }
+
+    /// The lid (the canvas top) lands on the blurring side (the physical portrait-bottom) with turn round on, and on
+    /// the opposite side with it off, for every interface.
+    @Test func theLidPointsAtTheBlurringHalf() {
+        let blur: [(UIInterfaceOrientation, Edge)] = [
+            (.portrait, .bottom), (.landscapeRight, .trailing), (.landscapeLeft, .leading), (.portraitUpsideDown, .top),
+        ]
+        let opposite: [Edge: Edge] = [.top: .bottom, .bottom: .top, .leading: .trailing, .trailing: .leading]
+        for (iface, side) in blur {
+            let on = AppRules.quarterTurns(interface: iface, turnRound: true, hasFold: true)
+            let off = AppRules.quarterTurns(interface: iface, turnRound: false, hasFold: true)
+            #expect(AppRules.windowEdge(drawn: .top, quarterTurns: on) == side)
+            #expect(AppRules.windowEdge(drawn: .top, quarterTurns: off) == opposite[side])
+        }
+    }
+
+    /// The interface RootView draws for always agrees with the window's shape, so a fold's drawn frame is portrait.
+    @Test func theSettledInterfaceMatchesTheWindow() {
+        #expect(AppRules.settledInterface(.landscapeLeft, window: duoLandscape, last: .portrait) == .landscapeLeft)
+        #expect(AppRules.settledInterface(.portrait, window: duoLandscape, last: .landscapeLeft) == .landscapeLeft)
+        #expect(AppRules.settledInterface(.unknown, window: duoLandscape, last: .unknown) == .landscapeRight)
+        #expect(AppRules.settledInterface(.landscapeRight, window: duoPortrait, last: .unknown) == .portrait)
+        #expect(AppRules.settledInterface(.unknown, window: duoPortrait, last: .portraitUpsideDown)
+                == .portraitUpsideDown)
+        for iface in [UIInterfaceOrientation.unknown, .portrait, .landscapeLeft, .landscapeRight, .portraitUpsideDown] {
+            for window in [duoPortrait, duoLandscape] {
+                let o = AppRules.settledInterface(iface, window: window, last: .unknown)
+                for turn in [true, false] {
+                    let k = AppRules.quarterTurns(interface: o, turnRound: turn, hasFold: true)
+                    let drawn = AppRules.drawnSize(window: window, quarterTurns: k)
+                    #expect(drawn.height > drawn.width, "\(iface.rawValue) \(window) k=\(k)")
+                }
+            }
+        }
+    }
+
+    // MARK: Item 2: the root frame, insets and gesture edges
+
+    @Test func drawnFrameInsetsAndEdgesTurnWithK() {
+        #expect(AppRules.drawnSize(window: duoLandscape, quarterTurns: 1) == duoPortrait)
+        #expect(AppRules.drawnSize(window: duoLandscape, quarterTurns: 3) == duoPortrait)
+        #expect(AppRules.drawnSize(window: duoPortrait, quarterTurns: 2) == duoPortrait)
+        #expect(AppRules.portraitSize(duoLandscape) == duoPortrait)
+        let safe = EdgeInsets(top: 10, leading: 2, bottom: 30, trailing: 4)
+        #expect(AppRules.insets(safe, quarterTurns: 0) == safe)
+        #expect(AppRules.insets(safe, quarterTurns: 2) == AppRules.insets(safe, turnedRound: true))
+        let k1 = AppRules.insets(safe, quarterTurns: 1)
+        #expect(k1.top == 4 && k1.leading == 10 && k1.bottom == 2 && k1.trailing == 30)
+        let k3 = AppRules.insets(safe, quarterTurns: 3)
+        #expect(k3.top == 2 && k3.leading == 30 && k3.bottom == 4 && k3.trailing == 10)
+        #expect(AppRules.deferredEdges(live: true, quarterTurns: 0) == .bottom)
+        #expect(AppRules.deferredEdges(live: true, quarterTurns: 2) == [.top, .bottom])
+        #expect(AppRules.deferredEdges(live: true, quarterTurns: 1) == [.bottom, .leading])
+        #expect(AppRules.deferredEdges(live: true, quarterTurns: 3) == [.bottom, .trailing])
+        for k in 0...3 {
+            #expect(AppRules.deferredEdges(live: false, quarterTurns: k) == [])
+            #expect(AppRules.deferredEdges(live: true, quarterTurns: k).contains(.bottom))
+        }
+    }
+
+    /// Demo `quarter=`: used only on a fold and only where its parity fits the window.
+    @Test func forcedQuarterTurnsOnlyWhereTheyFit() {
+        #expect(AppRules.forcedTurnsFit(3, window: duoLandscape, hasFold: true))
+        #expect(AppRules.forcedTurnsFit(1, window: duoLandscape, hasFold: true))
+        #expect(!AppRules.forcedTurnsFit(3, window: duoPortrait, hasFold: true))
+        #expect(AppRules.forcedTurnsFit(0, window: duoPortrait, hasFold: true))
+        #expect(!AppRules.forcedTurnsFit(2, window: duoLandscape, hasFold: true))
+        #expect(!AppRules.forcedTurnsFit(3, window: duoLandscape, hasFold: false))
+        #expect(DemoMode.parse("quarter=3").quarter == 3)
+        #expect(DemoMode.parse("quarter=7").quarter == nil)
+        #expect(DemoMode.parse("screen=run").quarter == nil)
+    }
+
+    /// CI greps `fold=` and `turned=` (k == 2) and now `k=`; the size is the real window.
+    @Test func theCanvasLineCarriesK() {
+        #expect(AppRules.canvasLine(duoLandscape, hasFold: true, quarterTurns: 3)
+                == "HUSH-T canvas 951x669 fold=1 turned=0 k=3")
+        #expect(AppRules.canvasLine(duoPortrait, hasFold: true, quarterTurns: 2)
+                == "HUSH-T canvas 669x951 fold=1 turned=1 k=2")
+        #expect(AppRules.canvasLine(CGSize(width: 402, height: 874), hasFold: false, quarterTurns: 0)
+                .hasSuffix("fold=0 turned=0 k=0"))
+    }
+
+    // MARK: Item 3: the scene
+
+    /// The scene gets the portrait-equivalent layout and k; the SpriteView stays the window; `turned` is k == 2.
+    @Test func theSceneTurnsAndKeepsThePortraitLayout() throws {
+        let controller = makeController()
+        controller.updateCanvas(duoPortrait, hasFold: true, quarterTurns: 2)
+        let scene = try #require(controller.scene)
+        let portraitLayout = scene.layout
+        #expect(scene.quarterTurns == 2)
+        #expect(controller.isTurned)
+        controller.updateCanvas(duoLandscape, hasFold: true, quarterTurns: 1)
+        #expect(scene.quarterTurns == 1)
+        #expect(!scene.turned)
+        #expect(scene.layout == portraitLayout)
+        #expect(scene.layout.hasFold)
+        #expect(controller.quarterTurns == 1)
+        #expect(!controller.isTurned)
+        controller.updateCanvas(duoLandscape, hasFold: true, quarterTurns: 3)
+        #expect(scene.quarterTurns == 3)
+        // The R2 form still works.
+        controller.updateCanvas(duoPortrait, hasFold: true, turned: true)
+        #expect(scene.quarterTurns == 2)
+        #expect(controller.scene === scene)
+    }
+
+    // MARK: Item 4: book pose never blocks
+
+    @Test func bookPoseNeverBlocks() {
+        for hinge in [true, false] {
+            #expect(AppRules.pose(canvas: duoLandscape, hingeSeen: hinge, isShut: false) == .play)
+            #expect(AppRules.pose(canvas: duoPortrait, hingeSeen: hinge, isShut: false) == .play)
+        }
+        #expect(AppRules.hasFold(canvas: AppRules.portraitSize(duoLandscape), hingeSeen: true, demoFold: false))
+        #expect(AppRules.hasFold(canvas: AppRules.portraitSize(duoLandscape), hingeSeen: false, demoFold: false))
+        // A Duo turned landscape mid-run plays on: the hinge, a fold, no lever, no pause of its own.
+        let controller = makeFoldRun()
+        controller.carryOn()
+        #expect(!controller.isPaused)
+        controller.updateCanvas(duoLandscape, hasFold: true, quarterTurns: 3)
+        #expect(controller.pose == .play)
+        #expect(!controller.isPaused)
+        #expect(controller.input == .hinge)
+        #expect(!controller.usesSlider)
+        controller.goHome()
+    }
+
+    @Test func thePoseTipRules() {
+        // Home and lesson step 1 only, a Duo, the device landscape, not dismissed.
+        #expect(AppRules.showsPoseTip(duo: true, route: .home, lessonStep: nil, device: .landscapeLeft,
+                                      dismissed: false))
+        #expect(AppRules.showsPoseTip(duo: true, route: .lesson, lessonStep: 1, device: .landscapeRight,
+                                      dismissed: false))
+        #expect(!AppRules.showsPoseTip(duo: true, route: .lesson, lessonStep: 2, device: .landscapeRight,
+                                       dismissed: false))
+        for route in [AppRoute.playing, .results, .codex, .badges, .settings, .daily] {
+            #expect(!AppRules.showsPoseTip(duo: true, route: route, lessonStep: nil, device: .landscapeLeft,
+                                           dismissed: false))
+            #expect(!AppRules.showsPoseTip(duo: true, route: route, lessonStep: nil, device: .landscapeLeft,
+                                           dismissed: false, forced: true))
+        }
+        for device in [UIDeviceOrientation.portrait, .faceUp, .faceDown, .unknown, .portraitUpsideDown] {
+            #expect(!AppRules.showsPoseTip(duo: true, route: .home, lessonStep: nil, device: device, dismissed: false))
+        }
+        #expect(!AppRules.showsPoseTip(duo: true, route: .home, lessonStep: nil, device: .landscapeLeft,
+                                       dismissed: true))
+        #expect(!AppRules.showsPoseTip(duo: false, route: .home, lessonStep: nil, device: .landscapeLeft,
+                                       dismissed: false))
+        #expect(AppRules.showsPoseTip(duo: false, route: .home, lessonStep: nil, device: .portrait,
+                                      dismissed: true, forced: true))
+        // Upright to gravity: none when iOS already turned with the device; a quarter turn when it didn't.
+        #expect(AppRules.tipTurns(device: .landscapeLeft, interface: .landscapeRight) == 0)
+        #expect(AppRules.tipTurns(device: .landscapeRight, interface: .landscapeLeft) == 0)
+        #expect(AppRules.tipTurns(device: .landscapeLeft, interface: .portrait) == 1)
+        #expect(AppRules.tipTurns(device: .landscapeRight, interface: .portrait) == 3)
+        #expect(AppRules.tipTurns(device: .portrait, interface: .portrait) == 0)
+        #expect(AppRules.tipTurns(device: .faceUp, interface: .portrait) == nil)
+        #expect(AppRules.poseTipOnLeft(device: .landscapeLeft))
+        #expect(!AppRules.poseTipOnLeft(device: .landscapeRight))
+    }
+
+    // MARK: Item 5: the orientation policy
+
+    @Test func aLiveRunHoldsItsOrientationMenusDont() {
+        for iface in [UIInterfaceOrientation.portrait, .landscapeLeft, .landscapeRight] {
+            let held = OrientationLock.mask(isDuo: true, liveRun: true, inner: true, interface: iface)
+            #expect(held.contains(UIInterfaceOrientationMask(rawValue: 1 << UInt(iface.rawValue))))
+            #expect(held != .allButUpsideDown)
+            #expect(OrientationLock.mask(isDuo: true, liveRun: false, inner: true, interface: iface)
+                    == .allButUpsideDown)
+            #expect(OrientationLock.mask(isDuo: true, liveRun: true, inner: false, interface: iface)
+                    == .allButUpsideDown)
+            #expect(OrientationLock.mask(isDuo: false, liveRun: true, inner: true, interface: iface) == .portrait)
+        }
+        #expect(OrientationLock.mask(isDuo: true, liveRun: true, inner: true, interface: .landscapeLeft)
+                == .landscapeLeft)
+        #expect(OrientationLock.mask(isDuo: true, liveRun: true, inner: true, interface: .unknown)
+                == .allButUpsideDown)
+        for iface in [UIInterfaceOrientation.unknown, .portrait, .landscapeLeft, .landscapeRight, .portraitUpsideDown] {
+            for live in [true, false] {
+                for inner in [true, false] {
+                    let m = OrientationLock.mask(isDuo: true, liveRun: live, inner: inner, interface: iface)
+                    #expect(!m.contains(.portraitUpsideDown))
+                }
+            }
+        }
+    }
+
+    // MARK: Item 6: never stuck
+
+    /// "Carry on" resumes at once, whatever the hinge says, and the run steps again.
+    @Test func carryOnResumesAtOnce() {
+        let controller = makeFoldRun()
+        #expect(controller.input == .hinge)
+        #expect(controller.isClosingPaused)
+        controller.carryOn()
+        #expect(!controller.isClosingPaused)
+        #expect(!controller.isPaused)
+        #expect(!controller.closingAwaitsHinge)
+        let frame = 1.0 / 60.0
+        var t = CACurrentMediaTime()
+        let first = controller.advance(dt: frame, now: t).0
+        for _ in 0..<30 {
+            t += frame
+            _ = controller.advance(dt: frame, now: t)
+        }
+        t += frame
+        let later = controller.advance(dt: frame, now: t).0
+        #expect(!controller.isClosingPaused)
+        #expect(later.time > first.time)
+        #expect(ClosingCard.carryOn == "Carry on")
+        controller.goHome()
+    }
+
+    /// The founder's rule: the watchdog resumes only a closing pause, ≥ 6 s, with the last known angle ≥ 95°, on the
+    /// inner display. A lid sitting shut (no samples, a low angle, or none) stays paused.
+    @Test func theWatchdogRule() {
+        let ok = AppRules.watchdogResumes(pausedFor: 6.1, onlyClosing: true, liveRun: true, canvas: .inner, angle: 130)
+        #expect(ok)
+        #expect(!AppRules.watchdogResumes(pausedFor: 5.9, onlyClosing: true, liveRun: true, canvas: .inner,
+                                          angle: 130))
+        #expect(!AppRules.watchdogResumes(pausedFor: 9, onlyClosing: true, liveRun: true, canvas: .inner, angle: 94))
+        #expect(!AppRules.watchdogResumes(pausedFor: 9, onlyClosing: true, liveRun: true, canvas: .inner, angle: 55))
+        #expect(!AppRules.watchdogResumes(pausedFor: 9, onlyClosing: true, liveRun: true, canvas: .inner, angle: nil))
+        #expect(!AppRules.watchdogResumes(pausedFor: 9, onlyClosing: true, liveRun: true, canvas: .small, angle: 130))
+        #expect(!AppRules.watchdogResumes(pausedFor: 9, onlyClosing: true, liveRun: true, canvas: nil, angle: 130))
+        #expect(!AppRules.watchdogResumes(pausedFor: 9, onlyClosing: false, liveRun: true, canvas: .inner, angle: 130))
+        #expect(!AppRules.watchdogResumes(pausedFor: 9, onlyClosing: true, liveRun: false, canvas: .inner, angle: 130))
+        #expect(!AppRules.watchdogResumes(pausedFor: .nan, onlyClosing: true, liveRun: true, canvas: .inner,
+                                          angle: 130))
+        #expect(AppRules.watchdogResumes(pausedFor: 9, onlyClosing: true, liveRun: true, canvas: .inner, angle: 95))
+    }
+
+    /// The real controller: a shut lid stays held; an open one is resumed by the watchdog; the menu is never.
+    @Test func theWatchdogResumesAnOpenLidOnly() {
+        let controller = makeFoldRun()
+        #expect(controller.isClosingPaused)
+        controller.hinge.ingest(angleDegrees: 40, at: CACurrentMediaTime())
+        controller.backdateClosing(by: 10)
+        let shut = controller.watchdogCheck(now: CACurrentMediaTime())
+        #expect(!shut)
+        #expect(controller.isClosingPaused)
+        // The menu over the closing card: never resumed by the watchdog.
+        controller.hinge.ingest(angleDegrees: 130, at: CACurrentMediaTime() + 0.05)
+        controller.openMenu()
+        let underMenu = controller.watchdogCheck(now: CACurrentMediaTime())
+        #expect(!underMenu)
+        #expect(controller.isPaused)
+        controller.resume()
+        controller.backdateClosing(by: 10)
+        let open = controller.watchdogCheck(now: CACurrentMediaTime())
+        #expect(open)
+        #expect(!controller.isClosingPaused)
+        #expect(!controller.isPaused)
+        controller.goHome()
+    }
+
+    /// Every overlay has a reachable way back, and using it changes state.
+    @Test func everyOverlayHasAWayBack() {
+        // The pause menu: Resume and Home.
+        let a = makeController()
+        a.play()
+        a.openMenu()
+        #expect(a.isMenuOpen)
+        a.resume()
+        #expect(!a.isMenuOpen)
+        a.openMenu()
+        a.goHome()
+        #expect(!a.isMenuOpen)
+        #expect(a.route == .home)
+
+        // The closing card: Carry on (above) and Home.
+        let b = makeFoldRun()
+        #expect(b.isClosingPaused)
+        b.goHome()
+        #expect(!b.isClosingPaused)
+        #expect(b.route == .home)
+
+        // The pose tip: ✕, never again.
+        let c = makeController()
+        #expect(!c.store.data.seenTips.contains(AppRules.poseTipKey))
+        c.dismissPoseTip()
+        #expect(c.store.data.seenTips.contains(AppRules.poseTipKey))
+        #expect(!c.showsPoseTip)
+
+        // The lesson cards: Skip (steps 2+), and the final card's "Got it" and "Not yet, take me home".
+        let d = makeController()
+        d.startLesson(replay: true, at: .open)
+        #expect(d.route == .lesson)
+        d.skipLesson()
+        #expect(d.route == .home)
+        d.startLesson(replay: true, at: .done)
+        d.finishLesson()
+        #expect(d.route == .playing)
+        d.startLesson(replay: true, at: .done)
+        d.finishLessonHome()
+        #expect(d.route == .home)
+
+        // Results: Again and Home.
+        let e = makeController()
+        e.again()
+        #expect(e.route == .playing)
+        e.goHome()
+        #expect(e.route == .home)
+
+        // The pages: Done.
+        for page in [AppRoute.codex, .badges, .settings, .daily] {
+            let f = makeController()
+            f.show(page)
+            #expect(f.route == page)
+            f.show(.home)
+            #expect(f.route == .home)
+        }
+    }
+
+    // MARK: Item 7: flat is fine
+
+    /// 175–180° in a live run: no pause, the hinge input kept (never the lever), "too wide" on the lid; a nil hinge
+    /// context there keeps the last angle and the input.
+    @Test func flatOpenKeepsPlaying() {
+        let controller = makeFoldRun()
+        let frame = 1.0 / 60.0
+        var t = CACurrentMediaTime()
+        controller.hinge.ingest(angleDegrees: 176, at: t)
+        controller.carryOn()
+        var angle = 176.0
+        for i in 0..<240 {
+            t += frame
+            if i % 2 == 0 {
+                angle = min(angle + 0.1, 180)
+                controller.hinge.ingest(angleDegrees: angle, at: t)
+            }
+            _ = controller.advance(dt: frame, now: t)
+            #expect(!controller.isClosingPaused)
+        }
+        #expect(!controller.isPaused)
+        #expect(controller.input == .hinge)
+        #expect(!controller.usesSlider)
+        #expect(controller.hinge.lastLid.tooWide)
+        let before = controller.hinge.angle
+        controller.hingeUnavailable()
+        controller.hingeUnavailable()
+        #expect(controller.hinge.angle == before)
+        #expect(controller.input == .hinge)
+        t += frame
+        _ = controller.advance(dt: frame, now: t)
+        #expect(!controller.isPaused)
+        // iOS turns the flat Duo landscape: still playing, still the hinge.
+        controller.updateCanvas(duoLandscape, hasFold: true, quarterTurns: 1)
+        t += frame
+        _ = controller.advance(dt: frame, now: t)
+        #expect(!controller.isPaused)
+        #expect(controller.input == .hinge)
+        #expect(AppRules.closingApplies(.looting))
+        controller.goHome()
+    }
+
+    // MARK: Item 8: the event log
+
+    @Test func theEventLogKeepsTheLastEighty() throws {
+        var ring = EventRing()
+        for i in 0..<100 {
+            ring.append(EventLogEntry(time: 1_800_000_000 + Double(i), event: "e\(i)", angle: i % 2 == 0 ? 120 : nil))
+        }
+        #expect(ring.entries.count == EventRing.capacity)
+        #expect(ring.entries.first?.event == "e20")
+        #expect(ring.newestFirst.first?.event == "e99")
+        let utc = try #require(TimeZone(identifier: "UTC"))
+        let line = EventRing.line(EventLogEntry(time: 1_800_000_000.25, event: "pause closing", angle: 112.44),
+                                  timeZone: utc)
+        #expect(line.hasSuffix("  pause closing  112.4°"))
+        #expect(EventRing.line(EventLogEntry(time: 0, event: "x", angle: nil), timeZone: utc).hasSuffix("  x  -"))
+        let text = ring.text(timeZone: utc)
+        #expect(text.split(separator: "\n").count == EventRing.capacity)
+        #expect(text.hasPrefix(EventRing.line(ring.newestFirst[0], timeZone: utc)))
+        // Round trip, and a tampered save longer than the ring is trimmed.
+        let data = try JSONEncoder().encode(ring)
+        let back = try JSONDecoder().decode(EventRing.self, from: data)
+        #expect(back == ring)
+        let long = (0..<200).map { EventLogEntry(time: Double($0), event: "x", angle: nil) }
+        #expect(EventRing(entries: long).entries.count == EventRing.capacity)
+    }
+
+    @Test func theEventLogPersistsOnTheDevice() {
+        let suite = "hush.tests.events.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suite) else { return }
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let log = EventLog(defaults: defaults)
+        log.add("pose play portrait 669x951", angle: 120)
+        log.add("watchdog resume", angle: 131)
+        let again = EventLog(defaults: defaults)
+        #expect(again.ring.entries.count == 2)
+        #expect(again.lines.first?.contains("watchdog resume") == true)
+        #expect(again.text.hasPrefix("Hush event log"))
+        let memory = EventLog(defaults: nil)
+        memory.add("x", angle: nil)
+        #expect(memory.ring.entries.count == 1)
+        #expect(EventLogPanel.copyLabel == "Copy log")
+    }
+
+    /// The controller notes what the founder needs: the canvas (with k), pauses, Carry on and the watchdog.
+    @Test func theControllerLogsTheEvents() {
+        let controller = makeFoldRun()
+        controller.carryOn()
+        controller.updateCanvas(duoLandscape, hasFold: true, quarterTurns: 3)
+        controller.hingeUnavailable()
+        let events = controller.events.ring.entries.map(\.event)
+        #expect(events.contains { $0.hasPrefix("canvas 669x951 fold=1 turned=1 k=2") })
+        #expect(events.contains { $0.hasPrefix("canvas 951x669 fold=1 turned=0 k=3") })
+        #expect(events.contains("paused closing"))
+        #expect(events.contains("carry on"))
+        #expect(events.contains("resumed"))
+        #expect(events.contains("hinge nil"))
+        #expect(!GameController.keepsEventLog(demo: DemoMode.parse("screen=home")))
+        controller.goHome()
     }
 }

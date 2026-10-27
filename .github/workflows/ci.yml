@@ -195,10 +195,14 @@ jobs:
         # item is drawn to where the pouch is drawn, on the turned Duo layout (fold=1, turn=1), and reads the pouch's
         # in-bag count (accessibility `hud.bag`). Its own scheme, so the gate above never runs it. It SKIPS until the App
         # exposes `hud.bag` and `debug.loot` (design/NEEDS.md). Non-fatal for now: a FAIL here is a warning.
+        # R6 (ROUND-6 CI 1): testLandscapeTurnedDragBagsALitItem rotates the sim (XCUIDevice .landscapeRight, which is
+        # the interface .landscapeLeft: k = 3 with turn round on) and launches `orient=landscape;quarter=3` (quarter= is
+        # the App's R6 key that forces k where iOS won't rotate a phone sim), so the same drag runs through an odd quarter
+        # turn. It SKIPS when the App's optional `debug.canvas` element reports an even k. Both verdicts go in the summary.
         # If the runner app won't load unsigned (CODE_SIGNING_ALLOWED=NO), it retries once with an ad-hoc signature.
         if: success()
         continue-on-error: true
-        timeout-minutes: 25
+        timeout-minutes: 30
         run: |
           set +e
           UDID=$(awk -F= '$1=="udid" {print $2}' ci-screens/device.txt 2>/dev/null)
@@ -216,20 +220,34 @@ jobs:
             LOG=uitest-adhoc.log
           fi
           cp "$LOG" uitest.log
-          if grep -qE "Test [Cc]ase .*testTurnedDragBagsALitItem.* passed" "$LOG"; then
-            verdict="**PASS**: a real drag through the turned SpriteView bagged the item."
-          elif grep -qE "Test [Cc]ase .*testTurnedDragBagsALitItem.* skipped" "$LOG"; then
-            verdict="SKIPPED: $(grep -m1 -oE "No \`[a-z.]+\` accessibility element[^:]*" "$LOG" || echo 'see uitest.log')."
-            echo "::warning::Turned-drag UI test skipped (App accessibility hooks missing, design/NEEDS.md)"
-          elif grep -qE "Test [Cc]ase .*testTurnedDragBagsALitItem.* failed" "$LOG"; then
-            verdict="**FAIL**: $(grep -m1 -oE "Turned drag from[^(]*" "$LOG" || echo 'see uitest.log')"
-            echo "::warning::Turned-drag UI test FAILED: the turned touch mapping may be mirrored (REVIEW-1-duo P1-3)"
-          else
-            verdict="did not run (see uitest.log)."
-            echo "::warning::Turned-drag UI test did not run"
-          fi
-          echo "### Turned drag (HushUITests)" >> "$GITHUB_STEP_SUMMARY"
-          echo "$verdict Screenshots are attachments in \`uitest-*.xcresult\` (logs artifact)." >> "$GITHUB_STEP_SUMMARY"
+          # verdict <test method> <title>: one summary line per test (R6: the portrait turned drag and the landscape one)
+          SUMMARY_LINES=""
+          verdict() {
+            local v
+            if grep -qE "Test [Cc]ase .*$1.* passed" "$LOG"; then
+              v="**PASS**: a real drag through the drawn layout bagged the item."
+            elif grep -qE "Test [Cc]ase .*$1.* skipped" "$LOG"; then
+              v="SKIPPED: $(grep -m1 -oE "(No \`[a-z.]+\` accessibility element[^:]*|Landscape drag: the layout is k=[0-9]+[^(]*)" "$LOG" || echo 'see uitest.log')."
+              echo "::warning::$2 UI test skipped (App hooks missing or no odd k, design/NEEDS.md)"
+            elif grep -qE "Test [Cc]ase .*$1.* failed" "$LOG"; then
+              v="**FAIL**: $(grep -m1 -oE "$2 from[^(]*" "$LOG" || echo 'see uitest.log')"
+              echo "::warning::$2 UI test FAILED: the touch mapping may be wrong for this quarter turn (REVIEW-1-duo P1-3, ROUND-6)"
+            else
+              v="did not run (see uitest.log)."
+              echo "::warning::$2 UI test did not run"
+            fi
+            SUMMARY_LINES="$SUMMARY_LINES- $2: $v"$'\n'
+          }
+          verdict testTurnedDragBagsALitItem "Turned drag"
+          verdict testLandscapeTurnedDragBagsALitItem "Landscape turned drag"
+          {
+            echo "### Turned drag (HushUITests)"
+            echo ""
+            printf '%s' "$SUMMARY_LINES"
+            echo ""
+            echo "Portrait = k 2 (turned round); landscape = interface landscapeLeft, k 3 (orient=landscape;quarter=3)."
+            echo "Screenshots and the drag/canvas text are attachments in \`uitest-*.xcresult\` (logs artifact)."
+          } >> "$GITHUB_STEP_SUMMARY"
           exit 0
 
       - name: Upload logs

@@ -222,3 +222,66 @@ and the lesson ring only), so the new 56…414 meter and 424…590 chain tab nee
     profile with `freezeDelay=1.0`.
 - **Founder:** the Game Center badge images for Light Fingers, Heavy Bag and Dragon's Hoard changed: re-upload those
   three 1024 PNGs from the next `screen=badges` run if the old ones are already in App Store Connect.
+
+## CI engineer (R6)
+New checks in `ci/duo.sh` (FLAT-OPEN, WATCHDOG, LANDSCAPE-PLAY) and a landscape drag XCUITest
+(`testLandscapeTurnedDragBagsALitItem`, in ci.yml and now also on the Duo in duo.yml). Details in `design/notes/ci-R6.md`.
+Everything works without the asks below (fallbacks), but each makes a verdict sharper:
+- **App: `k=<0..3>` at the END of the canvas line**: `HUSH-T canvas <w>x<h> fold=<0|1> turned=<0|1> k=<k>`. Keep the
+  prefix and the first `<w>x<h>`: PORTRAIT, COVER-SLOW-REOPEN (`INNER_CANVAS` 669x951) and the launch's portrait wait read
+  it. Your in-progress `updateCanvas` says `<w>x<h>` is the REAL window, so CI assumes that. Without `k=`, LANDSCAPE-PLAY
+  falls back to the aspect (wider than tall = odd k), and says INCONCLUSIVE if the size is portrait-shaped.
+- **App: the `quarter=<0..3>` demo key** (forces k over `AppRules.quarterTurns`, DEBUG only). The landscape XCUITest
+  launches `screen=run;mode=attract;seed=7;lid=0.9;turn=1;fold=1;orient=landscape;quarter=3`, because on the iPhone 18 Pro
+  sim (ci.yml) a `fold=1` phone may never get a landscape interface.
+- **App: a `debug.canvas` accessibility element** (demo runs only, pure accessibility, no hit testing, like `debug.loot`),
+  `accessibilityValue` = `k=<k> w=<w> h=<h> fold=<0|1>`. The landscape test then checks that k is odd, and SKIPS rather
+  than passing on a portrait layout. Without it, k is not verified (the window size is recorded instead).
+- **App: the `hud.bag` and `debug.loot` frames must be the on-screen rects AFTER the quarter turn.** If they sit inside the
+  rotated root, check that SwiftUI reports the rotated bounding box. If they don't, the drag lands on the wrong spot and
+  the test FAILs, and VoiceOver's frames are wrong too.
+- **App: the watchdog line** is grepped as `HUSH-T watchdog resume` (or any `HUSH-T resumed …`). Keep that wording.
+- **App, the watchdog's "no hinge sample for 4 s" branch: already covered, please keep it.** On the sim a STILL hinge
+  sends no samples, so the brief's rule alone would resume a lid resting closed at 55–60° after 6 s. CLOSE-PAUSE's duo-h3
+  (a 15 s shot on the closing card at 55°) would catch exactly that. The in-progress `AppRules.watchdogResumes` already
+  keeps a silent hinge whose last angle is under `Tuning.closingAngle` paused. If that refinement goes, CLOSE-PAUSE's
+  `resumed@` will show a resume at 55°.
+- **App: POSE-CARD.** `screen=pose;pose=book;orient=landscape` still expects `HUSH-T pose standUp` and a landscape frame.
+  R6 removes the blocking card on a Duo. Tell CI:
+  - what `pose=book` shows now (the held card for the frame, or the new tip);
+  - the tip's log line (say `HUSH-T tip standUp shown|dismissed`).
+  POSE-CARD can then follow. Until then a POSE-CARD FAIL there may be by design.
+- **App (optional):** `HUSH-T hint tooWide` when "That's wide enough" shows. FLAT-OPEN would then assert the hint at 180°.
+  Today it only proves no pause, no gap in the lid lines, no slider switch, and still live after the return.
+
+## App engineer (R6)
+Answers to CI (R6), all delivered (details in `design/notes/app-R6.md`):
+- **Canvas line:** `HUSH-T canvas <w>x<h> fold=<0|1> turned=<0|1> k=<0..3>`. `<w>x<h>` is the REAL window, `turned` =
+  k == 2, `k=` last. `fold=1` now also on a Duo's LANDSCAPE inner display (the fold is judged on the
+  portrait-equivalent canvas).
+- **`quarter=<0..3>`** (DEBUG): forces k, but only on a fold and only when its parity fits the window (odd k on a
+  landscape window). On a portrait window `quarter=3` is ignored and the rule's k is used, so `debug.canvas` then
+  says an even k and your test SKIPS, as designed. `fold=1;orient=landscape` also gives a phone sim the Duo's mask
+  (portrait + both landscapes), so `XCUIDevice.shared.orientation = .landscapeLeft` can really turn it.
+- **`debug.canvas`** (demo runs only, no hit testing): value `k=<k> w=<w> h=<h> fold=<0|1>` (the real window).
+- **`hud.bag` / `debug.loot`:** they live inside the rotated SwiftUI root (`rotationEffect(90·k)` about the window
+  centre). SwiftUI reports accessibility frames after the transform (R2's 180° turned drag relied on that), and for
+  quarter turns the bounding box is the exact rect. Not verifiable here: if the landscape drag misses, tell me.
+- **Watchdog:** `HUSH-T watchdog resume angle=<θ>` (any resume also logs `HUSH-T resumed angle …`). Founder's
+  correction applied: it resumes ONLY a closing pause (no menu, background or cover), paused ≥ 6 s, with the last
+  known hinge angle ≥ 95° and the canvas on the inner display. There is NO "silent hinge" clause any more: a lid
+  resting at 55–60° (or with no reading at all) stays paused forever, so CLOSE-PAUSE's duo-h3 holds.
+- **"Carry on":** the closing card shows it after 3 s; tapping it logs `HUSH-T carry on angle=<θ>` then
+  `HUSH-T resumed angle …`. After it (or the watchdog) only a NEW hinge report can close the card again.
+- **POSE-CARD:** the blocking card is gone. `screen=pose` / `pose=book` (with or without `orient=landscape`) now show the
+  small "Stand it up like a little laptop" tip on Home, and log `HUSH-T pose tip shown` (then `hidden` /
+  `dismissed`). No `HUSH-T pose standUp` line exists any more (never expect it). Suggested POSE-CARD: launch
+  `screen=pose;pose=book;orient=landscape`, PASS on `HUSH-T pose tip shown` with no `HUSH-T paused pose` and the
+  Home route (`HUSH-T screen home`). Scenario 25's expect column should become `HUSH-T pose tip shown`. With `mode=`
+  the run starts and plays (the tip is Home / lesson step 1 only).
+- **`HUSH-T hint tooWide`** when "That's wide enough" goes up. Also new: `HUSH-T iface <orientation>`,
+  `HUSH-T hinge nil angle=<θ>` (once per nil run), `HUSH-T mask … held=<orientation>` (the live hold).
+- **Orientation policy:** a live run (the lesson too) holds the orientation it is in on the inner display
+  (`HUSH-T mask landscapeLeft|landscapeRight|portrait live=1`); menus are unlocked (`allButUpsideDown`). Demo runs
+  with `orient=landscape` or `pose=book` take no hold (as before).
+- **Founder:** Diagnostics now has the event log and a Copy button: Settings › About › hold "Version" 2 s › Copy log.

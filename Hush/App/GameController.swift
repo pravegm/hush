@@ -91,12 +91,20 @@ final class GameController: ObservableObject, SceneDriver {
     @Published private(set) var sceneHeld = false
     /// The scene's frame rate (R3, Feel: the ceiling while something moves, 60 when idle; 60 under Low Power or heat).
     @Published private(set) var preferredFPS = 120
-    /// R3 (QA-2 P2-4): iOS refused a portrait request: the book-pose card offers "Play anyway".
-    @Published private(set) var portraitRefused = false
-    /// R3 (QA-2 P2-4): the player chose "Play anyway" on the book-pose card: landscape is played, on the lever.
-    @Published private(set) var playAnyway = false
+    /// R6: the canvas's clockwise screen quarter turns (`AppRules.quarterTurns`; 2 = R2's "turned round").
+    @Published private(set) var quarterTurns = 0
+    /// R6 (ROUND-6 App 6): the closing card has been up `AppRules.carryOnDelay` s: it offers "Carry on".
+    @Published private(set) var closingEscape = false
+    /// R6: the device's physical orientation (the pose tip shows while it is landscape, like a book).
+    @Published private(set) var deviceOrientation: UIDeviceOrientation = .unknown
+    /// R6: demo `screen=pose` / `pose=book` force the pose tip on Home (and lesson step 1).
+    @Published private(set) var forcedPoseTip = false
+    /// R6: demo `quarter=<0…3>` (DEBUG) forces k where it fits the window (`AppRules.forcedTurnsFit`).
+    var demoQuarterTurns: Int? { demo?.quarter }
 
     let hud = HUDState()
+    /// R6 (ROUND-6 App 8): the Diagnostics event log (the last 80 events, kept across launches, on this device only).
+    let events: EventLog
     let homeLid = HomeLidState()
     let portraits = PortraitScenes()
     let store: ProgressStore
@@ -162,10 +170,17 @@ final class GameController: ObservableObject, SceneDriver {
     /// R4 (QA-3 P2-4/5): VoiceOver's stage lines: once per chest for Stirring, and the late one cancellable.
     private var announceGate = AnnounceGate()
     private var stageAnnounceTask: Task<Void, Never>?
-    /// The hinge angle when the book-pose card appeared (P0-1: a ≥ 15° lift asks iOS for portrait).
-    private var standUpAngle: Double?
     private var lastPortraitAsk: TimeInterval = -100
-    private(set) var isTurned = false
+    /// R2's "turned round" (R6: k == 2).
+    var isTurned: Bool { quarterTurns == 2 }
+    /// R6: the Carry-on timer and the watchdog (wall clock), while the closing card is up.
+    private var closingWatchTask: Task<Void, Never>?
+    /// R6: after "Carry on" or a watchdog resume, the closing pause re-engages only on a hinge report newer than this
+    /// (a stale low reading can't snap the card straight back).
+    private var resumeGuardStamp: TimeInterval?
+    /// R6: a nil hinge context is logged once until the next real sample.
+    private var hingeNilNoted = false
+    private var lastInterfaceNoted: UIInterfaceOrientation?
     /// R2: the gold counter must equal the sum of the banks (checked every frame in demo runs).
     private var bankedSum = 0
     private var goldMismatchLogged = false
@@ -188,6 +203,7 @@ final class GameController: ObservableObject, SceneDriver {
         self.store = store
         self.settings = settings
         self.demo = DemoMode.current
+        self.events = EventLog(defaults: Self.keepsEventLog(demo: DemoMode.current) ? .standard : nil)
         // `hush.hasHinge` comes back with a backup restored onto another iPhone: believe it only on a Duo-shaped
         // screen (R3: the cover display counts).
         let stored = UserDefaults.standard.bool(forKey: OrientationLock.hingeKey)
@@ -215,8 +231,22 @@ final class GameController: ObservableObject, SceneDriver {
             }
         }
         OrientationLock.onRefused = { [weak self] in
-            MainActor.assumeIsolated { self?.portraitRefused = true }
+            MainActor.assumeIsolated { self?.note("portrait ask refused") }
         }
+        OrientationLock.onMask = { [weak self] line in
+            MainActor.assumeIsolated { self?.note(line) }
+        }
+        note("launch \(BuildChannel.versionLine)")
+    }
+
+    /// R6: the event log is kept on the device (UserDefaults) except in demo runs and unit tests (in memory).
+    nonisolated static func keepsEventLog(demo: DemoMode?) -> Bool {
+        demo == nil && ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] == nil
+    }
+
+    /// R6 (ROUND-6 App 8): one event for Diagnostics, with the hinge angle now.
+    func note(_ event: String) {
+        events.add(event, angle: hinge.angle)
     }
 
     // MARK: - Derived state
@@ -261,7 +291,8 @@ final class GameController: ObservableObject, SceneDriver {
                                   relight: relightAngle ?? Self.storedAngle(Self.relightKey),
                                   resumeAngle: hinge.effectiveResumeAngle,
                                   orientation: OrientationLock.status()
-                                      + " · device \(UIDevice.current.orientation.rawValue)")
+                                      + " · device \(AppRules.deviceName(UIDevice.current.orientation))"
+                                      + " · k=\(quarterTurns) fold=\(layoutHasFold ? 1 : 0)")
     }
 
     static let handoffKey = "hush.diag.handoff"
@@ -277,7 +308,7 @@ final class GameController: ObservableObject, SceneDriver {
     /// `lid=` frames included); only the player's slider takes its touches (`sliderTouch`). R3 (decision 4): a fold
     /// layout never draws or uses the lever.
     /// R4 (founder, CI R4 frame 32): keyed on the LAYOUT only (`AppRules.usesSlider`): a fold layout never draws or
-    /// takes the lever, turned round or not; "Play anyway" (landscape, no fold) is the one Duo case that does.
+    /// takes the lever, turned round or not. R6: a Duo is a fold in every orientation, so only phones have a lever.
     var usesSlider: Bool {
         AppRules.usesSlider(playRoute: route.isPlay, layoutHasFold: layoutHasFold, input: input)
     }
@@ -544,11 +575,11 @@ final class GameController: ObservableObject, SceneDriver {
 
     /// R3 (REVIEW-2-duo P1-4): on a Duo (a hinge seen, or a fold layout) a run never plays on the lever. Before the
     /// first hinge report it waits in the closing pause ("Move the lid a little"); demo runs without a hinge hold a
-    /// shut lid instead (`.fixed`), so CI's fold frames still draw. "Play anyway" (landscape) uses the lever.
+    /// shut lid instead (`.fixed`), so CI's fold frames still draw. R6: "Play anyway" is gone; a Duo always uses the
+    /// hinge, in every orientation, and a nil hinge context (fully open) never hands it to the lever.
     private func chooseInput() -> AppInputKind {
         if demo?.pilot != nil { return .pilot }
         if demo?.lid != nil { return .fixed }
-        if playAnyway { return .slider }
         if hinge.hasHinge { return .hinge }
         if hingeSeen || layoutHasFold { return isDemo ? .fixed : .hinge }
         return .slider
@@ -561,9 +592,9 @@ final class GameController: ObservableObject, SceneDriver {
     }
 
     /// The first hinge sample of a launch (or a fold appearing) re-chooses the input (the slider's state is dropped).
-    /// R4 (QA-3 P1-1): a live run whose input CHANGES to the hinge (leaving "Play anyway", a fold appearing) is never
-    /// played straight away: fresh filters, then the closing pause until the lid is open and still. The reverse (QA-3
-    /// P2, "Play anyway" mid-run) hands the lever the lid where it is, so the chest never snaps shut or auto-banks.
+    /// R4 (QA-3 P1-1): a live run whose input CHANGES to the hinge (a fold appearing) is never played straight away:
+    /// fresh filters, then the closing pause until the lid is open and still. The reverse (QA-3 P2) hands the lever
+    /// the lid where it is, so the chest never snaps shut or auto-banks.
     func refreshInput() {
         guard let session else { return }
         let kind = chooseInput()
@@ -590,6 +621,7 @@ final class GameController: ObservableObject, SceneDriver {
 
     func launch() {
         UIDevice.current.beginGeneratingDeviceOrientationNotifications()
+        deviceOrientation = UIDevice.current.orientation
         if let demo {
             AppTrace.t("HUSH-T dynamic-type \(UIApplication.shared.preferredContentSizeCategory.rawValue)")
             launchDemo(demo)
@@ -610,27 +642,33 @@ final class GameController: ObservableObject, SceneDriver {
         }
     }
 
-    /// The play canvas changed (fold, turned round, size). The scene is built once and then re-laid out. R2: the scene
-    /// fills the screen (`ScreenLayout.make(hasFold:viewSize:)`) and turns itself round (`ChestScene.turned`).
+    /// R2-compatible form (tests): `turned` is k = 2.
     func updateCanvas(_ size: CGSize, hasFold: Bool, turned: Bool) {
+        updateCanvas(size, hasFold: hasFold, quarterTurns: turned ? 2 : 0)
+    }
+
+    /// The play canvas changed (fold, quarter turns, size). The scene is built once and then re-laid out. R2: the
+    /// scene fills the screen (`ScreenLayout.make(hasFold:viewSize:)`). R6: `size` is the REAL window (the SpriteView's
+    /// size); the layout is made from the portrait-equivalent size (w and h swapped when k is odd), and the scene turns
+    /// itself k clockwise quarter turns (`ChestScene.quarterTurns`; it sizes itself, never set `scene.size`).
+    /// Every change logs `HUSH-T canvas <w>x<h> fold=<0|1> turned=<0|1> k=<k>`.
+    func updateCanvas(_ size: CGSize, hasFold: Bool, quarterTurns k: Int) {
         guard size.width > 10, size.height > 10 else { return }
-        let line = "HUSH-T canvas \(Int(size.width.rounded()))x\(Int(size.height.rounded())) "
-            + "fold=\(hasFold ? 1 : 0) turned=\(turned ? 1 : 0)"
+        let turns = AppRules.normalisedTurns(k)
+        let line = AppRules.canvasLine(size, hasFold: hasFold, quarterTurns: turns)
+        let classNow = AppRules.canvasClass(size)
         if line != lastCanvasLine {
             lastCanvasLine = line
             AppTrace.t(line)
-            // A live run that has just reached portrait gets its portrait lock now (never before: Duo run 40506125012).
-            OrientationLock.interfaceChanged()
+            note(String(line.dropFirst("HUSH-T ".count)))
+            // R6: a live run holds the orientation iOS is in now on the inner display (dropped off it).
+            OrientationLock.interfaceChanged(inner: classNow == .inner)
         }
-        noteCanvasClass(AppRules.canvasClass(size))
-        // Back in portrait: "Play anyway" is over.
-        if playAnyway && size.height > size.width {
-            playAnyway = false
-            refreshInput()
-        }
-        isTurned = turned
-        if !turned && showsHoldHint { showsHoldHint = false }
-        let newLayout = ScreenLayout.make(hasFold: hasFold, viewSize: size)
+        noteCanvasClass(classNow)
+        if quarterTurns != turns { quarterTurns = turns }
+        if turns != 2 && showsHoldHint { showsHoldHint = false }
+        let drawn = AppRules.drawnSize(window: size, quarterTurns: turns)
+        let newLayout = ScreenLayout.make(hasFold: hasFold, viewSize: drawn)
         let foldChanged = newLayout.hasFold != layout?.hasFold
         if newLayout != layout || scene == nil {
             layout = newLayout
@@ -640,9 +678,9 @@ final class GameController: ObservableObject, SceneDriver {
                 makeScene(newLayout)
             }
         }
-        // "Play anyway" in landscape shows the whole portrait chest (aspect-fit), never a crop.
-        scene?.scaleMode = size.width > size.height ? .aspectFit : .aspectFill
-        if let scene, scene.turned != turned { scene.turned = turned }
+        // A landscape layout (no fold) shows the whole portrait chest (aspect-fit), never a crop.
+        scene?.scaleMode = drawn.width > drawn.height ? .aspectFit : .aspectFill
+        if let scene, scene.quarterTurns != turns { scene.quarterTurns = turns }
         if foldChanged { refreshInput() }
     }
 
@@ -679,7 +717,7 @@ final class GameController: ObservableObject, SceneDriver {
         let newScene = ChestScene(layout: layout)
         newScene.scaleMode = .aspectFill
         newScene.reduceMotion = reduceMotion
-        newScene.turned = isTurned
+        newScene.quarterTurns = quarterTurns
         newScene.driver = self
         scene = newScene
         sceneGeneration += 1
@@ -689,6 +727,7 @@ final class GameController: ObservableObject, SceneDriver {
     /// R2 (P1-8): only `.background` opens the pause menu (folding shut may pass through `.inactive` on hardware, and
     /// then every close would end on the menu). Inactive (Control Centre, a call banner) pauses quietly.
     func setScenePhase(_ phase: ScenePhase) {
+        note("phase \(phase == .active ? "active" : (phase == .background ? "background" : "inactive"))")
         if phase == .active {
             AppTrace.t("HUSH-T phase active")
             if input == .hinge { hinge.reset() }
@@ -722,20 +761,18 @@ final class GameController: ObservableObject, SceneDriver {
         feedback.silence()
     }
 
-    /// The display's pose changed (book pose, the cover display). Every change logs `HUSH-T pose <pose> reason=<…>`.
+    /// The display's pose changed (the cover display; R6: book pose no longer is one). Every change logs
+    /// `HUSH-T pose <pose> reason=<…>`.
     func setPose(_ newPose: AppPose, canvas: CGSize = .zero) {
         guard newPose != pose else { return }
         let old = pose
         pose = newPose
-        AppTrace.t("HUSH-T pose \(newPose.rawValue) reason="
-                   + AppRules.poseReason(newPose, canvas: canvas, forced: forcedPose != nil, angle: hinge.angle))
-        if newPose == .standUp {
-            standUpAngle = hinge.angle
-            autoAskPortrait(reason: "card")
-        }
+        let reason = AppRules.poseReason(newPose, canvas: canvas, forced: forcedPose != nil, angle: hinge.angle)
+        AppTrace.t("HUSH-T pose \(newPose.rawValue) reason=" + reason)
+        note("pose \(newPose.rawValue) \(reason)")
         if old == .cover && newPose != .cover && isLiveRun { autoAskPortrait(reason: "cover") }
         if newPose == .play && old != .play && isLiveRun && input == .hinge {
-            // Back from the cover display or the book card mid-run: wait for an open, still lid (P0-2).
+            // Back from the cover display mid-run: wait for an open, still lid (P0-2).
             closingPause.hold()
             setClosing(true)
         }
@@ -777,28 +814,48 @@ final class GameController: ObservableObject, SceneDriver {
         askPortrait(reason: reason)
     }
 
-    /// The book-pose card's "I've stood it up" (always asks, unthrottled).
-    func stoodItUp() {
-        lastPortraitAsk = CACurrentMediaTime()
-        AppTrace.t("HUSH-T orient ask reason=button device=\(UIDevice.current.orientation.rawValue)")
-        if demo?.poseBook == true { forcedPose = nil }
-        OrientationLock.requestPortrait()
+    /// R6: RootView's interface orientation changed (logged for Diagnostics, once per change).
+    func interfaceChanged(_ o: UIInterfaceOrientation) {
+        guard o != lastInterfaceNoted else { return }
+        lastInterfaceNoted = o
+        AppTrace.t("HUSH-T iface \(AppRules.interfaceName(o))")
+        note("interface \(AppRules.interfaceName(o))")
     }
 
-    /// R3 (QA-2 P2-4): the book-pose card's way out: play in landscape, on the lever.
-    func choosePlayAnyway() {
-        AppTrace.t("HUSH-T pose play-anyway")
-        if forcedPose == .standUp { forcedPose = nil }
-        playAnyway = true
-        refreshInput()
+    // MARK: - R6: the pose tip (book pose never blocks)
+
+    /// A Duo: a hinge seen, or a fold layout.
+    var isDuo: Bool { hingeSeen || layoutHasFold }
+
+    /// "Stand it up like a little laptop": a small, dismissible tip on Home and lesson step 1, while the device is held
+    /// landscape (like a book). Never blocks anything.
+    var showsPoseTip: Bool {
+        AppRules.showsPoseTip(duo: isDuo, route: route, lessonStep: lessonDisplay?.step, device: deviceOrientation,
+                              dismissed: store.data.seenTips.contains(AppRules.poseTipKey), forced: forcedPoseTip)
+    }
+
+    /// The tip's ✕: never again.
+    func dismissPoseTip() {
+        forcedPoseTip = false
+        store.markTip(AppRules.poseTipKey)
+        AppTrace.t("HUSH-T pose tip dismissed")
+        note("pose tip dismissed")
+    }
+
+    /// RootView saw the tip appear or go: `HUSH-T pose tip shown|hidden` (CI's POSE-CARD).
+    func poseTipShown(_ on: Bool) {
+        AppTrace.t("HUSH-T pose tip \(on ? "shown" : "hidden")")
+        note("pose tip \(on ? "shown" : "hidden")")
     }
 
     /// P1-7: the device's physical orientation changed (UIDevice notifications, begun at launch).
     func deviceOrientationChanged() {
         let o = UIDevice.current.orientation
         AppTrace.t("HUSH-T device-orient \(o.rawValue)")
-        // R3 (P1-2): the card is up and the Duo left landscape (the floor went flat): that's "stood it up".
-        if pose == .standUp && o != .unknown && AppRules.mayAutoAskPortrait(o) { askPortrait(reason: "device") }
+        if o != deviceOrientation {
+            deviceOrientation = o
+            note("device \(AppRules.deviceName(o))")
+        }
         holdHintTask?.cancel()
         guard AppRules.readsUpsideDown(turned: isTurned, cameraUp: o == .portrait, angle: hinge.angle) else {
             if showsHoldHint { showsHoldHint = false }
@@ -832,13 +889,9 @@ final class GameController: ObservableObject, SceneDriver {
         } else if angle <= Self.shutBelow {
             isShut = true
         }
-        // P0-1: the book card is up and the hinge moved into the play range: they lifted it. Ask for portrait.
-        if pose == .standUp {
-            if standUpAngle == nil { standUpAngle = angle }
-            if AppRules.liftedFromBook(angle: angle, angleAtCard: standUpAngle) {
-                standUpAngle = angle
-                askPortrait(reason: "lift")
-            }
+        if hingeNilNoted {
+            hingeNilNoted = false
+            note("hinge back \(AppTrace.fixed(angle, 1))")
         }
         refreshInput()
         if closingAwaitsHinge { closingAwaitsHinge = false }
@@ -855,8 +908,15 @@ final class GameController: ObservableObject, SceneDriver {
         }
     }
 
-    /// After a hinge has been seen, a nil is a display handover, never "no hinge" (Brim research).
-    func hingeUnavailable() {}
+    /// After a hinge has been seen, a nil is a display handover (or the Duo fully open), never "no hinge" (Brim
+    /// research). R6 (ROUND-6 App 7): it changes nothing: the last angle and the hinge input are kept (never the
+    /// lever). It is only logged, once until the next sample.
+    func hingeUnavailable() {
+        guard !hingeNilNoted else { return }
+        hingeNilNoted = true
+        AppTrace.t("HUSH-T hinge nil angle=\(hinge.angle.map { AppTrace.fixed($0, 1) } ?? "-")")
+        note("hinge nil")
+    }
 
     /// The closing pause (`ClosingPause`): Feel's gate (θ < `Tuning.closingAngle`, 70°, for 0.4 s) or shut pauses; it
     /// lifts only when `hinge.canResume` (open ≥ the resume angle and still) AND the canvas is the inner display.
@@ -879,6 +939,14 @@ final class GameController: ObservableObject, SceneDriver {
             setClosing(false)
         }
         guard AppRules.closingApplies(phase, lessonFinishing: finishing) else { return }
+        // R6: after "Carry on" (or the watchdog) only a NEW hinge report may close the card again.
+        if let stamp = resumeGuardStamp {
+            if let t = hinge.lastSampleTime, t > stamp {
+                resumeGuardStamp = nil
+            } else {
+                return
+            }
+        }
         if closingPause.paused && !isClosingPaused { setClosing(true) }
         let resumable = AppRules.mayResume(canResume: hinge.canResume, canvas: canvasClass)
         switch closingPause.update(angle: angle, gateClosing: hinge.isClosing, isShut: isShut,
@@ -900,8 +968,81 @@ final class GameController: ObservableObject, SceneDriver {
     }
 
     private func setClosing(_ on: Bool) {
-        if isClosingPaused != on { isClosingPaused = on }
+        let changed = isClosingPaused != on
+        if changed { isClosingPaused = on }
+        if on { resumeGuardStamp = nil }
         setPause(.closing, on)
+        if changed {
+            if on { startClosingWatch() } else { stopClosingWatch() }
+        }
+    }
+
+    // MARK: - R6: never stuck (Carry on, the watchdog)
+
+    /// The closing card's "Carry on" (shown after `AppRules.carryOnDelay` s): resumes at once, whatever the hinge
+    /// says. Fresh filters, then `AppRules.carryOnGrace` s of silent lid. Only a NEW hinge report may close it again.
+    func carryOn() {
+        guard isClosingPaused else { return }
+        AppTrace.t("HUSH-T carry on angle=\(hinge.angle.map { AppTrace.fixed($0, 1) } ?? "-")")
+        note("carry on")
+        forceResumeFromClosing()
+    }
+
+    /// Shared by "Carry on" and the watchdog.
+    private func forceResumeFromClosing() {
+        hinge.reset()
+        closingPause.clear()
+        if closingAwaitsHinge { closingAwaitsHinge = false }
+        setClosing(false)
+        resumeGuardStamp = hinge.lastSampleTime ?? -Double.infinity
+        if let session { session.resumeGrace(seconds: AppRules.carryOnGrace) }
+    }
+
+    /// Seconds the current closing card has been up (wall clock), nil when none is.
+    private var closingSince: TimeInterval?
+
+    private func startClosingWatch() {
+        closingWatchTask?.cancel()
+        closingSince = CACurrentMediaTime()
+        if closingEscape { closingEscape = false }
+        closingWatchTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: UInt64(AppRules.carryOnDelay * 1_000_000_000))
+            guard !Task.isCancelled, let self else { return }
+            if self.isClosingPaused && !self.closingEscape { self.closingEscape = true }
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 500_000_000)
+                guard !Task.isCancelled else { return }
+                if self.watchdogCheck(now: CACurrentMediaTime()) { return }
+            }
+        }
+    }
+
+    private func stopClosingWatch() {
+        closingWatchTask?.cancel()
+        closingWatchTask = nil
+        closingSince = nil
+        if closingEscape { closingEscape = false }
+    }
+
+    /// R6 (ROUND-6 App 6): the watchdog (`AppRules.watchdogResumes`). Returns true once it has resumed (or there is
+    /// nothing left to watch). Internal for the tests.
+    @discardableResult
+    func watchdogCheck(now: TimeInterval) -> Bool {
+        guard isClosingPaused, let since = closingSince else { return true }
+        let only = pauseReasons == [.closing] && pose == .play
+        // The last KNOWN angle: the raw report (the filtered angle may still be gliding after a reset).
+        guard AppRules.watchdogResumes(pausedFor: now - since, onlyClosing: only, liveRun: isLiveRun && !frozen,
+                                       canvas: canvasClass, angle: hinge.lastRawAngle ?? hinge.angle)
+        else { return false }
+        AppTrace.t("HUSH-T watchdog resume angle=\(hinge.angle.map { AppTrace.fixed($0, 1) } ?? "-")")
+        note("watchdog resume")
+        forceResumeFromClosing()
+        return true
+    }
+
+    /// Tests: pretend the closing card went up `seconds` ago.
+    func backdateClosing(by seconds: TimeInterval) {
+        if let since = closingSince { closingSince = since - seconds }
     }
 
     // MARK: - Home's title chest
@@ -1104,6 +1245,10 @@ final class GameController: ObservableObject, SceneDriver {
             if display.step != lessonDisplay?.step || display.praise != lessonDisplay?.praise
                 || display.line != lessonDisplay?.line {
                 AppTrace.t("HUSH-T lesson step \(display.step) praise=\(display.praise ? 1 : 0) line '\(display.line)'")
+            }
+            // R6: past step 1 the pose tip never shows again.
+            if display.step > 1 && !store.data.seenTips.contains(AppRules.poseTipKey) {
+                store.markTip(AppRules.poseTipKey)
             }
             // R4 (QA-3 P2, UX P2-9): VoiceOver hears each step, praise and warning, and the final card.
             // R5 (QA-4 P2-E): "Slower…" once a step, and no line again within 3 s (it used to alternate).
@@ -1373,6 +1518,8 @@ final class GameController: ObservableObject, SceneDriver {
         for item in s.loot where item.place == .inBag { bagged += 1 }
         // R5 (juror P2-3): the pause coin hides on the scene's own bite flag (its seat dims on it too).
         let biting = scene?.biteActive ?? AppRules.isBiteMoment(s.phase)
+        // R6 (CI FLAT-OPEN): "That's wide enough" is a hint, never a pause.
+        if shown == .tooWide && hud.hint != .tooWide { AppTrace.t("HUSH-T hint tooWide") }
         let urgent = shown != hud.hint || banner != hud.banner || bagged != hud.bagCount || biting != hud.biting
         guard urgent || now - lastHUD >= Self.hudInterval else { return }
         lastHUD = now
@@ -1403,6 +1550,7 @@ final class GameController: ObservableObject, SceneDriver {
         if on {
             let inserted = pauseReasons.insert(reason).inserted
             if inserted && route.isPlay && reason != .closing { AppTrace.t("HUSH-T paused \(reason.rawValue)") }
+            if inserted && route.isPlay { note("paused \(reason.rawValue)") }
             if inserted && route.isPlay && demo?.noiseUntilPause == true && !noiseReleased && !guardHold {
                 noiseReleased = true
                 AppTrace.t("HUSH-T noise released \(AppTrace.fixed(session?.snapshot.noise ?? 0, 2))")
@@ -1426,6 +1574,7 @@ final class GameController: ObservableObject, SceneDriver {
             if let session { _ = session.resumeGrace(seconds: AppRules.resumeGraceSeconds) }
             let angle = input == .hinge ? hinge.angle.map { AppTrace.fixed($0, 1) } ?? "-" : "-"
             AppTrace.t("HUSH-T resumed angle \(angle)")
+            note("resumed")
         }
         if isPaused != was { refreshIdleTimer() }
     }
@@ -1437,6 +1586,8 @@ final class GameController: ObservableObject, SceneDriver {
         if isMenuOpen { isMenuOpen = false }
         if isClosingPaused { isClosingPaused = false }
         if closingAwaitsHinge { closingAwaitsHinge = false }
+        stopClosingWatch()
+        resumeGuardStamp = nil
     }
 
     /// QA-1 P2-4: the screen may sleep while paused (a Duo left half-closed), never mid-chest.
@@ -1455,6 +1606,8 @@ final class GameController: ObservableObject, SceneDriver {
 
     private func launchDemo(_ d: DemoMode) {
         AppTrace.t("HUSH-T demo '\(d.raw)' starts")
+        // R6: a `fold=1;orient=landscape` demo (the phone sim's landscape drag) gets the Duo's mask, so CI can turn it.
+        if d.fold && d.orient == .landscape { OrientationLock.setDemoDuo(true) }
         let day = today
         store.replace(DemoPresets.progress(d.progress, today: day))
         if !d.sound { settings.muted = true }
@@ -1498,11 +1651,13 @@ final class GameController: ObservableObject, SceneDriver {
             let step = LessonScript.Step(rawValue: d.lessonStep ?? 1) ?? .pose
             startLesson(replay: false, at: step)
         case .pose:
-            // A phone never shows the book-pose card (UX: frame 25), unless CI asks for it by name (`pose=book`).
+            // R6: book pose never blocks. `screen=pose` / `pose=book` force the small pose tip on Home (a phone never
+            // shows it, unless CI asks by name with `pose=book`). With `mode=`, the run starts and plays (no tip, no
+            // block): the tip is a Home / lesson-step-1 thing.
             var screen = OrientationLock.screenSize()
             if screen.width < 1 { screen = UIScreen.main.bounds.size }
-            if d.poseBook || AppRules.allowsForcedPose(.standUp, screen: screen, demoFold: d.fold) {
-                forcedPose = .standUp
+            if d.poseBook || AppRules.allowsForcedPoseTip(screen: screen, demoFold: d.fold) {
+                forcedPoseTip = true
             }
             if d.mode != nil { start(d.runMode(today: day)) } else { goHome() }
         case .cover:

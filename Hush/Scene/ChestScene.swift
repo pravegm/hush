@@ -10,8 +10,10 @@ import UIKit
 /// Composition (R2). The scene is `layout.size` (670 wide, ≥ 952 tall). Everything lives under one **`world`** node
 /// whose own coordinates ARE the 670 × 952 canvas (origin bottom-left, y up; positions in `ChestLayout`); the canvas
 /// sits `layout.contentOffsetY` above the scene's bottom, and the extension art fills the rest (the lid continues
-/// above y 952; the chest's front wall, its lock and the tabletop lie below y 0). `turned` rotates `world` by π about
-/// the scene centre; every touch is read with `touch.location(in: world)`, so it is right by construction.
+/// above y 952; the chest's front wall, its lock and the tabletop lie below y 0). R6: `quarterTurns` (k) turns `world`
+/// k clockwise quarter turns about the scene centre (`turned` is k == 2); for odd k the scene is landscape. Every touch
+/// is read with `touch.location(in: world)`, and every detail (text, glints, the eye's gaze, the shake, particle
+/// gravity, the keyhole) lives in the world's frame, so all four k look the same to the player by construction.
 /// - world
 ///   - shaker (shaken):
 ///     - the lid half (`SceneLid`, z 0, at y 496): planks, the eye, brow, plate, the jaw (z 50 inside it);
@@ -42,11 +44,47 @@ final class ChestScene: SKScene {
         }
     }
 
-    /// R2: turned round (the blurred-half rule, GAME-DESIGN §3): the whole world is rotated by π about the scene
-    /// centre. Touches stay right (they are read in `world`).
-    var turned: Bool = false {
-        didSet {
-            if turned != oldValue { placeWorld() }
+    /// R6 ("any way up"): how many CLOCKWISE screen quarter turns the portrait canvas is drawn with (0…3; any Int is
+    /// taken mod 4). `world.zRotation = −k·π/2` about the scene centre. For odd k the scene's size is LANDSCAPE: the
+    /// App keeps handing the scene the PORTRAIT-equivalent `layout` (`ScreenLayout.make(hasFold:viewSize:)` with the
+    /// window's w and h swapped), and the scene sizes itself to `ChestScene.sceneSize(layout:quarterTurns:)` (w and h
+    /// swapped when k is odd), so the portrait canvas with its extensions fills it exactly. Touches stay
+    /// `touch.location(in: world)`, so they are right for every k by construction. ROUND-6 table: portrait 2 (turn round
+    /// on) / 0 (off); landscapeRight 1 / 3; landscapeLeft 3 / 1; upside down 0 / 2; no fold: always 0.
+    var quarterTurns: Int {
+        get { turns }
+        set {
+            let k = ChestScene.normalisedTurns(newValue)
+            guard k != turns else { return }
+            turns = k
+            applyTurns()
+        }
+    }
+
+    /// R2: turned round (the blurred-half rule, GAME-DESIGN §3). R6: a computed alias for `quarterTurns == 2`
+    /// (setting it true gives k = 2, false gives k = 0).
+    var turned: Bool {
+        get { turns == 2 }
+        set { quarterTurns = newValue ? 2 : 0 }
+    }
+
+    /// R6: any Int → 0…3.
+    nonisolated static func normalisedTurns(_ k: Int) -> Int { ((k % 4) + 4) % 4 }
+
+    /// R6: the scene's size for `layout` drawn with `k` quarter turns: `layout.size` (portrait) for even k, its width
+    /// and height swapped for odd k.
+    nonisolated static func sceneSize(layout: ScreenLayout, quarterTurns k: Int) -> CGSize {
+        let s = layout.size
+        return normalisedTurns(k) % 2 == 1 ? CGSize(width: s.height, height: s.width) : s
+    }
+
+    /// R6: the exact (cos, sin) of the world's rotation −k·π/2 (no floating-point fuzz in the placement maths).
+    nonisolated static func turnCosSin(_ k: Int) -> (CGFloat, CGFloat) {
+        switch normalisedTurns(k) {
+        case 1: return (0, -1)
+        case 2: return (-1, 0)
+        case 3: return (0, 1)
+        default: return (1, 0)
         }
     }
 
@@ -184,6 +222,12 @@ final class ChestScene: SKScene {
     private let fx: SceneEffects
     private let moments: SceneMoments
 
+    /// R6: the quarter turns (0…3), behind `quarterTurns`.
+    private var turns = 0
+    /// R6: the world's uniform scale (1 when the scene has its own size, `sceneSize(layout:quarterTurns:)`; otherwise
+    /// the aspect-fill scale that makes the portrait canvas and its extensions cover the scene).
+    private(set) var worldScale: CGFloat = 1
+
     private var hasSnapshot = false
     private var lastUpdate: TimeInterval?
     private var stall: Double = 0
@@ -273,24 +317,43 @@ final class ChestScene: SKScene {
     }
 
     private func applyLayout() {
-        if size != layout.size { size = layout.size }
+        let want = ChestScene.sceneSize(layout: layout, quarterTurns: turns)
+        if size != want { size = want }
         lid.applyExtension(top: ChestLayout.topExtension(layout))
         floor.applyExtension(bottom: ChestLayout.bottomExtension(layout))
         moments.applyExtension(top: ChestLayout.topExtension(layout), bottom: ChestLayout.bottomExtension(layout))
         placeWorld()
     }
 
-    /// The world's transform: canvas → scene. Unturned the canvas sits `contentOffsetY` up; turned it is rotated by π
-    /// about the scene centre.
+    /// R6: a new k: the scene takes its (possibly landscape) size and the world turns.
+    private func applyTurns() {
+        let want = ChestScene.sceneSize(layout: layout, quarterTurns: turns)
+        if size != want { size = want }
+        placeWorld()
+        syncViewScale()
+    }
+
+    /// The world's transform: canvas → scene. R6: the whole portrait scene (the canvas plus its extensions: world x
+    /// 0…670, y −contentOffsetY … layout height − contentOffsetY) is turned k quarter turns clockwise
+    /// (`zRotation = −k·π/2`) and its centre put on the scene's centre, scaled to fill the scene exactly (scale 1 at
+    /// the scene's own size). k = 0 gives position (0, offset); k = 2 gives (W, H − offset), as R2's `turned`.
     private func placeWorld() {
-        let off = layout.contentOffsetY
-        if turned {
-            world.zRotation = .pi
-            world.position = CGPoint(x: size.width, y: size.height - off)
-        } else {
-            world.zRotation = 0
-            world.position = CGPoint(x: 0, y: off)
+        let k = turns
+        let portrait = layout.size
+        let extent = ChestScene.sceneSize(layout: layout, quarterTurns: k)
+        var s: CGFloat = 1
+        if extent.width > 0, extent.height > 0, size.width > 0, size.height > 0,
+           abs(size.width - extent.width) > 0.001 || abs(size.height - extent.height) > 0.001 {
+            s = max(size.width / extent.width, size.height / extent.height)
         }
+        worldScale = s
+        // The portrait scene's centre in world (canvas) coordinates.
+        let pc = CGPoint(x: portrait.width / 2, y: portrait.height / 2 - layout.contentOffsetY)
+        let (c, sn) = ChestScene.turnCosSin(k)
+        let rotated = CGPoint(x: (c * pc.x - sn * pc.y) * s, y: (sn * pc.x + c * pc.y) * s)
+        world.setScale(s)
+        world.zRotation = -CGFloat(k) * .pi / 2
+        world.position = CGPoint(x: size.width / 2 - rotated.x, y: size.height / 2 - rotated.y)
     }
 
     override func didChangeSize(_ oldSize: CGSize) {
@@ -417,9 +480,24 @@ final class ChestScene: SKScene {
         return view.width > view.height ? min(sx, sy) : max(sx, sy)
     }
 
+    /// R6: view points per scene point for the scene's own `scaleMode` (what SpriteKit really draws). With a
+    /// quarter-turned (landscape) scene in a landscape view this is the same number as the portrait rule above.
+    static func scaleFor(view: CGSize, scene: CGSize, mode: SKSceneScaleMode) -> CGFloat {
+        guard view.width > 0, view.height > 0, scene.width > 0, scene.height > 0 else { return 1 }
+        let sx = view.width / scene.width, sy = view.height / scene.height
+        switch mode {
+        case .aspectFill: return max(sx, sy)
+        case .aspectFit: return min(sx, sy)
+        case .fill: return min(sx, sy)
+        case .resizeFill: return 1
+        @unknown default: return scaleFor(view: view, scene: scene)
+        }
+    }
+
     private func syncViewScale() {
         guard let v = view else { return }
-        hud.viewScale = ChestScene.scaleFor(view: v.bounds.size, scene: size)
+        // R6: per CANVAS point, so the world's own scale (1 at the scene's own size) counts too.
+        hud.viewScale = ChestScene.scaleFor(view: v.bounds.size, scene: size, mode: scaleMode) * worldScale
     }
 
     /// The candle's flicker on the light (1 steady; lower is dimmer). It gutters in the last 15 s.
@@ -566,13 +644,30 @@ final class ChestScene: SKScene {
         return c
     }
 
-    // MARK: Touches (read in `world`, i.e. canvas coordinates, so turning round needs nothing more)
+    // MARK: Touches (read in `world`, i.e. canvas coordinates, so any quarter turn needs nothing more)
 
     /// A scene point (e.g. a touch's `location(in: scene)`) in canvas coordinates.
     func canvasPoint(fromScene p: CGPoint) -> CGPoint { world.convert(p, from: self) }
 
     /// A canvas point where it is drawn in the scene.
     func scenePoint(fromCanvas p: CGPoint) -> CGPoint { convert(p, from: world) }
+
+    /// R6: where a canvas rect is drawn in the scene (scene points, y up): the bounding box of its turned corners.
+    func sceneRect(fromCanvas r: CGRect) -> CGRect {
+        let ps = [CGPoint(x: r.minX, y: r.minY), CGPoint(x: r.maxX, y: r.minY), CGPoint(x: r.minX, y: r.maxY),
+                  CGPoint(x: r.maxX, y: r.maxY)].map { scenePoint(fromCanvas: $0) }
+        let xs = ps.map(\.x), ys = ps.map(\.y)
+        let minX = xs.min() ?? 0, maxX = xs.max() ?? 0, minY = ys.min() ?? 0, maxY = ys.max() ?? 0
+        return CGRect(x: minX, y: minY, width: maxX - minX, height: maxY - minY)
+    }
+
+    /// R6: the whole portrait scene (the canvas plus its extensions, world x 0…670, y −offset … height − offset), as
+    /// drawn in the scene. It covers the scene exactly (it may overhang by under a point when the scene was given a
+    /// size other than its own).
+    var drawnWorldRect: CGRect {
+        let off = layout.contentOffsetY
+        return sceneRect(fromCanvas: CGRect(x: 0, y: -off, width: layout.size.width, height: layout.size.height))
+    }
 
     /// The floor-space point a touch at canvas `p` reports (the extension below the floor counts as the bag).
     func floorPoint(forCanvas p: CGPoint) -> CGPoint { ChestLayout.floorTouchPoint(fromCanvas: p) }

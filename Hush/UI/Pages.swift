@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 /// A full page (Codex, Badges, Settings, Daily): its title, scrolling content and "Done". R2: on a Duo the title sits
 /// on the lid half and the content and Done on the floor half (the sharp, reachable one: Settings' toggles too);
@@ -418,6 +419,13 @@ struct DiagnosticsPanel: View {
     let compact: Bool
 
     var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            diagnostics
+            EventLogPanel(log: controller.events, compact: compact)
+        }
+    }
+
+    private var diagnostics: some View {
         TimelineView(.periodic(from: .now, by: 0.25)) { _ in
             VStack(alignment: .leading, spacing: 3) {
                 Text("DIAGNOSTICS")
@@ -437,6 +445,66 @@ struct DiagnosticsPanel: View {
             .textSelection(.enabled)
         }
         .accessibilityElement(children: .combine)
+    }
+}
+
+/// R6 (ROUND-6 App 8): the last 80 events (pose changes and why, pauses, resumes, the watchdog, canvas and
+/// orientation changes, hinge nil, scene phase), newest first, monospaced and scrollable, with a Copy button so the
+/// founder can paste it to Claude. Stored on this device only.
+struct EventLogPanel: View {
+    @ObservedObject var log: EventLog
+    let compact: Bool
+    @State private var copied = false
+
+    static let copyLabel = "Copy log"
+    static let height: CGFloat = 260
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                Text("EVENT LOG · \(log.ring.entries.count)")
+                    .font(HushType.overline(compact))
+                    .kerning(1.2)
+                    .foregroundStyle(HushTheme.gold)
+                Spacer(minLength: 8)
+                Button {
+                    UIPasteboard.general.string = log.text
+                    FeedbackDirector.shared.uiConfirm()
+                    copied = true
+                } label: {
+                    Text(copied ? "Copied" : Self.copyLabel)
+                        .font(HushType.caption(compact).weight(.bold))
+                        .foregroundStyle(HushTheme.ink)
+                        .padding(.horizontal, 14)
+                        .frame(minHeight: HushTheme.minTap)
+                        .background(Capsule().fill(HushTheme.gold))
+                        .contentShape(Capsule())
+                }
+                .buttonStyle(HushPressStyle())
+                .accessibilityIdentifier("diag.copy")
+                .accessibilityHint("Copies the event log, to paste into a message")
+            }
+            ScrollView(showsIndicators: true) {
+                LazyVStack(alignment: .leading, spacing: 2) {
+                    ForEach(Array(log.lines.enumerated()), id: \.offset) { _, line in
+                        Text(line)
+                            .font(.system(size: 11, weight: .regular, design: .monospaced))
+                            .foregroundStyle(HushTheme.mist)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    if log.ring.entries.isEmpty {
+                        Text("Nothing yet.")
+                            .font(HushType.caption(compact))
+                            .foregroundStyle(HushTheme.haze)
+                    }
+                }
+                .padding(8)
+            }
+            .frame(height: Self.height)
+            .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(HushTheme.night.opacity(0.6)))
+            .textSelection(.enabled)
+        }
     }
 }
 

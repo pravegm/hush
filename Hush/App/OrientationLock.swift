@@ -17,25 +17,58 @@ enum InterfaceSide: String, Equatable {
 /// - every other iPhone: portrait only.
 ///
 /// R2 (P0-1, Brim's Release path): a Duo lying flat never rotates on its own, and a Duo lifted from book pose may stay
-/// landscape, so Hush ASKS for portrait (`requestPortrait()`): when the pose card shows, when the hinge moves under it,
-/// at launch on the inner display, when a live run comes back from the cover display, and from the card's "I've stood
-/// it up" button. It never asks for upside down.
+/// landscape, so Hush ASKS for portrait (`requestPortrait()`) at launch on the inner display and when a live run comes
+/// back from the cover display. It never asks for upside down.
+///
+/// R6 (founder P0, "it gets stuck"): NOTHING depends on iOS's orientation any more. Every orientation plays (RootView
+/// draws the canvas with `AppRules.quarterTurns`); the portrait asks are kept only because they are harmless. A live run
+/// on the inner display holds the orientation it is in (`mask(isDuo:liveRun:inner:interface:)`), menus are unlocked.
 @MainActor
 enum OrientationLock {
     static let hingeKey = "hush.hasHinge"
 
     /// A hinge reported in this run.
     private(set) static var hingeSeen = false
-    /// A run is live (portrait only on the inner display).
+    /// A run is live (its orientation is held on the inner display).
     private(set) static var liveRun = false
+    /// R6: the interface orientation a live run is held in (captured when it goes live, re-captured whenever the
+    /// interface turns anyway or the app comes back to the inner display; `.unknown` = not held).
+    private(set) static var lockedInterface: UIInterfaceOrientation = .unknown
     /// What iOS last said to a portrait request (Settings › About in test builds).
     private(set) static var lastRequest = "not asked"
+    /// R6: told of every mask the app hands iOS (the Diagnostics event log).
+    static var onMask: ((String) -> Void)?
+
+    /// R6 (DEBUG demos only): `fold=1;orient=landscape` on a phone sim uses the Duo's mask.
+    private(set) static var demoDuo = false
+
+    static func setDemoDuo(_ on: Bool) {
+        guard on != demoDuo else { return }
+        demoDuo = on
+        refreshSupportedOrientations()
+    }
 
     static func mask(screen: CGSize) -> UIInterfaceOrientationMask {
         let stored = trustsStoredHinge(UserDefaults.standard.bool(forKey: hingeKey), screen: screen)
-        let inner = max(screen.width, screen.height) >= AppRules.coverMaxSide
-        return mask(isDuo: stored || hingeSeen || looksLikeDuo(screen), liveRun: liveRun, inner: inner,
-                    interfacePortrait: interfaceIsPortrait() && screen.height > screen.width)
+        let inner = max(screen.width, screen.height) >= AppRules.coverMaxSide || demoDuo
+        return mask(isDuo: stored || hingeSeen || looksLikeDuo(screen) || demoDuo, liveRun: liveRun, inner: inner,
+                    interface: lockedInterface)
+    }
+
+    /// Pure rule (tested), R6 (ROUND-6 App 5): a Duo allows portrait and both landscapes (never upside down). While a
+    /// run is live on the inner display the mask is the CURRENT orientation only (`interface`, captured when the run
+    /// went live), so iOS never flips the picture mid-chest, and never a mask that disagrees with the interface (the
+    /// R2 letterboxed column, Duo run 40506125012). Unknown or upside down: unlocked. Menus: unlocked. Phones: portrait.
+    nonisolated static func mask(isDuo: Bool, liveRun: Bool, inner: Bool,
+                                 interface: UIInterfaceOrientation) -> UIInterfaceOrientationMask {
+        guard isDuo else { return .portrait }
+        guard liveRun && inner else { return .allButUpsideDown }
+        switch interface {
+        case .portrait: return .portrait
+        case .landscapeLeft: return .landscapeLeft
+        case .landscapeRight: return .landscapeRight
+        default: return .allButUpsideDown
+        }
     }
 
     /// Pure rule (tested): portrait + landscapes on a Duo, portrait only elsewhere. Never upside down.
@@ -51,21 +84,30 @@ enum OrientationLock {
     /// cover display keeps the Duo mask (Brim run 40343397399). Never upside down.
     nonisolated static func mask(isDuo: Bool, liveRun: Bool, inner: Bool,
                                  interfacePortrait: Bool) -> UIInterfaceOrientationMask {
-        guard isDuo else { return .portrait }
-        return liveRun && inner && interfacePortrait ? .portrait : .allButUpsideDown
+        mask(isDuo: isDuo, liveRun: liveRun, inner: inner, interface: interfacePortrait ? .portrait : .unknown)
     }
 
     /// The key window scene runs its interface in portrait now.
     static func interfaceIsPortrait() -> Bool {
-        let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
-        let scene = scenes.first(where: { $0.windows.contains(where: \.isKeyWindow) }) ?? scenes.first
-        return scene?.effectiveGeometry.interfaceOrientation.isPortrait ?? false
+        let o = interfaceOrientation()
+        return o == .portrait || o == .portraitUpsideDown
     }
 
-    /// The interface changed shape (RootView's canvas): a live run that has just reached portrait on the inner display
-    /// gets its portrait lock now (iOS only asks for the mask again after this).
-    static func interfaceChanged() {
+    /// R6: the key window scene's interface orientation now (`.unknown` before a scene connects).
+    static func interfaceOrientation() -> UIInterfaceOrientation {
+        let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
+        let scene = scenes.first(where: { $0.windows.contains(where: \.isKeyWindow) }) ?? scenes.first
+        return scene?.effectiveGeometry.interfaceOrientation ?? .unknown
+    }
+
+    /// The canvas changed (RootView: a rotation, a display handover). R6: off the inner display the hold is dropped
+    /// (the cover display keeps the Duo mask); on it, a live run is held in whatever orientation iOS is in NOW, so the
+    /// mask never disagrees with the interface.
+    static func interfaceChanged(inner: Bool = true) {
         guard liveRun else { return }
+        let now = inner ? interfaceOrientation() : .unknown
+        guard now != lockedInterface else { return }
+        lockedInterface = now
         refreshSupportedOrientations()
     }
 
@@ -103,10 +145,11 @@ enum OrientationLock {
         refreshSupportedOrientations()
     }
 
-    /// A run went live or ended (the inner display holds portrait while it is live).
+    /// A run went live or ended. R6: while it is live the inner display holds the orientation it is in now.
     static func setLiveRun(_ on: Bool) {
         guard on != liveRun else { return }
         liveRun = on
+        lockedInterface = on ? interfaceOrientation() : .unknown
         refreshSupportedOrientations()
     }
 
@@ -118,12 +161,19 @@ enum OrientationLock {
             }
         }
         // R3 (REVIEW-2-duo P2-9): the lock can be seen in the log (and in Settings › About's Diagnostics).
-        AppTrace.t("HUSH-T mask \(maskName()) live=\(liveRun ? 1 : 0) iface=\(interfaceIsPortrait() ? "portrait" : "other")")
+        let iface = interfaceOrientation()
+        AppTrace.t("HUSH-T mask \(maskName()) live=\(liveRun ? 1 : 0) iface=\(iface == .portrait ? "portrait" : "other") "
+                   + "held=\(AppRules.interfaceName(lockedInterface))")
+        onMask?("mask \(maskName()) live=\(liveRun ? 1 : 0) iface=\(AppRules.interfaceName(iface))")
     }
 
-    /// "portrait" or "allButUpsideDown" for the main screen now.
+    /// "portrait", "landscapeLeft", "landscapeRight" or "allButUpsideDown" for the main screen now.
     static func maskName() -> String {
-        mask(screen: screenSize()) == .portrait ? "portrait" : "allButUpsideDown"
+        let m = mask(screen: screenSize())
+        if m == .portrait { return "portrait" }
+        if m == .landscapeLeft { return "landscapeLeft" }
+        if m == .landscapeRight { return "landscapeRight" }
+        return "allButUpsideDown"
     }
 
     /// Asks every window scene for portrait (Brim's Release path; never upside down). Harmless where portrait is all
@@ -185,7 +235,8 @@ enum OrientationLock {
         case .portraitUpsideDown: way = "upside down"
         default: way = "unknown"
         }
-        return "Screen: \(way) · mask: \(maskName()) · portrait ask: \(lastRequest)"
+        return "Screen: \(way) · mask: \(maskName()) · held: \(AppRules.interfaceName(lockedInterface))"
+            + " · portrait ask: \(lastRequest)"
     }
 
     /// The key window's real safe-area insets.

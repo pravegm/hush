@@ -312,6 +312,9 @@ struct ClosingCard: View {
         return lifted ? "Hold still…" : "Lift the lid a little to carry on"
     }
 
+    /// R6: the escape hatch's words.
+    static let carryOn = "Carry on"
+
     static func detail(lifted: Bool, awaitingHinge: Bool = false) -> String {
         if awaitingHinge { return "Then hold it still. The mimic waits." }
         return lifted ? "Then we tiptoe on." : "The mimic waits. Your candle does too."
@@ -350,11 +353,22 @@ struct ClosingCard: View {
                         .multilineTextAlignment(.center)
                         .fixedSize(horizontal: false, vertical: true)
                 }
+                // R6 (ROUND-6 App 6, never stuck): after 3 s, a big "Carry on" that resumes at once, whatever the
+                // hinge says (the watchdog does the same by itself after 6 s with the lid open).
+                if controller.closingEscape {
+                    HushButton(kind: .primary, height: c ? 56 : HushTheme.primaryHeight, compact: c, confirm: true,
+                               action: { controller.carryOn() }) {
+                        Text(Self.carryOn)
+                    }
+                    .accessibilityHint("Resumes the chest now")
+                    .transition(.opacity)
+                }
                 HushButton(kind: .leather, height: HushTheme.minTap, compact: c, action: { controller.goHome() }) {
                     Text("Home")
                 }
-                .frame(maxWidth: 220)
+                .frame(maxWidth: controller.closingEscape ? .infinity : 220)
             }
+            .animation(HushTheme.settle(controller.reduceMotion), value: controller.closingEscape)
             .frame(width: max(min(area.width - 40, 440), 220))
             .hushPlate(padding: 14, radius: 22)
             .position(x: area.midX, y: area.midY)

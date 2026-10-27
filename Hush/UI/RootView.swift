@@ -1,15 +1,22 @@
 import SpriteKit
 import SwiftUI
 
-/// The whole app: the SpriteKit chest underneath (R2: filling the screen, no bars), the SwiftUI screens on top, the
-/// pose cards above all.
+/// The whole app: the SpriteKit chest underneath (R2: filling the screen, no bars), the SwiftUI screens on top.
 ///
-/// TURNED ROUND (GAME-DESIGN §3, the blurred-half rule): on a Duo's portrait canvas with "Turn the chest round" on (the
-/// default), the floor (and every time-critical thing) is drawn on the half iOS keeps sharp, and the player lifts the
-/// half that blurs as the lid. R2: the SCENE turns itself (`ChestScene.turned`, touches read in its world, so they are
-/// right by construction); SwiftUI turns only its own layer (HUD, cards, the lesson, the pages) by 180°. Hush never
-/// asks iOS for upside down. The safe areas are turned with it (`AppRules.insets`), and both screen ends defer system
-/// gestures during play. A Game Center sheet (UIKit, in iOS's own orientation) un-turns the app while it is up.
+/// R6 (founder P0, "when i open the whole phone it gets stuck"): ANY WAY UP. Correctness never depends on iOS's
+/// interface orientation. We always know where the blurring half is (the physical half that is the bottom in iOS
+/// portrait), so the portrait canvas is drawn with k clockwise quarter turns (`AppRules.quarterTurns`: the lid's edge
+/// on the blurring side with "Turn the chest round" on, the opposite side with it off; k = 0 without a fold):
+/// - the SpriteView is the REAL window and is never rotated by SwiftUI: the scene turns itself
+///   (`ChestScene.quarterTurns`, touches read in its world) and sizes itself (never `scene.size`);
+/// - every SwiftUI screen is laid out in a PORTRAIT frame (the window with w and h swapped when k is odd), with the
+///   safe-area insets turned with it (`AppRules.insets(_:quarterTurns:)`), then turned `90 * k` degrees about the
+///   window's centre, the same point the scene turns about, so canvas rects line up;
+/// - the system-gesture edges follow (`AppRules.deferredEdges(live:quarterTurns:)`);
+/// - k changes without animation, and nothing here is rebuilt when it does: the hinge reader sits on the outermost
+///   view, and the SpriteView keeps one identity (only `sceneGeneration` re-identifies it);
+/// - a Game Center sheet (UIKit, in iOS's own orientation) draws the app with "Turn the chest round" off while it is up.
+/// Book pose no longer blocks: Home and lesson step 1 show a small dismissible tip (`PoseTip`) instead.
 ///
 /// The hinge is read here, once, for the whole app (HingeReader → GameController.hingeSample → HingeLidSource).
 struct RootView: View {
@@ -21,35 +28,32 @@ struct RootView: View {
     @Environment(\.accessibilityReduceMotion) private var systemReduceMotion
     @State private var launched = false
     @State private var windowInsets = EdgeInsets()
-    @State private var interfaceSide: InterfaceSide = .landscapeRight
+    /// The interface orientation iOS last reported (only known values are kept).
+    @State private var interface: UIInterfaceOrientation = .unknown
 
     var body: some View {
         GeometryReader { safeGeo in
             let safe = safeGeo.safeAreaInsets
             GeometryReader { geo in
-                let canvas = geo.size
-                let pose = currentPose(canvas)
-                let fold = AppRules.hasFold(canvas: canvas, hingeSeen: controller.hingeSeen,
-                                            demoFold: controller.demoFold)
-                let turned = turnsRound(canvas, pose: pose, fold: fold)
+                let window = geo.size
+                let frame = rootFrame(window)
                 let raw = merged(safe, windowInsets)
-                content(canvas: canvas, pose: pose, fold: fold, turned: turned, rawInsets: raw)
-                    .frame(width: canvas.width, height: canvas.height)
+                let tipOn = controller.showsPoseTip && frame.pose == .play
+                content(window: window, frame: frame, rawInsets: raw, tipOn: tipOn)
+                    .frame(width: window.width, height: window.height)
                     .onAppear {
                         refreshWindowInsets()
-                        handleCanvas(canvas, fold: fold, turned: turned, pose: pose)
+                        handleCanvas(window, rootFrame(window))
                         launchOnce()
+                        if tipOn { controller.poseTipShown(true) }
                     }
-                    .onChange(of: canvas) { _, newSize in
+                    .onChange(of: window) { _, newSize in
                         refreshWindowInsets()
-                        let p = currentPose(newSize)
-                        let f = AppRules.hasFold(canvas: newSize, hingeSeen: controller.hingeSeen,
-                                                 demoFold: controller.demoFold)
-                        handleCanvas(newSize, fold: f, turned: turnsRound(newSize, pose: p, fold: f), pose: p)
+                        handleCanvas(newSize, rootFrame(newSize))
                     }
-                    .onChange(of: fold) { _, f in handleCanvas(canvas, fold: f, turned: turned, pose: pose) }
-                    .onChange(of: turned) { _, t in handleCanvas(canvas, fold: fold, turned: t, pose: pose) }
-                    .onChange(of: pose) { _, p in handleCanvas(canvas, fold: fold, turned: turned, pose: p) }
+                    .onChange(of: frame) { _, f in handleCanvas(window, f) }
+                    .onChange(of: raw) { _, _ in refreshInterface() }
+                    .onChange(of: tipOn) { _, on in controller.poseTipShown(on) }
             }
             .ignoresSafeArea()
         }
@@ -74,65 +78,82 @@ struct RootView: View {
         .persistentSystemOverlays(.hidden)
     }
 
-    private func turnsRound(_ canvas: CGSize, pose: AppPose, fold: Bool) -> Bool {
-        AppRules.turnsRound(wanted: controller.wantsTurnRound, pose: pose, portrait: canvas.height >= canvas.width,
-                            hasFold: fold, systemSheet: controller.systemSheetUp)
+    /// The pose, the fold (judged on the portrait-equivalent canvas, so a Duo's inner display is a fold in landscape
+    /// too), the interface orientation (made to agree with the window's shape) and k.
+    private func rootFrame(_ window: CGSize) -> RootFrame {
+        let pose = currentPose(window)
+        let iface = AppRules.settledInterface(interface, window: window, last: interface)
+        let fold = AppRules.hasFold(canvas: AppRules.portraitSize(window), hingeSeen: controller.hingeSeen,
+                                    demoFold: controller.demoFold)
+        let onFold = fold && pose == .play
+        var k = AppRules.quarterTurns(interface: iface,
+                                      turnRound: controller.wantsTurnRound && !controller.systemSheetUp,
+                                      hasFold: onFold, last: controller.quarterTurns)
+        if let forced = controller.demoQuarterTurns, AppRules.forcedTurnsFit(forced, window: window, hasFold: onFold) {
+            k = forced
+        }
+        return RootFrame(pose: pose, fold: onFold, turns: k, interface: iface)
     }
 
     // MARK: - Content
 
     @ViewBuilder
-    private func content(canvas: CGSize, pose: AppPose, fold: Bool, turned: Bool, rawInsets: EdgeInsets) -> some View {
-        let info = AppCanvas(size: canvas, insets: AppRules.insets(rawInsets, turnedRound: turned), hasFold: fold,
-                             turned: turned)
+    private func content(window: CGSize, frame: RootFrame, rawInsets: EdgeInsets, tipOn: Bool) -> some View {
+        let k = frame.turns
+        let drawn = AppRules.drawnSize(window: window, quarterTurns: k)
+        let info = AppCanvas(size: drawn, insets: AppRules.insets(rawInsets, quarterTurns: k), hasFold: frame.fold,
+                             turned: k == 2)
         ZStack {
             HushTheme.night
-            // The scene is never rotated by SwiftUI (it turns itself).
-            gameLayer(canvas, hidden: pose != .play)
-            switch pose {
-            case .play:
-                screenLayer(info)
-                    .rotationEffect(turned ? .degrees(180) : .zero)
-                    .animation(nil, value: turned)
-            case .standUp:
-                StandUpCard(insets: rawInsets,
-                            liftSide: AppRules.liftSide(interface: interfaceSide,
-                                                        turned: controller.wantsTurnRound),
-                            reduceMotion: controller.reduceMotion,
-                            refused: controller.portraitRefused,
-                            onStoodUp: { controller.stoodItUp() },
-                            onPlayAnyway: { controller.choosePlayAnyway() })
-                    .transition(.opacity)
-            case .cover:
+            // The scene is never rotated by SwiftUI (it turns itself), and keeps one identity whatever k does.
+            gameLayer(window, hidden: frame.pose != .play)
+            // Every SwiftUI screen: laid out portrait, then turned k quarter turns about the window's centre.
+            ZStack {
+                if frame.pose == .play {
+                    screenLayer(info)
+                }
+            }
+            .frame(width: drawn.width, height: drawn.height)
+            .rotationEffect(.degrees(90 * Double(k)))
+            .animation(nil, value: k)
+            .frame(width: window.width, height: window.height)
+            if frame.pose == .cover {
                 CoverCard(midRun: controller.isLiveRun, portrait: controller.portraits.cover,
                           reduceMotion: controller.reduceMotion)
                     .transition(.opacity)
             }
-            if controller.showsHoldHint && pose == .play {
-                HoldHintBanner(size: canvas)
+            if tipOn {
+                poseTipLayer(window: window, interface: frame.interface)
+                    .transition(.opacity)
+            }
+            if controller.showsHoldHint && frame.pose == .play {
+                HoldHintBanner(size: window)
                     .allowsHitTesting(false)
             }
+            if controller.isDemo {
+                canvasProbe(window: window, frame: frame)
+            }
             if controller.showsIcon {
-                iconLayer(canvas)
+                iconLayer(window)
             }
         }
-        .frame(width: canvas.width, height: canvas.height)
-        .animation(HushTheme.settle(controller.reduceMotion), value: pose)
+        .frame(width: window.width, height: window.height)
+        .animation(HushTheme.settle(controller.reduceMotion), value: frame.pose)
+        .animation(HushTheme.settle(controller.reduceMotion), value: tipOn)
         .defersSystemGestures(on: AppRules.deferredEdges(live: controller.isLiveRun && !controller.isPaused,
-                                                         turnedRound: turned))
+                                                         quarterTurns: k))
     }
 
     private func currentPose(_ canvas: CGSize) -> AppPose {
         if let forced = controller.forcedPose { return forced }
-        return AppRules.pose(canvas: canvas, hingeSeen: controller.hingeSeen, isShut: controller.isShut,
-                             playAnyway: controller.playAnyway)
+        return AppRules.pose(canvas: canvas, hingeSeen: controller.hingeSeen, isShut: controller.isShut)
     }
 
-    private func handleCanvas(_ canvas: CGSize, fold: Bool, turned: Bool, pose: AppPose) {
-        guard canvas.width > 1, canvas.height > 1 else { return }
-        controller.setPose(pose, canvas: canvas)
-        // Every layout change prints `HUSH-T canvas <w>x<h> fold=<0|1> turned=<0|1>` (GameController.updateCanvas).
-        controller.updateCanvas(canvas, hasFold: fold, turned: turned)
+    private func handleCanvas(_ window: CGSize, _ frame: RootFrame) {
+        guard window.width > 1, window.height > 1 else { return }
+        controller.setPose(frame.pose, canvas: window)
+        // Every layout change prints `HUSH-T canvas <w>x<h> fold=<0|1> turned=<0|1> k=<k>` (the real window).
+        controller.updateCanvas(window, hasFold: frame.fold, quarterTurns: frame.turns)
     }
 
     private func merged(_ a: EdgeInsets, _ b: EdgeInsets) -> EdgeInsets {
@@ -140,17 +161,27 @@ struct RootView: View {
                    bottom: max(a.bottom, b.bottom), trailing: max(a.trailing, b.trailing))
     }
 
+    /// The window's insets and the interface orientation; again a beat later (the window settles after a rotation or
+    /// a display handover, and a 180° flip doesn't change the window's size).
     private func refreshWindowInsets() {
         let read = OrientationLock.windowSafeArea()
         if read != windowInsets { windowInsets = read }
-        if let side = OrientationLock.interfaceSide(), side != interfaceSide { interfaceSide = side }
-        // The window settles its insets a beat after a rotation or a display handover.
+        refreshInterface()
         Task { @MainActor in
-            try? await Task.sleep(nanoseconds: 350_000_000)
-            let later = OrientationLock.windowSafeArea()
-            if later != windowInsets { windowInsets = later }
-            if let side = OrientationLock.interfaceSide(), side != interfaceSide { interfaceSide = side }
+            for delay in [UInt64(350_000_000), UInt64(550_000_000)] {
+                try? await Task.sleep(nanoseconds: delay)
+                let later = OrientationLock.windowSafeArea()
+                if later != windowInsets { windowInsets = later }
+                refreshInterface()
+            }
         }
+    }
+
+    private func refreshInterface() {
+        let o = OrientationLock.interfaceOrientation()
+        guard o != .unknown else { return }
+        if o != interface { interface = o }
+        controller.interfaceChanged(o)
     }
 
     private func launchOnce() {
@@ -172,15 +203,15 @@ struct RootView: View {
     }
 
     /// R2: the SpriteView fills the screen; the scene is laid out for it (`ScreenLayout.make(hasFold:viewSize:)`,
-    /// aspect-fill) and turns itself. Its frame rate follows Feel (`FeedbackDirector.preferredFPS`: 60 under Low Power
-    /// or a hot device).
+    /// aspect-fill) and turns itself. R6: it is the REAL window whatever k is. Its frame rate follows Feel
+    /// (`FeedbackDirector.preferredFPS`: 60 under Low Power or a hot device).
     @ViewBuilder
-    private func gameLayer(_ canvas: CGSize, hidden: Bool) -> some View {
+    private func gameLayer(_ window: CGSize, hidden: Bool) -> some View {
         if let scene = controller.scene {
             SpriteView(scene: scene, isPaused: sceneIdle(hidden: hidden),
                        preferredFramesPerSecond: controller.preferredFPS)
                 .id(controller.sceneGeneration)
-                .frame(width: canvas.width, height: canvas.height)
+                .frame(width: window.width, height: window.height)
                 .opacity(controller.route.isPlay && !hidden ? 1 : 0.001)
                 .allowsHitTesting(controller.route.isPlay && !hidden)
                 .accessibilityHidden(true)
@@ -218,6 +249,39 @@ struct RootView: View {
         }
         .frame(width: info.size.width, height: info.size.height)
         .animation(HushTheme.settle(controller.reduceMotion), value: controller.route)
+    }
+
+    /// R6: the pose tip, upright to gravity (`AppRules.tipTurns`), on the book's sharp page, in the window's frame.
+    @ViewBuilder
+    private func poseTipLayer(window: CGSize, interface: UIInterfaceOrientation) -> some View {
+        let device = controller.deviceOrientation
+        let r = AppRules.tipTurns(device: device, interface: interface) ?? 0
+        let area = AppRules.drawnSize(window: window, quarterTurns: r)
+        let landscape = area.width > area.height
+        let left = AppRules.poseTipOnLeft(device: device)
+        let width = min(PoseTip.maxWidth, (landscape ? area.width / 2 : area.width) - 48)
+        let x = landscape ? (left ? area.width * 0.25 : area.width * 0.75) : area.width / 2
+        let y = landscape ? max(area.height * 0.18, 72) : max(area.height / 2 - AppCanvas.foldHalf - 64, 72)
+        PoseTip(reduceMotion: controller.reduceMotion, onClose: { controller.dismissPoseTip() })
+            .frame(maxWidth: max(width, 200))
+            .position(x: x, y: y)
+            .frame(width: area.width, height: area.height)
+            .rotationEffect(.degrees(90 * Double(r)))
+            .animation(nil, value: r)
+            .frame(width: window.width, height: window.height)
+    }
+
+    /// R6 (CI NEEDS): `debug.canvas` (demo runs only): a pure accessibility element, no hit testing, valued
+    /// `k=<k> w=<w> h=<h> fold=<0|1>` (the real window).
+    private func canvasProbe(window: CGSize, frame: RootFrame) -> some View {
+        Color.clear
+            .frame(width: 2, height: 2)
+            .position(x: 1, y: 1)
+            .accessibilityElement()
+            .accessibilityIdentifier("debug.canvas")
+            .accessibilityValue("k=\(frame.turns) w=\(Int(window.width.rounded())) h=\(Int(window.height.rounded())) "
+                                + "fold=\(frame.fold ? 1 : 0)")
+            .allowsHitTesting(false)
     }
 
     @ViewBuilder

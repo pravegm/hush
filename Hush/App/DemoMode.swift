@@ -14,8 +14,9 @@ import UIKit
 //               default casual) and recorded into the demo progress, so best, rank and relics are all true.
 //     codex / settings / daily   those pages.
 //     lesson    the First Chest lesson (at `lessonStep=`, default 1).
-//     pose      force the book-pose card "Turn it sideways. Lift the glowing half." (over `mode` if given, else Home).
-//               Only on a Duo-shaped screen or with `fold=1`: a phone never shows it (R2).
+//     pose      R6: force the small, non-blocking pose tip "Stand it up like a little laptop" on Home (with `mode=`,
+//               the run starts and plays: book pose never blocks). Only on a Duo-shaped screen or with `fold=1`: a phone
+//               never shows it (R2). Logs `HUSH-T pose tip shown|hidden|dismissed`.
 //     cover     force the cover-display card (the sleeping mimic, "Open to carry on").
 //     icon      render the icon (ChestArt.appIcon) to Documents/AppIcon-1024.png (`HUSH-T icon ok 1024x1024`, `HUSH-ICON <path>`)
 //               and show it full screen. `HUSH_ICON=1` in the environment does the same without `-hushDemo`.
@@ -52,12 +53,18 @@ import UIKit
 //                                 late moments (`freezeOn=torchLow`) don't take real minutes. `HUSH-T skipped <s>`.
 // - `noiseUntil=pause`            (R2) with `noise=`: hold it only until the first pause of any reason, then
 //                                 `HUSH-T noise released <n>` and let the session own it (duo.sh REOPEN-NO-BITE).
-// - `pose=book`                   (R3) hold the book-pose card: implies `screen=pose`, shows it on any screen shape, and
-//                                 the App never asks for portrait (the card stays up for the frame). CI: POSE-BOOK.
+// - `pose=book`                   (R3) implies `screen=pose`, on any screen shape, and the App never asks for portrait.
+//                                 R6: it shows the pose tip (the blocking card is gone). CI: POSE-CARD.
+// - `quarter=<0…3>`               (R6) force the canvas's clockwise quarter turns k over `AppRules.quarterTurns`, but
+//                                 only on a fold and only when k's parity fits the window (odd k = landscape window),
+//                                 so the drawn frame stays portrait. `fold=1;orient=landscape` also gives a phone sim the
+//                                 Duo's mask, so it can turn landscape.
 // - `golden=1`                    (R2) run/attract: the first seed (from `seed=`) whose chest #3 is a golden mimic;
 //                                 its arrival logs `HUSH-T event chestArrived … golden=1`.
 //
-// Log lines: `HUSH-T demo '<args>' starts`, `HUSH-T canvas <w>x<h> fold=<0|1> turned=<0|1>`,
+// Log lines: `HUSH-T demo '<args>' starts`, `HUSH-T canvas <w>x<h> fold=<0|1> turned=<0|1> k=<0…3>` (R6: the real
+// window; turned = k == 2), `HUSH-T iface <o>`, `HUSH-T carry on …`, `HUSH-T watchdog resume …`, `HUSH-T hint tooWide`,
+// `HUSH-T hinge nil …`, `HUSH-T pose tip shown|hidden|dismissed`,
 // `HUSH-T input hinge|slider|pilot|fixed`, `HUSH-T lid …` (10 Hz in play), `HUSH-T event <name> …`,
 // `HUSH-T paused closing|menu|background|pose`, `HUSH-T resumed angle <θ|->`, `HUSH-T phase active|inactive|background`,
 // `HUSH-T freeze <tag>`, `HUSH-T frame 120`, `HUSH-T gold mismatch …` (never expected),
@@ -143,8 +150,10 @@ struct DemoMode: Equatable {
     var noiseUntilPause = false
     /// `golden=1`: the run's seed is the first one (from `seed=`, default 7) whose chest #3 is a golden mimic.
     var golden = false
-    /// `pose=book` (R3): hold the book-pose card (no automatic or lift portrait asks).
+    /// `pose=book` (R3): no automatic portrait asks. R6: shows the pose tip (any screen shape).
     var poseBook = false
+    /// `quarter=<0…3>` (R6): force the canvas's quarter turns where they fit the window (`AppRules.forcedTurnsFit`).
+    var quarter: Int?
 
     init(raw: String) { self.raw = raw }
 
@@ -210,6 +219,8 @@ struct DemoMode: Equatable {
             case "noiseUntil": config.noiseUntilPause = value.lowercased() == "pause"
             case "golden": config.golden = flag(value)
             case "pose": config.poseBook = value.lowercased() == "book"
+            case "quarter":
+                if let n = Int(value), (0...3).contains(n) { config.quarter = n }
             default: break
             }
         }

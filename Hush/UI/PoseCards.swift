@@ -75,151 +75,53 @@ struct DuoDiagram: View {
     }
 }
 
-/// Book pose (landscape on a Duo), R3 (UX P1-6): "Turn it sideways. Lift the glowing half." ("round" is a half turn,
-/// and Settings' "Turn the chest round" means one). Brim's two-page layout: the WHOLE half to lift glows gold, the
-/// words, the animated diagram and "I've stood it up" sit on the other page, nothing within 24 pt of the fold. In a
-/// narrow window, one stacked column. Drawn in the interface's own orientation (never turned round). A phone never
-/// shows it. R3 (QA-2 P2-4): "Play anyway" appears once iOS has refused portrait, or after `wayOutDelay` s.
-struct StandUpCard: View {
-    let insets: EdgeInsets
-    let liftSide: ScreenSide
+/// R6 (ROUND-6 App 4): book pose no longer blocks. On a Duo held like a book (the DEVICE landscape), Home and lesson
+/// step 1 show this small, dismissible tip, drawn upright to gravity (RootView turns it by `AppRules.tipTurns`), on the
+/// sharp page. It takes touches only on its ✕; everything under it keeps working. Never again after ✕ or after the
+/// lesson passes step 1. (The R3 blocking "Turn it sideways" card and its "Play anyway" lever path are gone: they
+/// depended on iOS agreeing to rotate, which a Duo lying in tabletop or flat never does.)
+struct PoseTip: View {
     let reduceMotion: Bool
-    /// iOS refused a portrait request.
-    var refused = false
-    let onStoodUp: () -> Void
-    var onPlayAnyway: () -> Void = {}
-    @State private var waited = false
+    let onClose: () -> Void
 
-    /// The fold of a Duo in book pose runs down the middle (a 40 pt band). Content keeps ≥ 24 pt clear of it.
-    static let creaseHalf: CGFloat = 20
-    static let creaseClear: CGFloat = 24
-    static let pageMargin: CGFloat = 28
-    static let wayOutDelay: Double = 8
-
-    static let title = "Turn it sideways. Lift the glowing half."
-    static let bodyText = "Keep the other half flat, nearest you. That's the floor."
-    static let wayOut = "Play anyway"
-
-    /// Pure; tested.
-    static func showsWayOut(refused: Bool, waited: Bool) -> Bool { refused || waited }
-
-    /// Pure (tested): a Duo inner display in book pose, where the card splits into one column per page.
-    static func splitsOnFold(_ size: CGSize) -> Bool {
-        size.width > size.height && OrientationLock.looksLikeDuo(size)
-    }
+    static let text = "Stand it up like a little laptop"
+    static let detail = "Lid up, the floor flat and nearest you."
+    static let closeLabel = "Dismiss the tip"
+    static let maxWidth: CGFloat = 380
 
     var body: some View {
-        ZStack {
-            HushTheme.backdrop
-            GeometryReader { geo in
-                if Self.splitsOnFold(geo.size) {
-                    bookPages(geo.size)
-                } else {
-                    stacked(geo.size)
-                }
-            }
-        }
-        .ignoresSafeArea()
-        .task {
-            try? await Task.sleep(nanoseconds: UInt64(Self.wayOutDelay * 1_000_000_000))
-            waited = true
-        }
-    }
-
-    private func bookPages(_ size: CGSize) -> some View {
-        let page = max(size.width / 2 - Self.creaseHalf - Self.creaseClear, 0)
-        let liftPage = ZStack {
-            RoundedRectangle(cornerRadius: 30, style: .continuous)
-                .fill(LinearGradient(colors: [HushTheme.gold.opacity(0.32), HushTheme.goldDeep.opacity(0.18)],
-                                     startPoint: .top, endPoint: .bottom))
-                .overlay(RoundedRectangle(cornerRadius: 30, style: .continuous)
-                    .stroke(HushTheme.gold, lineWidth: 5))
-            VStack(spacing: 14) {
-                // R4 (juror P1-4): the drawn lid, glowing, with the plate's own arrow (no SF Symbols).
-                DuoChestHalf(lid: true)
-                    .frame(width: min(page * 0.5, 200), height: min(page * 0.34, 130))
-                Text("Lift this half")
-                    .font(.system(size: 36, weight: .heavy, design: .rounded))
-                Text("It's the chest's lid.")
-                    .font(HushType.body(false))
+        HStack(alignment: .center, spacing: 12) {
+            DuoDiagram(style: .tabletop(angle: 115), reduceMotion: reduceMotion)
+                .frame(width: 64, height: 42)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(Self.text)
+                    .font(HushType.headline(true))
                     .foregroundStyle(HushTheme.parchment)
+                    .fixedSize(horizontal: false, vertical: true)
+                Text(Self.detail)
+                    .font(HushType.caption(true))
+                    .foregroundStyle(HushTheme.mist)
+                    .fixedSize(horizontal: false, vertical: true)
             }
-            .foregroundStyle(HushTheme.goldLight)
-            .multilineTextAlignment(.center)
-            .padding(20)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .accessibilityElement(children: .combine)
+            HushIconButton(systemName: "xmark", label: Self.closeLabel, visual: 40, action: onClose)
+                .accessibilityIdentifier("posetip.close")
         }
-        .padding(.top, insets.top + 16)
-        .padding(.bottom, insets.bottom + 16)
-        .frame(width: page)
-        .accessibilityElement(children: .combine)
-        let floorPage = ScrollView(showsIndicators: false) {
-            copy(diagram: min(page - 2 * Self.pageMargin, 220))
-                .padding(.horizontal, Self.pageMargin)
-                .padding(.vertical, 24)
-                .frame(width: page)
-                .frame(minHeight: max(size.height - insets.top - insets.bottom, 0))
-        }
-        .frame(width: page)
-        .padding(.top, insets.top)
-        .padding(.bottom, insets.bottom)
-        let gap = Color.clear.frame(width: 2 * (Self.creaseHalf + Self.creaseClear))
-        return HStack(spacing: 0) {
-            if liftSide == .left {
-                liftPage
-                gap
-                floorPage
-            } else {
-                floorPage
-                gap
-                liftPage
-            }
-        }
-        .padding(.leading, liftSide == .left ? insets.leading : 0)
-        .padding(.trailing, liftSide == .right ? insets.trailing : 0)
-        .frame(width: size.width, height: size.height)
-    }
-
-    private func stacked(_ size: CGSize) -> some View {
-        ScrollView(showsIndicators: false) {
-            copy(diagram: min(size.width - 80, 220))
-                .padding(.horizontal, 24)
-                .padding(.vertical, 24)
-                .frame(maxWidth: 460)
-                .frame(width: size.width)
-                .frame(minHeight: max(size.height - insets.top - insets.bottom, 0))
-        }
-        .padding(.top, insets.top)
-        .padding(.bottom, insets.bottom)
-    }
-
-    private func copy(diagram: CGFloat) -> some View {
-        VStack(alignment: .leading, spacing: 16) {
-            TurnAndLiftDrawing(liftSide: liftSide, reduceMotion: reduceMotion)
-                .frame(width: max(diagram, 120), height: max(diagram, 120))
-                .frame(maxWidth: .infinity)
-            HushOverline(text: "Hush", color: HushTheme.gold)
-            Text(Self.title)
-                .font(HushType.title(false))
-                .foregroundStyle(HushTheme.parchment)
-                .fixedSize(horizontal: false, vertical: true)
-            Text(Self.bodyText)
-                .font(HushType.body(false))
-                .foregroundStyle(HushTheme.mist)
-                .fixedSize(horizontal: false, vertical: true)
-            HushButton(kind: .primary, height: HushTheme.minTap, confirm: true, action: onStoodUp) {
-                HStack(spacing: 10) {
-                    TickGlyph().fill(HushTheme.ink).frame(width: 20, height: 20)
-                    Text("I've stood it up")
-                }
-            }
-            .accessibilityHint("Turns the screen upright for the chest")
-            if Self.showsWayOut(refused: refused, waited: waited) {
-                HushButton(kind: .quiet, height: HushTheme.minTap, action: onPlayAnyway) {
-                    Text(Self.wayOut)
-                }
-                .accessibilityHint("Plays sideways, with an on-screen lever for the lid")
-            }
-        }
+        .padding(.leading, 14)
+        .padding(.trailing, 4)
+        .padding(.vertical, 8)
+        .background(
+            RoundedRectangle(cornerRadius: 20, style: .continuous)
+                .fill(HushTheme.surface.opacity(0.94))
+                .overlay(RoundedRectangle(cornerRadius: 20, style: .continuous)
+                    .stroke(HushTheme.gold.opacity(0.7), lineWidth: 2))
+                .shadow(color: Color.black.opacity(0.4), radius: 10, y: 4)
+                .allowsHitTesting(false)
+        )
+        .frame(maxWidth: Self.maxWidth)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("posetip")
     }
 }
 

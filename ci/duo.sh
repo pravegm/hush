@@ -49,12 +49,25 @@
 #    "CREAK!" shake and the red meter flash (design/NEEDS.md CI R3 asks the App for the tag and the line).
 #  - duo-ui-pose-card: `screen=pose;pose=book;orient=landscape` (R3 key: the card is held, no portrait ask), so the
 #    "Turn it sideways. Lift the glowing half." card is finally a frame (REVIEW-2-ux P1-6, juror "capture gaps").
-#  - PASSES=store: the App Store Duo set (ci/store-capture.sh duo → ci/duo-store-scenarios.txt), one tabletop capture
-#    per line at STORE_ANGLE (150°): store-<name>.png + logs/store-<name>.at-capture.txt (ci/store-set.sh frames them).
+#
+# R6 (design/ROUND-6.md "CI engineer" 2, the founder's real-Duo P0: opened fully flat, iOS rotated to landscape, the
+# game was stuck behind the book-pose card). Three checks at the end of the hinge pass, all timed with a LINE CLOCK (a
+# background perl loop sampling "<epoch> <line count>" of the log every 0.2 s: the app's lines carry no time):
+#  - FLAT-OPEN: attract run, 140 → 180 over 4 s, a still 3 s hold, back to 140 over 4 s. PASS: lid lines never stop
+#    (> 1.2 s), no pause > 1 s, no slider switch, lid lines after the return.
+#  - WATCHDOG: close to 60° (pause), the slowest reopen to 130° (14 s sweep), 1° wiggles. PASS: `HUSH-T resumed` or
+#    `HUSH-T watchdog resume` within 8 s of reaching 130.
+#  - LANDSCAPE-PLAY: `orient=landscape` launch (no portrait ask), 105 → 160 over 7 s. PASS: no standUp block, k odd
+#    (`k=` on the canvas line, else a landscape canvas), the lid follows the hinge, lidCracked; frame duo-h11.
+#  Each retries once and says INCONCLUSIVE (never FAIL) when the hinge tool under-delivers the move twice.
+#
+# PASSES=store (R3): the App Store Duo set (ci/store-capture.sh duo → ci/duo-store-scenarios.txt), one tabletop capture
+# per line at STORE_ANGLE (150°): store-<name>.png + logs/store-<name>.at-capture.txt (ci/store-set.sh frames them).
 #
 # Env: UDID (required), OUT (duo-screens), PASSES ("hinge frames ui"; "store" is opt-in), ORIENT ("portrait"), STRICT
 # (1 = exit 1 when a check FAILs; default 0: the frames and the PASS/FAIL table are the evidence), INNER_CANVAS
-# ("669x951"), STORE_LIST / STORE_FILTER / STORE_ANGLE (the store pass).
+# ("669x951"), STORE_LIST / STORE_FILTER / STORE_ANGLE (the store pass); R6: FLAT_TOP (180), FLAT_GAP_MAX (1.2),
+# WATCHDOG_REOPEN_S (14), WATCHDOG_LIMIT (8).
 # Writes: $OUT/*.png (lit panel), $OUT/raw/<shot>-inner|cover.png, $OUT/logs/<launch>.txt (app stdout+stderr),
 # $OUT/logs/run.txt (this script), $OUT/checks.tsv (check <TAB> PASS|FAIL|INFO|INCONCLUSIVE <TAB> detail) and, when
 # $GITHUB_STEP_SUMMARY is set, a summary table.
@@ -258,6 +271,97 @@ png_wh() {
   h=$(to 20 sips -g pixelHeight "$1" 2>/dev/null | awk '/pixelHeight/ {print $2}')
   if [[ -n "$w" && -n "$h" ]]; then echo "${w}x${h}"; else echo "?"; fi
 }
+
+# ---- R6 helpers: a wall clock for log lines, quarter turns, angle ranges -------------------------------------------
+# The app's lines carry no time (only HUSH-H has the app's clock, and it stops while the hinge is still), so a timed
+# check runs a LINE CLOCK: a background perl loop that appends "<epoch s> <line count>" to <log>.clock every 0.2 s.
+# line_time maps a line number to the first sample that had it (≤ 0.2 s late), which is enough for 1 s and 8 s rules.
+CLOCK_PID=""
+now_s() { perl -MTime::HiRes=time -e 'printf "%.3f\n", time'; }
+clock_start() {   # clock_start <log> [max seconds, default 150]
+  local f="$1"
+  : > "$f.clock"
+  perl -MTime::HiRes=time,sleep -e '
+    my ($f, $out, $max) = @ARGV; my $end = time + $max;
+    open(my $o, ">>", $out) or exit 1; select($o); $| = 1;
+    while (time < $end) { my $n = 0; if (open(my $h, "<", $f)) { $n++ while <$h>; close($h) } printf "%.3f %d\n", time, $n; sleep 0.2 }
+  ' "$f" "$f.clock" "${2:-150}" 2>/dev/null &
+  CLOCK_PID=$!
+}
+clock_stop() {    # clock_stop <log>: stop the loop and add one last exact sample
+  [[ -n "$CLOCK_PID" ]] && { kill "$CLOCK_PID" 2>/dev/null; wait "$CLOCK_PID" 2>/dev/null; }
+  CLOCK_PID=""
+  printf '%s %s\n' "$(now_s)" "$(nlines "$1")" >> "$1.clock"
+}
+clock_ok() { [[ "$(wc -l < "$1.clock" 2>/dev/null | tr -d ' ')" -ge 5 ]] 2>/dev/null; }   # clock_ok <log>: ≥ 5 samples
+# line_time <log> <line>: the epoch second by which <line> was in the log, or "" (not sampled).
+line_time() { awk -v L="$2" '$2 + 0 >= L + 0 { print $1; exit }' "$1.clock" 2>/dev/null; }
+# lid_gap <log> <a> <b> <t0> <t1>: over lines a+1 … b, the longest time without a `HUSH-T lid` line, counting the
+# stretch from <t0> to the first one and from the last one to <t1>: "<gap s> <lid lines> <line after the gap|end>".
+lid_gap() {
+  awk -v a="$2" -v b="$3" -v t0="$4" -v t1="$5" '
+    function tm(L,   j) { for (j = 1; j <= m; j++) if (cn[j] + 0 >= L + 0) return ct[j]; return "" }
+    FNR == NR { ct[++m] = $1; cn[m] = $2; next }
+    FNR > a + 0 && FNR <= b + 0 && /HUSH-T lid / { LL[++n] = FNR }
+    END {
+      prev = t0; mx = 0; at = "start"
+      for (i = 1; i <= n; i++) { t = tm(LL[i]); if (t == "") continue; if (t - prev > mx) { mx = t - prev; at = LL[i] }; prev = t }
+      if (t1 - prev > mx) { mx = t1 - prev; at = "end" }
+      printf "%.1f %d %s\n", mx, n, at
+    }' "$1.clock" "$1" 2>/dev/null
+}
+# pause_spans <log> <a> <b> <t1>: every `HUSH-T paused …` in lines a+1 … b, timed to the next `HUSH-T resumed` /
+# `HUSH-T watchdog resume` (or to <t1> if none by line b): "<longest s> <count> <line:secs,…|none>".
+pause_spans() {
+  awk -v a="$2" -v b="$3" -v t1="$4" '
+    function tm(L,   j) { for (j = 1; j <= m; j++) if (cn[j] + 0 >= L + 0) return ct[j]; return "" }
+    FNR == NR { ct[++m] = $1; cn[m] = $2; next }
+    /HUSH-T paused/ { P[FNR] = 1 }
+    /HUSH-T (resumed|watchdog resume)/ { R[FNR] = 1 }
+    { N = FNR }
+    END {
+      mx = 0; k = 0; s = ""
+      for (i = a + 1; i <= b; i++) if (i in P) {
+        r = ""; for (j = i + 1; j <= b; j++) if (j in R) { r = j; break }
+        ta = tm(i); if (ta == "") ta = t1
+        tb = (r != "" ? tm(r) : ""); if (tb == "") tb = t1
+        d = tb - ta; k++; if (d > mx) mx = d
+        s = s sprintf("%s%d:%.1fs%s", (s == "" ? "" : ","), i, d, (r == "" ? "(no resume)" : ""))
+      }
+      printf "%.1f %d %s\n", mx, k, (s == "" ? "none" : s)
+    }' "$1.clock" "$1" 2>/dev/null
+}
+# angles <log> <a> <b>: every hinge angle logged in lines a+1 … b (HUSH-H samples and the lid lines' angle field).
+angles() {
+  awk -v a="$2" -v b="$3" 'NR > a + 0 && NR <= b + 0 {
+      if ($1 == "HUSH-H" && $3 ~ /^[0-9.]+$/) print $3
+      else if (/HUSH-T lid /) for (i = 1; i < NF; i++) if ($i == "angle" && $(i + 1) ~ /^[0-9.]+$/) print $(i + 1) }' "$1" 2>/dev/null
+}
+hh_count() { between "$1" "$2" "$3" | grep -c '^HUSH-H ' | tr -d ' '; }   # hh_count <log> <a> <b>: HUSH-H lines
+# canvas_full_before <log> <line>: the whole last `HUSH-T canvas …` line before <line> (or "").
+canvas_full_before() {
+  awk -v n="$2" 'NR >= n + 0 { exit } /HUSH-T canvas [0-9]+x[0-9]+/ { c = $0 } END { print c }' "$1" 2>/dev/null | tr -d '\r'
+}
+# canvas_k <canvas line>: the App's R6 `k=<0..3>` (quarter turns), or "" when the line has none.
+canvas_k() { echo "$1" | grep -oE '(^| )k=[0-3]' | head -1 | grep -oE '[0-3]$'; }
+# k_odd <canvas line>: 0 (true) when the layout is a landscape quarter turn: k odd when the line has `k=`, else (the
+# pre-R6 fallback) the canvas is wider than tall. Sets K_HOW to say which.
+K_HOW=""
+k_odd() {
+  local k wh w h
+  k=$(canvas_k "$1")
+  if [[ -n "$k" ]]; then K_HOW="k=$k"; (( k % 2 == 1 )); return; fi
+  wh=$(echo "$1" | grep -oE "[0-9]+x[0-9]+" | head -1); w=${wh%x*}; h=${wh#*x}
+  K_HOW="no k= on the canvas line; aspect ${wh:-?}"
+  [[ "$w" =~ ^[0-9]+$ && "$h" =~ ^[0-9]+$ ]] && (( w > h ))
+}
+num() { [[ "$1" =~ ^-?[0-9]+(\.[0-9]+)?$ ]]; }
+ge() { num "$1" && num "$2" && awk -v a="$1" -v b="$2" 'BEGIN { exit !(a + 0 >= b + 0) }'; }   # ge <a> <b>: a >= b
+le() { num "$1" && num "$2" && awk -v a="$1" -v b="$2" 'BEGIN { exit !(a + 0 <= b + 0) }'; }   # le <a> <b>: a <= b
+lid_count() { between "$1" "$2" "$3" | grep -c 'HUSH-T lid ' | tr -d ' '; }   # lid_count <log> <a> <b>
+# openness <log> <a> <b>: the lid lines' openness values (field 3 of "HUSH-T lid <o> speed …").
+openness() { between "$1" "$2" "$3" | awk '/HUSH-T lid / { for (i = 1; i < NF; i++) if ($i == "lid" && $(i + 1) ~ /^[0-9.]+$/) { print $(i + 1); break } }'; }
+fsub() { awk -v a="$1" -v b="$2" 'BEGIN { if (a !~ /^-?[0-9.]+$/ || b !~ /^-?[0-9.]+$/) print "none"; else printf "%.1f\n", a - b }'; }
 
 # How long a tabletop launch waits for a portrait canvas (or "HUSH-T orient portrait ok"). Cut to 3 s after the first
 # miss, so an app without the orient key costs one 25 s wait per run, not one per launch.
@@ -563,6 +667,211 @@ if [[ " $PASSES " == *" hinge "* ]]; then
   fi
   result COVER-SLOW-REOPEN "$verdict" "$d"
   shoot "duo-h8-cover-slow-reopened-$went" inner
+
+  # ---- R6 (design/ROUND-6.md "CI engineer" 2, the founder's real-Duo P0: "when i open the whole phone it gets stuck") --
+  # 8. FLAT-OPEN: an attract run (`screen=run;mode=attract`), sweep 140 → 180 over 4 s, hold 3 s at the top, sweep back
+  #    to 140 over 4 s, then 1.5 s more. The hold is perfectly STILL on purpose: a Duo lying flat sends nothing, and the
+  #    App must keep the last angle and the hinge input through that (and through a nil hinge context at 175–180°).
+  #    Timed with the line clock. PASS: `HUSH-T lid` lines throughout (no stretch without one > FLAT_GAP_MAX, 1.2 s =
+  #    the 1 s rule + the clock's 0.2 s grain), no pause lasting > 1 s, no switch to the slider, and lid lines after the
+  #    return (the run is still live). Tool lesson (R4): a window whose logged angles never reach 170° is retried once
+  #    (wiggles at 140 first, so samples are flowing); twice → INCONCLUSIVE (the tool), never FAIL.
+  FLAT_TOP="${FLAT_TOP:-180}"
+  FLAT_GAP_MAX="${FLAT_GAP_MAX:-1.2}"
+  hinge_set 140
+  launch flat-open "screen=run;mode=attract;seed=7" 1
+  FO="$OUT_ABS/logs/flat-open.txt"
+  attempt=1
+  while :; do
+    hinge_wiggle 140 1
+    clock_start "$FO"
+    f0=$(nlines "$FO"); ft0=$(now_s)
+    hinge_sweep "$FLAT_TOP" 4
+    f1=$(nlines "$FO")
+    sleep 3
+    f2=$(nlines "$FO")
+    hinge_sweep 140 4
+    f3=$(nlines "$FO")
+    sleep 1.5
+    f4=$(nlines "$FO"); ft4=$(now_s)
+    clock_stop "$FO"
+    ftop=$(angles "$FO" "$f0" "$f3" | max_of)
+    log "FLAT-OPEN attempt $attempt: top logged angle ${ftop}°; HUSH-H up/hold/back=$(hh_count "$FO" "$f0" "$f1")/$(hh_count "$FO" "$f1" "$f2")/$(hh_count "$FO" "$f2" "$f3")"
+    ge "$ftop" 170 && break
+    (( attempt >= 2 )) && break
+    attempt=2
+    log "FLAT-OPEN: the logged angle never reached 170° (the hinge tool under-delivered?): again"
+    hinge_set 140; sleep 1
+  done
+  fgap=""; _flids=""; fgat=""; fpmax=""; fpn=""; fplist=""
+  read -r fgap _flids fgat < <(lid_gap "$FO" "$f0" "$f4" "$ft0" "$ft4")
+  read -r fpmax fpn fplist < <(pause_spans "$FO" "$f0" "$f4" "$ft4")
+  fup=$(lid_count "$FO" "$f0" "$f1"); fhold=$(lid_count "$FO" "$f1" "$f2")
+  fback=$(lid_count "$FO" "$f2" "$f3"); fafter=$(lid_count "$FO" "$f3" "$f4")
+  fnil=$(between "$FO" "$f0" "$f4" | grep -cE 'HUSH-T lid .* angle - ' | tr -d ' ')
+  fsl=$(between "$FO" "$f0" "$f4" | grep -m1 -oE 'HUSH-T input (slider|switch.*->slider)[^\r]*')
+  fin=$(grep -oE "HUSH-T input [a-z]+" "$FO" | tail -1 | awk '{print $3}')
+  fend=$(angles "$FO" "$f3" "$f4" | tail -1)
+  d="attempt $attempt/2; top ${ftop}°; lid lines up/hold/back/after=$fup/$fhold/$fback/$fafter; longest gap without a lid line ${fgap:-?} s (before ${fgat:-?}); pauses ${fpn:-?} (longest ${fpmax:-?} s: ${fplist:-?}); lid lines with angle '-' (no hinge angle): $fnil; slider: ${fsl:-none}; input ${fin:-none}; angle after the return ${fend:-none}°"
+  if ! ge "$ftop" 170; then
+    result FLAT-OPEN INCONCLUSIVE "$d (the hinge tool never delivered the flat open twice: no logged angle ≥ 170°)"
+  elif ! clock_ok "$FO"; then
+    # No line clock (perl failed?): judge on line counts (10 Hz: ≥ 15 in the 3 s hold, ≥ 7 in the 1.5 s after) and
+    # on every pause having a resume inside the window.
+    if (( fhold >= 15 && fafter >= 7 )) && [[ -z "$fsl" && "$fplist" != *"no resume"* ]]; then
+      result FLAT-OPEN PASS "$d (no line clock: judged on line counts)"
+    else result FLAT-OPEN FAIL "$d (no line clock: judged on line counts)"; fi
+  else
+    why=""
+    ge "$fgap" "$FLAT_GAP_MAX" && why="$why; lid lines stopped for ${fgap} s (> ${FLAT_GAP_MAX})"
+    num "$fpmax" && awk -v p="$fpmax" 'BEGIN { exit !(p + 0 > 1.0) }' && why="$why; a pause lasted ${fpmax} s (> 1 s)"
+    (( fafter < 3 )) && why="$why; no lid lines after the return (the run is not live)"
+    [[ -n "$fsl" ]] && why="$why; switched to the slider"
+    if [[ -z "$why" ]]; then result FLAT-OPEN PASS "$d"; else result FLAT-OPEN FAIL "$d$why"; fi
+  fi
+  shoot duo-h9-flat-open-after inner
+
+  # 9. WATCHDOG (R6 App 6, never stuck): an attract run at 130°, a gentle close to 60° (5 s, 14°/s: under the closing
+  #    creak) and a 1° wiggle there (the closing pause: < 70° held 0.4 s); then the reopen to 130° at the slowest step
+  #    this tool offers (`hinge` has no step size: a long 60 Hz sweep, WATCHDOG_REOPEN_S = 14 s, 5°/s), then tiny 1°
+  #    wiggles at 130 (so the lid is never perfectly still for the resume gate) until a resume or 8 s. Line clock.
+  #    PASS: a `HUSH-T resumed` or `HUSH-T watchdog resume` no later than 8 s after the reopen reached 130 (one on the
+  #    way up, after the reopen began, is a pass too). FAIL: a resume before the reopen began (lid still at 60°); paused,
+  #    the reopen arrived (a logged angle ≥ 95°) and nothing resumed in 8 s (stuck); or no pause although the log went
+  #    ≤ 65°. INCONCLUSIVE: the tool never delivered the close (nothing ≤ 70° logged, after one more try) or the reopen.
+  WD_REOPEN_S="${WATCHDOG_REOPEN_S:-14}"
+  WD_LIMIT="${WATCHDOG_LIMIT:-8}"
+  hinge_set 130
+  launch watchdog "screen=run;mode=attract;seed=7" 1
+  WD="$OUT_ABS/logs/watchdog.txt"
+  sleep 1
+  w0=$(nlines "$WD")
+  hinge_sweep 60 5; hinge_wiggle 60 1; sleep 0.5
+  wp=$(first_line "$WD" "HUSH-T paused" "$w0")
+  wlow=$(angles "$WD" "$w0" "$(nlines "$WD")" | min_of)
+  if [[ -z "$wp" ]] && ! le "$wlow" 70; then
+    log "WATCHDOG: no pause and nothing ≤ 70° logged (lowest ${wlow}°): the hinge tool under-delivered? close again"
+    hinge_set 60; hinge_wiggle 60 2; sleep 0.5
+    wp=$(first_line "$WD" "HUSH-T paused" "$w0")
+    wlow=$(angles "$WD" "$w0" "$(nlines "$WD")" | min_of)
+  fi
+  w1=$(nlines "$WD")
+  wearly=""
+  [[ -n "$wp" ]] && wearly=$(between "$WD" "$wp" "$w1" | grep -m1 -oE "HUSH-T (resumed|watchdog resume)[^\r]*")
+  clock_start "$WD"
+  hinge_sweep 130 "$WD_REOPEN_S"
+  w2=$(nlines "$WD"); wt2=$(now_s)
+  wr=""; wn=0
+  while :; do
+    wr=$(first_line "$WD" "HUSH-T (resumed|watchdog resume)" "$w1"); [[ -n "$wr" ]] && break
+    awk -v a="$(now_s)" -v b="$wt2" -v l="$WD_LIMIT" 'BEGIN { exit !(a - b >= l + 0.5) }' && break
+    hinge_wiggle 130 1; wn=$((wn + 1))
+  done
+  sleep 0.5
+  w3=$(nlines "$WD")
+  clock_stop "$WD"
+  [[ -n "$wr" ]] || wr=$(first_line "$WD" "HUSH-T (resumed|watchdog resume)" "$w1")
+  wdt=none; wline=""; wang=""; wwhen="no resume"
+  if [[ -n "$wr" ]]; then
+    wline=$(sed -n "${wr}p" "$WD" | grep -oE "HUSH-T (resumed|watchdog resume)[^\r]*")
+    wang=$(echo "$wline" | grep -oE "angle [0-9.]+" | awk '{print $2}'); [[ -n "$wang" ]] || wang=$(angle_before "$WD" "$wr")
+    wrt=$(line_time "$WD" "$wr"); [[ -n "$wrt" ]] && wdt=$(fsub "$wrt" "$wt2")
+    if (( wr <= w2 )); then wwhen="during the reopen (${wdt} s vs reaching 130)"; wdt=on-the-way-up
+    else wwhen="${wdt} s after reaching 130"; fi
+  fi
+  wtop=$(angles "$WD" "$w1" "$w3" | max_of)
+  wpa=$( [[ -n "$wp" ]] && angle_before "$WD" "$wp" || echo - )
+  d="paused@${wp:-none} (${wpa}°, lowest logged ${wlow}°); resumed before the reopen: ${wearly:-no}; reopen 60 → 130 over ${WD_REOPEN_S} s, top logged ${wtop}°, $wn wiggle(s) after; first resume@${wr:-none}: ${wline:-none} (angle ${wang:-none}°), $wwhen; watchdog lines: $(count 'HUSH-T watchdog resume' "$WD")"
+  if [[ -z "$wp" ]]; then
+    if le "$wlow" 65; then result WATCHDOG FAIL "$d; never paused although the lid went to ${wlow}°"
+    else result WATCHDOG INCONCLUSIVE "$d (the hinge tool never delivered the close: nothing ≤ 70° logged)"; fi
+  elif [[ -n "$wearly" ]]; then
+    result WATCHDOG FAIL "$d; resumed while the lid was still at 60°"
+  elif [[ -n "$wr" ]]; then
+    if [[ "$wdt" == on* ]] || ! num "$wdt" || le "$wdt" "$(awk -v l="$WD_LIMIT" 'BEGIN { print l + 0.2 }')"; then
+      result WATCHDOG PASS "$d$( num "$wdt" || [[ "$wdt" == on* ]] || echo ' (no line clock: within the wiggle loop)')"
+    else result WATCHDOG FAIL "$d; resumed, but ${wdt} s after reaching 130 (> ${WD_LIMIT} s)"; fi
+  elif ! ge "$wtop" 95; then
+    result WATCHDOG INCONCLUSIVE "$d (the hinge tool never delivered the reopen: nothing ≥ 95° logged)"
+  else
+    result WATCHDOG FAIL "$d; STUCK: no resume within ${WD_LIMIT} s of reaching 130°"
+  fi
+  shoot duo-h10-watchdog-after inner
+
+  # 10. LANDSCAPE-PLAY: the founder's dead end, reproduced. A run launched with `orient=landscape` and NO portrait ask
+  #     (tabletop 0: the sim's own book-pose landscape, which is the interface iOS left the real Duo in), hinge at 105,
+  #     then a slow open to 160 over 7 s (7.9°/s, under the creak floor). PASS: no `HUSH-T pose standUp` and no
+  #     `HUSH-T paused pose` (the book card no longer blocks), the canvas line says k odd (`k=` when the App prints it;
+  #     before that a landscape canvas), the lid lines follow the hinge (angle range ≥ 30°, openness range ≥ 0.2), and
+  #     `event lidCracked`. duo-h11-landscape-play-160 is shot after the window: a LANDSCAPE raw capture with the chest
+  #     drawn sideways (correct for the player: the lid on the raised, blurring half). INCONCLUSIVE: the sim never
+  #     reached a landscape interface (no `orient landscape ok`, no odd k and no landscape frame: nothing was tested), k
+  #     unreadable (no `k=` and a portrait-shaped canvas line), or the tool never delivered the open (after a retry).
+  hinge_set 105
+  launch landscape-play "screen=run;mode=attract;seed=7;orient=landscape" 0
+  LP="$OUT_ABS/logs/landscape-play.txt"
+  t=0
+  while (( t < 20 )); do
+    grep -q "HUSH-T orient landscape ok" "$LP" 2>/dev/null && break
+    cl=$(canvas_line "$LP"); [[ -n "$(canvas_k "$cl")" ]] && k_odd "$cl" && break
+    sleep 1; t=$((t+1))
+  done
+  sleep 1
+  attempt=1
+  while :; do
+    hinge_wiggle 105 1
+    l0=$(nlines "$LP")
+    hinge_sweep 160 7
+    sleep 1.5
+    l1=$(nlines "$LP")
+    ltop=$(angles "$LP" "$l0" "$l1" | max_of)
+    log "LANDSCAPE-PLAY attempt $attempt: top logged angle ${ltop}°, HUSH-H=$(hh_count "$LP" "$l0" "$l1"), lid lines=$(lid_count "$LP" "$l0" "$l1")"
+    ge "$ltop" 150 && break
+    (( attempt >= 2 )) && break
+    attempt=2
+    log "LANDSCAPE-PLAY: the logged angle never reached 150° (the hinge tool under-delivered?): close gently and again"
+    hinge_sweep 105 6; sleep 1
+  done
+  lstand=$(grep -m1 -nE "HUSH-T pose standUp" "$LP" 2>/dev/null | tr -d '\r' | cut -c1-120)
+  lpp=$(grep -m1 -nE "HUSH-T paused pose" "$LP" 2>/dev/null | tr -d '\r')
+  lpose=$(grep -oE "HUSH-T pose [A-Za-z-]+" "$LP" | tail -1 | awk '{print $3}')
+  lcl=$(canvas_full_before "$LP" $(( l1 + 1 )))
+  if k_odd "$lcl"; then lk=odd; elif [[ -n "$(canvas_k "$lcl")" ]]; then lk=even; else lk=unknown; fi
+  lkhow="$K_HOW"
+  lor=$(grep -oE "HUSH-T orient landscape (ok|failed|lost)[^\r]*" "$LP" | tail -1)
+  la=$(between "$LP" "$l0" "$l1" | lid_vals angle)
+  lar=$(fsub "$(echo "$la" | max_of)" "$(echo "$la" | min_of)")
+  lo=$(openness "$LP" "$l0" "$l1")
+  lorr=$(awk -v a="$(echo "$lo" | max_of)" -v b="$(echo "$lo" | min_of)" 'BEGIN { if (a !~ /^[0-9.]+$/ || b !~ /^[0-9.]+$/) print "none"; else printf "%.2f\n", a - b }')
+  lcr=$(after "$LP" "$l0" | grep -c "HUSH-T event lidCracked" | tr -d ' ')
+  linp=$(grep -oE "HUSH-T input [a-z]+" "$LP" | tail -1 | awk '{print $3}')
+  shoot duo-h11-landscape-play-160 inner
+  lwh=$(png_wh "$OUT_ABS/duo-h11-landscape-play-160.png")
+  lland=0
+  [[ "$lwh" != "?" ]] && ! is_portrait "$lwh" && lland=1
+  d="canvas: ${lcl#HUSH-T canvas } ($lkhow: $lk); ${lor:-no 'orient landscape' line}; last pose ${lpose:-none}; standUp: ${lstand:-none}; paused pose: ${lpp:-none}; input ${linp:-none}; lid angle range ${lar}° openness range ${lorr} (top ${ltop}°, attempt $attempt/2); lidCracked=$lcr; frame $lwh (want landscape, the chest drawn sideways)"
+  reached=0
+  { [[ "$lor" == *" ok"* ]] || [[ "$lk" == odd ]] || (( lland )); } && reached=1
+  why=""
+  [[ -n "$lstand" ]] && why="$why; the standUp card came up"
+  [[ -n "$lpp" ]] && why="$why; the run paused for the pose"
+  [[ "$lk" == even ]] && why="$why; k is even in landscape"
+  { [[ "$lar" == none ]] || lt "$lar" 30; } && why="$why; the lid angle didn't follow the hinge"
+  { [[ "$lorr" == none ]] || lt "$lorr" 0.2; } && why="$why; the openness didn't move"
+  (( lcr == 0 )) && why="$why; no lidCracked"
+  if ! ge "$ltop" 150; then
+    result LANDSCAPE-PLAY INCONCLUSIVE "$d (the hinge tool never delivered the open twice: no logged angle ≥ 150°)"
+  elif (( ! reached )); then
+    result LANDSCAPE-PLAY INCONCLUSIVE "$d (the sim never reached a landscape interface: nothing was tested)"
+  elif [[ -n "$why" ]]; then
+    result LANDSCAPE-PLAY FAIL "$d$why"
+  elif [[ "$lk" == unknown ]]; then
+    result LANDSCAPE-PLAY INCONCLUSIVE "$d (all else passed, but k is unreadable: no k= on the canvas line and a portrait-shaped size; App: add k=, design/NEEDS.md CI R6)"
+  else
+    result LANDSCAPE-PLAY PASS "$d"
+  fi
+  # The sim is landscape now: give the next tabletop launch the full portrait wait again if portrait ever worked.
+  grep -q "HUSH-T orient portrait ok" "$OUT_ABS"/logs/*.txt 2>/dev/null && ORIENT_WAIT=25
 fi
 
 # ---- pass: the tabletop frames (closed 105, half 135, wide 160, cover shut, reopened) -----------------------------
@@ -617,13 +926,18 @@ if [[ " $PASSES " == *" ui "* ]]; then
   else result POSE-BOOK INFO "portrait ($wh): the launch's automatic portrait ask (R3: only when the device orientation isn't landscape; the sim may read .unknown, REVIEW-2-duo P1-2); ${cl:-no canvas line}"; fi
   # R3: the card itself, held (`pose=book`: no automatic or lift portrait ask; `orient=landscape` keeps the sim's book
   # pose), so "Turn it sideways. Lift the glowing half." and its "Play anyway" way out are a frame.
-  launch ui-pose-card "screen=pose;pose=book;orient=landscape" 0; sleep 3; shoot duo-ui-pose-card inner
+  # R6 (founder's real-Duo P0, design/ROUND-6.md): the blocking book card is GONE. In landscape, Home is drawn the
+  # right way up (k odd) and only a non-blocking tip may show (`HUSH-T pose tip shown`, needs UIDevice landscape,
+  # which the sim may not report). FAIL only if anything still blocks (`pose standUp`).
+  launch ui-pose-card "screen=home;progress=mid;orient=landscape" 0; sleep 3; shoot duo-ui-pose-card inner
   PC="$OUT_ABS/logs/ui-pose-card.txt"
   wh=$(png_wh "$OUT_ABS/duo-ui-pose-card.png")
   pcl=$(grep -m1 -oE "HUSH-T pose standUp[^\r]*" "$PC" 2>/dev/null)
-  d="frame $wh; ${pcl:-no 'HUSH-T pose standUp' line}; $(canvas_line "$PC"); portrait asks: $(count 'HUSH-T orient (portrait requested|ask)' "$PC")"
-  if [[ "$wh" != "?" ]] && ! is_portrait "$wh" && [[ -n "$pcl" ]]; then result POSE-CARD PASS "$d"
-  else result POSE-CARD FAIL "$d (want a landscape inner frame with the book card up)"; fi
+  tip=$(grep -m1 -oE "HUSH-T pose tip shown[^\r]*" "$PC" 2>/dev/null)
+  d="frame $wh; tip: ${tip:-none}; standUp: ${pcl:-none}; $(canvas_line "$PC")"
+  if [[ -n "$pcl" ]]; then result POSE-NO-BLOCK FAIL "$d (the blocking book card is back)"
+  elif [[ -n "$tip" ]]; then result POSE-NO-BLOCK PASS "$d"
+  else result POSE-NO-BLOCK INFO "$d (no block; the tip needs a landscape UIDevice reading the sim may not give)"; fi
   hinge_sweep 40 1.5; hinge_set 0; sleep 3; shoot duo-ui-cover cover
   hinge_set 160 || true
 fi

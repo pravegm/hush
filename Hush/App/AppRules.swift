@@ -18,10 +18,9 @@ enum AppInputKind: String, Equatable {
 
 /// What the display shows as a whole (GAME-DESIGN §3, ARCHITECTURE "Orientation").
 enum AppPose: String, Equatable {
-    /// Portrait: the tabletop chest (or any iPhone).
+    /// The chest, in ANY interface orientation (R6: a Duo held like a book or lying flat in landscape plays too; the
+    /// canvas is drawn with `AppRules.quarterTurns`, and nothing blocks).
     case play
-    /// A Duo held like a book (landscape): "Turn it round. Lift the glowing half."
-    case standUp
     /// Shut, on the cover display: the sleeping mimic, "Open to carry on".
     case cover
 }
@@ -64,9 +63,10 @@ enum AppRules {
     // MARK: Pose and the fold
 
     /// R3 (founder decision 1): a cover-sized canvas on a Duo is ALWAYS the cover display, a pause (the R2
-    /// "cover-open" fallback is gone: the portrait-mask fix removed the letterboxed column it was for). `playAnyway`:
-    /// the player chose "Play anyway" on the book-pose card (portrait was refused), so landscape is played.
-    static func pose(canvas: CGSize, hingeSeen: Bool, isShut: Bool, playAnyway: Bool = false) -> AppPose {
+    /// "cover-open" fallback is gone: the portrait-mask fix removed the letterboxed column it was for).
+    /// R6 (founder P0, "it gets stuck"): a landscape inner display is NOT a pose card any more. It plays, drawn with
+    /// `quarterTurns`, so correctness never depends on iOS agreeing to rotate. Pure; tested.
+    static func pose(canvas: CGSize, hingeSeen: Bool, isShut: Bool) -> AppPose {
         let valid = canvas.width > 1 && canvas.height > 1
         guard valid else { return .play }
         let long = max(canvas.width, canvas.height)
@@ -74,8 +74,6 @@ enum AppRules {
         // inner display (Swoop Duo R3 P2-7): there the closing card speaks instead.
         if hingeSeen && long < coverMaxSide { return .cover }
         _ = isShut
-        let duo = hingeSeen || OrientationLock.looksLikeDuo(canvas)
-        if canvas.width > canvas.height && duo && !playAnyway { return .standUp }
         return .play
     }
 
@@ -164,21 +162,18 @@ enum AppRules {
         if forced { return "forced \(size)" }
         switch pose {
         case .cover: return "cover-sized \(size) angle=\(a)"
-        case .standUp: return "landscape \(size) angle=\(a)"
-        case .play: return canvas.width > canvas.height ? "play-anyway \(size)" : "portrait \(size)"
+        case .play: return canvas.width > canvas.height ? "landscape-play \(size)" : "portrait \(size)"
         }
     }
 
-    /// R2: a demo-forced pose card only shows where it could really happen: the book-pose card never on a phone
-    /// (UX: frame 25 must not happen on a phone). Pure; tested.
-    static func allowsForcedPose(_ pose: AppPose, screen: CGSize, demoFold: Bool) -> Bool {
-        switch pose {
-        case .play, .cover: return true
-        case .standUp: return demoFold || OrientationLock.looksLikeDuo(screen)
-        }
+    /// R2: a demo-forced book-pose prompt only shows where it could really happen: never on a phone (UX: frame 25).
+    /// R6: it is the small non-blocking pose tip now. Pure; tested.
+    static func allowsForcedPoseTip(screen: CGSize, demoFold: Bool) -> Bool {
+        demoFold || OrientationLock.looksLikeDuo(screen)
     }
 
-    /// The play canvas has a real fold: a Duo's inner display in portrait (or demo `fold=1`).
+    /// The play canvas has a real fold: a Duo's inner display in portrait (or demo `fold=1`). R6: RootView passes the
+    /// PORTRAIT-EQUIVALENT canvas (`portraitSize`), so the Duo's inner display is a fold in landscape too.
     static func hasFold(canvas: CGSize, hingeSeen: Bool, demoFold: Bool) -> Bool {
         guard canvas.height >= canvas.width else { return false }
         if demoFold { return true }
@@ -206,25 +201,6 @@ enum AppRules {
     static func deferredEdges(live: Bool, turnedRound: Bool) -> Edge.Set {
         guard live else { return [] }
         return turnedRound ? [.top, .bottom] : .bottom
-    }
-
-    /// The pose card's "Lift this half" in book pose. In portrait the lid is drawn on the upper half; turned round
-    /// that is the interface's BOTTOM half. landscapeRight puts the interface bottom on the right (the home-indicator
-    /// side), landscapeLeft on the left.
-    static func liftSide(interface: InterfaceSide, turned: Bool) -> ScreenSide {
-        switch interface {
-        case .landscapeRight: return turned ? .right : .left
-        case .landscapeLeft: return turned ? .left : .right
-        }
-    }
-
-    /// R2 (P0-1): with the pose card up, the hinge moving ≥ 15° into the play range means "they lifted it": ask iOS
-    /// for portrait. Pure; tested.
-    static let liftedDelta: Double = 15
-    static func liftedFromBook(angle: Double, angleAtCard: Double?) -> Bool {
-        guard angle.isFinite, angle >= 90, angle <= 165 else { return false }
-        guard let start = angleAtCard, start.isFinite else { return false }
-        return abs(angle - start) >= liftedDelta
     }
 
     /// R2 (P1-7): held upright in the hand the normal way (camera end up) while turned round, every screen reads

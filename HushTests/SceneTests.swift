@@ -1576,6 +1576,232 @@ struct SceneTests {
         #expect(scene.pauseSeatAlpha > CGFloat(0.95))
     }
 
+    // MARK: R6
+
+    /// The window sizes of ROUND-6 item 3 (landscape and portrait), plus the Duo canvas and a phone.
+    static var r6ViewSizes: [CGSize] {
+        [CGSize(width: 951, height: 669), CGSize(width: 669, height: 951), CGSize(width: 670, height: 952),
+         CGSize(width: 393, height: 852)]
+    }
+
+    /// Where a portrait-scene point `q` (canvas + contentOffsetY, in a W × H portrait scene) lands after `k`
+    /// clockwise quarter turns, worked out by hand (independent of the scene's own transform maths).
+    static func turnedByHand(_ q: CGPoint, k: Int, width w: CGFloat, height h: CGFloat) -> CGPoint {
+        switch k {
+        case 1: return CGPoint(x: q.y, y: w - q.x)
+        case 2: return CGPoint(x: w - q.x, y: h - q.y)
+        case 3: return CGPoint(x: h - q.y, y: q.x)
+        default: return q
+        }
+    }
+
+    /// Item 1: `quarterTurns` is 0…3 (any Int mod 4), `turned` is k == 2 (get and set), the world turns by −k·π/2,
+    /// and the scene takes the landscape size for odd k.
+    @Test @MainActor func quarterTurnsNormaliseAndTurnedIsKTwo() {
+        #expect(ChestScene.normalisedTurns(5) == 1)
+        #expect(ChestScene.normalisedTurns(-1) == 3)
+        #expect(ChestScene.normalisedTurns(8) == 0)
+        let layout = ScreenLayout.make(hasFold: true, viewSize: CGSize(width: 951, height: 669))
+        #expect(abs(layout.size.width - 670) < CGFloat(0.001) && abs(layout.size.height - 952) < CGFloat(0.001))
+        let scene = ChestScene(layout: layout)
+        #expect(scene.quarterTurns == 0 && !scene.turned)
+        scene.turned = true
+        #expect(scene.quarterTurns == 2 && scene.turned)
+        scene.turned = false
+        #expect(scene.quarterTurns == 0)
+        scene.quarterTurns = 7
+        #expect(scene.quarterTurns == 3 && !scene.turned)
+        scene.quarterTurns = -2
+        #expect(scene.quarterTurns == 2 && scene.turned)
+        for k in 0...3 {
+            scene.quarterTurns = k
+            let want = ChestScene.sceneSize(layout: layout, quarterTurns: k)
+            let odd = k % 2 == 1
+            #expect(abs(want.width - (odd ? layout.size.height : layout.size.width)) < CGFloat(0.001))
+            #expect(abs(want.height - (odd ? layout.size.width : layout.size.height)) < CGFloat(0.001))
+            #expect(abs(scene.size.width - want.width) < CGFloat(0.001))
+            #expect(abs(scene.size.height - want.height) < CGFloat(0.001))
+            #expect(abs(scene.worldScale - 1) < CGFloat(0.0001))
+            let rot = scene.worldNode.zRotation
+            let want0 = -CGFloat(k) * .pi / 2
+            #expect(abs(cos(rot) - cos(want0)) < CGFloat(0.0001) && abs(sin(rot) - sin(want0)) < CGFloat(0.0001))
+            // A new layout keeps the turn (the App sets the layout and k in either order).
+            scene.layout = SceneTests.phone
+            let phoneWant = ChestScene.sceneSize(layout: SceneTests.phone, quarterTurns: k)
+            #expect(abs(scene.size.width - phoneWant.width) < CGFloat(0.001))
+            #expect(abs(scene.size.height - phoneWant.height) < CGFloat(0.001))
+            scene.layout = layout
+        }
+        // k = 0 and k = 2 are R2's placements exactly.
+        scene.quarterTurns = 0
+        #expect(abs(scene.worldNode.position.x) < CGFloat(0.01))
+        #expect(abs(scene.worldNode.position.y - layout.contentOffsetY) < CGFloat(0.01))
+        scene.quarterTurns = 2
+        #expect(abs(scene.worldNode.position.x - layout.size.width) < CGFloat(0.01))
+        #expect(abs(scene.worldNode.position.y - (layout.size.height - layout.contentOffsetY)) < CGFloat(0.01))
+    }
+
+    /// Item 3: for every k and every size, a touch at an item's on-screen position maps to that item's floor point,
+    /// and the on-screen position is where a hand-worked quarter turn puts it, inside the scene.
+    @Test @MainActor func everyQuarterTurnMapsATouchToTheItemsFloorPoint() {
+        let items = SceneFakeDriver.chest(tier: .wooden, index: 0).items.map(\.position)
+            + [CGPoint(x: 30, y: 400), CGPoint(x: 640, y: 20)]
+        for v in SceneTests.r6ViewSizes {
+            let layout = ScreenLayout.make(hasFold: true, viewSize: v)
+            let w = layout.size.width, h = layout.size.height, off = layout.contentOffsetY
+            for k in 0...3 {
+                let scene = ChestScene(layout: layout)
+                let driver = SceneFakeDriver()
+                scene.driver = driver
+                scene.quarterTurns = k
+                // The portrait canvas with its extensions fills the scene exactly.
+                let drawn = scene.drawnWorldRect
+                #expect(abs(drawn.minX) < CGFloat(0.01) && abs(drawn.minY) < CGFloat(0.01))
+                #expect(abs(drawn.maxX - scene.size.width) < CGFloat(0.01))
+                #expect(abs(drawn.maxY - scene.size.height) < CGFloat(0.01))
+                for (n, item) in items.enumerated() {
+                    let c = ChestLayout.canvas(fromFloor: item)
+                    let seen = scene.scenePoint(fromCanvas: c)
+                    let hand = SceneTests.turnedByHand(CGPoint(x: c.x, y: c.y + off), k: k, width: w, height: h)
+                    #expect(abs(seen.x - hand.x) < CGFloat(0.01) && abs(seen.y - hand.y) < CGFloat(0.01))
+                    #expect(seen.x >= -0.01 && seen.x <= scene.size.width + 0.01)
+                    #expect(seen.y >= -0.01 && seen.y <= scene.size.height + 0.01)
+                    // A finger there (`touch.location(in: world)`) is the item's floor point.
+                    let back = scene.canvasPoint(fromScene: seen)
+                    #expect(abs(back.x - c.x) < CGFloat(0.01) && abs(back.y - c.y) < CGFloat(0.01))
+                    scene.beginTouch(n + 1, canvas: back, time: 1)
+                    let f = driver.lastBegan ?? CGPoint(x: -999, y: -999)
+                    let want = ChestLayout.floorTouchPoint(fromCanvas: c)
+                    #expect(abs(f.x - want.x) < CGFloat(0.01) && abs(f.y - want.y) < CGFloat(0.01))
+                    #expect(abs(f.x - item.x) < CGFloat(0.01) && abs(f.y - item.y) < CGFloat(0.01))
+                    scene.endTouch(n + 1, canvas: back, time: 1.1)
+                }
+                #expect(driver.ended == items.count)
+            }
+        }
+    }
+
+    /// Item 3: the lid half is drawn on the expected screen side for every k (0 top, 1 right, 2 bottom, 3 left: the
+    /// canvas top turned k quarter turns clockwise), with the floor on the opposite side and the fold at the centre.
+    @Test @MainActor func lidHalfIsOnTheExpectedSideForEveryQuarterTurn() {
+        let lidRect = CGRect(x: 0, y: ChestLayout.lidBottom, width: ScreenLayout.canvasWidth,
+                             height: ScreenLayout.canvasHeight - ChestLayout.lidBottom)
+        let floorRect = CGRect(x: 0, y: 0, width: ScreenLayout.canvasWidth, height: ChestLayout.floorTop)
+        for v in SceneTests.r6ViewSizes {
+            let layout = ScreenLayout.make(hasFold: true, viewSize: v)
+            for k in 0...3 {
+                let scene = ChestScene(layout: layout)
+                scene.quarterTurns = k
+                let lid = scene.sceneRect(fromCanvas: lidRect)
+                let floor = scene.sceneRect(fromCanvas: floorRect)
+                let mx = scene.size.width / 2, my = scene.size.height / 2
+                switch k {
+                case 0:
+                    #expect(lid.minY > my && floor.maxY < my)
+                case 1:
+                    #expect(lid.minX > mx && floor.maxX < mx)
+                case 2:
+                    #expect(lid.maxY < my && floor.minY > my)
+                default:
+                    #expect(lid.maxX < mx && floor.minX > mx)
+                }
+                // The lid spans the scene's short (odd k: height) or long side across the fold, never sideways.
+                let across = k % 2 == 1 ? lid.height : lid.width
+                #expect(abs(across - ScreenLayout.canvasWidth) < CGFloat(0.01))
+                // The fold's middle is at the scene's centre (within the extension's rounding).
+                let fold = scene.scenePoint(fromCanvas: CGPoint(x: ChestLayout.chestCenterX,
+                                                                y: (ChestLayout.floorTop + ChestLayout.lidBottom) / 2))
+                #expect(abs(fold.x - mx) < CGFloat(1.01) && abs(fold.y - my) < CGFloat(1.01))
+            }
+        }
+    }
+
+    /// Item 1 + 3: when the scene is given the window's own size (951 × 669 landscape for odd k, 669 × 951 portrait for
+    /// even k) instead of its own, the world scales to cover it exactly (≤ 1 pt overhang), touches still map back,
+    /// and the lid is still on the right side. The view-scale rule follows the scene's scale mode.
+    @Test @MainActor func windowSizedScenesStillFillAndMapTouches() {
+        let layout = ScreenLayout.make(hasFold: true, viewSize: CGSize(width: 669, height: 951))
+        let lidMid = CGPoint(x: ChestLayout.chestCenterX, y: (ChestLayout.lidBottom + ScreenLayout.canvasHeight) / 2)
+        for k in 0...3 {
+            let scene = ChestScene(layout: layout)
+            let driver = SceneFakeDriver()
+            scene.driver = driver
+            scene.quarterTurns = k
+            let window = k % 2 == 1 ? CGSize(width: 951, height: 669) : CGSize(width: 669, height: 951)
+            scene.size = window
+            #expect(scene.worldScale > CGFloat(0.99) && scene.worldScale < CGFloat(1.01))
+            let drawn = scene.drawnWorldRect
+            #expect(drawn.minX <= 0.01 && drawn.minY <= 0.01)
+            #expect(drawn.maxX >= window.width - 0.01 && drawn.maxY >= window.height - 0.01)
+            #expect(drawn.width - window.width <= CGFloat(1.5) && drawn.height - window.height <= CGFloat(1.5))
+            let item = CGPoint(x: 460, y: 150)
+            let c = ChestLayout.canvas(fromFloor: item)
+            let seen = scene.scenePoint(fromCanvas: c)
+            let back = scene.canvasPoint(fromScene: seen)
+            #expect(abs(back.x - c.x) < CGFloat(0.01) && abs(back.y - c.y) < CGFloat(0.01))
+            scene.beginTouch(1, canvas: back, time: 1)
+            let f = driver.lastBegan ?? CGPoint(x: -999, y: -999)
+            #expect(abs(f.x - item.x) < CGFloat(0.01) && abs(f.y - item.y) < CGFloat(0.01))
+            let lid = scene.scenePoint(fromCanvas: lidMid)
+            let mx = window.width / 2, my = window.height / 2
+            switch k {
+            case 0: #expect(lid.y > my)
+            case 1: #expect(lid.x > mx)
+            case 2: #expect(lid.y < my)
+            default: #expect(lid.x < mx)
+            }
+        }
+        // The seat's view scale: the scene's own mode decides; a turned landscape scene gives the portrait number.
+        let land = ChestScene.scaleFor(view: CGSize(width: 951, height: 669), scene: CGSize(width: 952, height: 670),
+                                       mode: .aspectFit)
+        let port = ChestScene.scaleFor(view: CGSize(width: 669, height: 951), scene: CGSize(width: 670, height: 952))
+        #expect(abs(land - port) < CGFloat(0.002))
+        let fill = ChestScene.scaleFor(view: CGSize(width: 951, height: 669), scene: CGSize(width: 952, height: 670),
+                                       mode: .aspectFill)
+        #expect(abs(fill - land) < CGFloat(0.002))
+        #expect(abs(ChestScene.scaleFor(view: CGSize(width: 402, height: 874), scene: CGSize(width: 670, height: 1457),
+                                        mode: .aspectFill) - CGFloat(0.6)) < CGFloat(0.01))
+        #expect(abs(ChestScene.scaleFor(view: CGSize(width: 951, height: 669), scene: CGSize(width: 952, height: 670),
+                                        mode: .resizeFill) - 1) < CGFloat(0.001))
+    }
+
+    /// Item 2: every moment draws at every quarter turn (the shake, particles, text and the eye's gaze live in the
+    /// world's frame), the world stays turned through the shake, and a held item's gaze target is a canvas point.
+    @Test @MainActor func everyQuarterTurnDrawsEveryMoment() {
+        let relic = RelicCatalog.all.first?.id ?? RelicID("relic01")
+        for k in [1, 3] {
+            let scene = ChestScene(layout: ScreenLayout.make(hasFold: true, viewSize: CGSize(width: 951, height: 669)))
+            scene.quarterTurns = k
+            let driver = SceneFakeDriver()
+            scene.driver = driver
+            driver.startChest(SceneFakeDriver.chest(tier: .iron, index: 2))
+            var clock = 0.0
+            driver.openTo(0.95)
+            SceneFakeDriver.run(scene, frames: 30, clock: &clock)
+            let all: [HeistEvent] = [
+                .lidCracked, .itemRevealed(id: 0, kind: .copper), .itemRevealed(id: 4, kind: .relic(relic)),
+                .itemBagged(id: 2, kind: .gem(.ruby), value: 135), .oilAdded(seconds: 6), .dreamTwitch, .torchLow,
+                .chainUp(count: 1, multiplier: 1.1),
+            ]
+            for e in all {
+                driver.pending = [e]
+                SceneFakeDriver.run(scene, frames: 8, clock: &clock)
+            }
+            driver.snap.phase = .bitten(elapsed: 0)
+            driver.snap.stage = .biting
+            driver.pending = [.bitten(lostValue: 40)]
+            SceneFakeDriver.run(scene, frames: 40, clock: &clock)
+            #expect(scene.biteActive)
+            #expect(scene.drawnFrames > 100)
+            // The shake moves the shaker inside the world; the world itself keeps its turn and its place.
+            let rot = scene.worldNode.zRotation
+            let want = -CGFloat(k) * .pi / 2
+            #expect(abs(cos(rot) - cos(want)) < CGFloat(0.0001) && abs(sin(rot) - sin(want)) < CGFloat(0.0001))
+            let drawn = scene.drawnWorldRect
+            #expect(abs(drawn.maxX - scene.size.width) < CGFloat(0.01) && abs(drawn.minY) < CGFloat(0.01))
+        }
+    }
+
     // MARK: Pixel helpers
 
     struct Pixels {
