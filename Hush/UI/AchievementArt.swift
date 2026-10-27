@@ -1,23 +1,115 @@
 import SwiftUI
 
-/// Game Center achievement badges: one 1024 × 1024 image per achievement, in the app icon's style: the candlelit
-/// teal-black dungeon, a medallion whose rim marks the tier (verdigris for the first four, silver, then gold), and one
-/// simple motif picked from the achievement's id and title (a relic crown, a chest, a sleeping eye, teeth, the daily
-/// sun, a coin stack, a key). No text except short numerals.
+// MARK: - Loot and relic art in SwiftUI (one source with the scene: ChestArt's LootArt)
+
+/// The three colours an item is painted in (`ChestArt.lootColors`).
+struct LootPalette {
+    var fill: RGBA
+    var rim: RGBA
+    var glint: RGBA
+
+    init(fill: RGBA, rim: RGBA, glint: RGBA) {
+        self.fill = fill; self.rim = rim; self.glint = glint
+    }
+
+    init(_ kind: LootKind) {
+        let c = ChestArt.lootColors(kind)
+        self.init(fill: c.fill, rim: c.rim, glint: c.glint)
+    }
+}
+
+/// Paints a `LootArt` (y up, centred) into a SwiftUI GraphicsContext the way the scene does (R2 Scene 15: Codex,
+/// Results and badges look like the in-game relic): the dark outline under every part, the fill, the rim detail, the
+/// shine, then the holes in `holeColor`. Or, `silhouette`, one dark flat shape (an unfound Codex slot).
+enum LootPainter {
+    static func paint(_ art: LootArt, palette: LootPalette, in ctx: inout GraphicsContext, rect: CGRect,
+                      holeColor: Color, silhouette: Color? = nil) {
+        let box = art.silhouette.boundingBoxOfPath
+        guard box.width > 0, box.height > 0, rect.width > 0, rect.height > 0 else { return }
+        let pad = art.outlineWidth
+        let s = min(rect.width / (box.width + 2 * pad), rect.height / (box.height + 2 * pad))
+        // y up → y down, centred in `rect`.
+        let t = CGAffineTransform(a: s, b: 0, c: 0, d: -s, tx: rect.midX - box.midX * s, ty: rect.midY + box.midY * s)
+        let outline = Color(hush: ChestArt.outline)
+        if let silhouette {
+            let shape = Path(art.silhouette).applying(t)
+            ctx.stroke(shape, with: .color(outline.opacity(0.6)),
+                       style: StrokeStyle(lineWidth: art.outlineWidth * s, lineJoin: .round))
+            ctx.fill(shape, with: .color(silhouette))
+            return
+        }
+        let parts = art.parts.map { Path($0).applying(t) }
+        for p in parts {
+            ctx.stroke(p, with: .color(outline), style: StrokeStyle(lineWidth: art.outlineWidth * s, lineCap: .round,
+                                                                    lineJoin: .round))
+        }
+        for p in parts { ctx.fill(p, with: .color(Color(hush: palette.fill))) }
+        ctx.stroke(Path(art.detail).applying(t), with: .color(Color(hush: palette.rim)),
+                   style: StrokeStyle(lineWidth: max(art.detailWidth * s, 0.5), lineCap: .round, lineJoin: .round))
+        ctx.fill(Path(art.shine).applying(t), with: .color(Color(hush: palette.glint)))
+        ctx.fill(Path(art.holes).applying(t), with: .color(holeColor))
+    }
+}
+
+/// A relic drawn from `ChestArt.relicArt` in the in-game style (found), or its dark, softened silhouette (unfound).
+struct RelicArt: View {
+    let relic: Relic
+    let found: Bool
+    var holeColor: Color = Color(hush: ChestArt.palette.velvet)
+
+    var body: some View {
+        let art = ChestArt.relicArt(relic.shape, radius: 50)
+        let palette = LootPalette(.relic(relic.id))
+        let found = self.found
+        let hole = holeColor
+        Canvas { ctx, size in
+            LootPainter.paint(art, palette: palette, in: &ctx, rect: CGRect(origin: .zero, size: size), holeColor: hole,
+                              silhouette: found ? nil : Color(hushHex: 0x2A0C18))
+        }
+        .blur(radius: found ? 0 : 1.6)
+        .shadow(color: found ? HushTheme.candle.opacity(0.35) : .clear, radius: 6)
+        .accessibilityHidden(true)
+    }
+}
+
+/// A velvet tile (the chest's lining), the Codex's and the badge page's ground.
+struct VelvetTile: View {
+    var selected = false
+    var radius: CGFloat = 16
+
+    var body: some View {
+        let shape = RoundedRectangle(cornerRadius: radius, style: .continuous)
+        shape.fill(LinearGradient(colors: [Color(hushHex: 0x6E2240), Color(hush: ChestArt.palette.velvet),
+                                           Color(hushHex: 0x3E1023)],
+                                  startPoint: .top, endPoint: .bottom))
+            .overlay(shape.stroke(selected ? HushTheme.gold : HushTheme.goldDeep.opacity(0.45),
+                                  lineWidth: selected ? 2.5 : 1.2))
+            .overlay(shape.inset(by: 4).stroke(Color.black.opacity(0.25), style: StrokeStyle(lineWidth: 1, dash: [3, 3])))
+    }
+}
+
+// MARK: - Game Center badges
+
+/// Game Center achievement badges: one 1024 × 1024 image per achievement, in the in-game style (R2, juror P2-15): a
+/// velvet medallion whose rim marks the tier (bronze, silver, gold), with one of the game's own relics drawn from
+/// `ChestArt` as the motif, a different relic for each of the 12 (no two badges alike). No text.
 ///
-/// Pure vector in a 1024-unit design space, opaque, square-cornered. Rendered to Documents/badges/<id>.png by demo
-/// `screen=badges` (BadgeExport in App/DemoMode.swift).
+/// Rendered to Documents/badges/<id>.png by demo `screen=badges` (BadgeExport in App/DemoMode.swift), and shown small
+/// on the Badges page and on Results.
 struct AchievementBadge: View {
     let def: AchievementDef
     let index: Int
     var side: CGFloat = 1024
+    var earned = true
 
     var body: some View {
-        Canvas(opaque: true, rendersAsynchronously: false) { context, size in
+        let motif = BadgePainter.motif(index: index)
+        let tier = BadgePainter.tier(index: index)
+        let earned = self.earned
+        Canvas(opaque: false, rendersAsynchronously: false) { context, size in
             let scale = min(size.width, size.height) / 1024
             context.scaleBy(x: scale, y: scale)
-            BadgePainter.paint(&context, motif: BadgePainter.motif(id: def.id, title: def.title + " " + def.detail),
-                               tier: BadgePainter.tier(index: index), numeral: index + 1)
+            BadgePainter.paint(&context, motif: motif, tier: tier, earned: earned)
         }
         .frame(width: side, height: side)
         .accessibilityHidden(true)
@@ -25,198 +117,70 @@ struct AchievementBadge: View {
 }
 
 enum BadgePainter {
-    enum Tier: Equatable { case verdigris, silver, gold }
-    enum Motif: Equatable { case relic, chest, hush, bite, daily, gold, rank, numeral }
+    enum Tier: Equatable { case bronze, silver, gold }
+
+    /// The 12 motifs, one per achievement in `Achievements.all` order (first steps → the big ones). Pure; tested.
+    static let motifs: [RelicShape] = [.key, .bell, .lantern, .goblet, .crown, .musicBox, .idol, .compass, .hourglass,
+                                       .scroll, .spyglass, .pocketWatch]
+
+    static func motif(index: Int) -> RelicShape {
+        motifs[((index % motifs.count) + motifs.count) % motifs.count]
+    }
+
+    /// Four per tier, in `Achievements.all` order. Pure; tested.
+    static func tier(index: Int) -> Tier {
+        if index >= 8 { return .gold }
+        if index >= 4 { return .silver }
+        return .bronze
+    }
 
     static let night = Color(hushHex: 0x061012)
     static let deep = Color(hushHex: 0x10292C)
     static let candle = Color(hushHex: 0xFFB45E)
-    static let gold = Color(hushHex: 0xF6C45B)
-    static let goldLight = Color(hushHex: 0xFFE39B)
-    static let goldDeep = Color(hushHex: 0xB5781F)
-    static let ivory = Color(hushHex: 0xFFF6E2)
-    static let wood = Color(hushHex: 0x8A5A32)
-    static let woodDark = Color(hushHex: 0x5C3A1F)
-    static let velvet = Color(hushHex: 0xB8344F)
 
-    static let center = CGPoint(x: 512, y: 512)
-
-    /// Four per tier, in `Achievements.all` order (the catalogue runs from first steps to the big ones). Pure; tested.
-    static func tier(index: Int) -> Tier {
-        if index >= 8 { return .gold }
-        if index >= 4 { return .silver }
-        return .verdigris
-    }
-
-    /// The motif from the id and title's words. Pure; tested.
-    static func motif(id: String, title: String) -> Motif {
-        // Every id starts "hush.ach.", so only the key after it counts (else every badge would read "hush").
-        let key = id.hasPrefix("hush.ach.") ? String(id.dropFirst("hush.ach.".count)) : id
-        let words = (key + " " + title).lowercased()
-        if words.contains("relic") || words.contains("codex") || words.contains("crown") { return .relic }
-        if words.contains("hush") || words.contains("quiet") || words.contains("asleep") || words.contains("stir")
-            || words.contains("silent") || words.contains("ghost") { return .hush }
-        if words.contains("bite") || words.contains("chomp") || words.contains("teeth") { return .bite }
-        if words.contains("daily") || words.contains("dungeon") || words.contains("day") { return .daily }
-        if words.contains("rank") || words.contains("whisperer") || words.contains("thief") { return .rank }
-        if words.contains("gold") || words.contains("haul") || words.contains("coin") { return .gold }
-        if words.contains("chest") || words.contains("bank") { return .chest }
-        return .numeral
-    }
-
-    static func paint(_ ctx: inout GraphicsContext, motif: Motif, tier: Tier, numeral: Int) {
-        background(&ctx)
-        medallion(&ctx, tier: tier)
-        switch motif {
-        case .relic: crown(&ctx)
-        case .chest: chest(&ctx)
-        case .hush: sleepingEye(&ctx)
-        case .bite: teeth(&ctx)
-        case .daily: sun(&ctx)
-        case .gold: coins(&ctx)
-        case .rank: key(&ctx)
-        case .numeral: number(&ctx, numeral)
+    static func rimColors(_ tier: Tier) -> [Color] {
+        switch tier {
+        case .bronze: return [Color(hushHex: 0xF0A96A), Color(hushHex: 0x7A3E18)]
+        case .silver: return [Color(hushHex: 0xF2F6F5), Color(hushHex: 0x7C8A88)]
+        case .gold: return [Color(hushHex: 0xFFE39B), Color(hushHex: 0xB5781F)]
         }
     }
 
-    static func background(_ ctx: inout GraphicsContext) {
+    static func paint(_ ctx: inout GraphicsContext, motif: RelicShape, tier: Tier, earned: Bool) {
         let all = Path(CGRect(x: 0, y: 0, width: 1024, height: 1024))
         ctx.fill(all, with: .linearGradient(Gradient(colors: [deep, night]), startPoint: CGPoint(x: 512, y: 0),
                                             endPoint: CGPoint(x: 512, y: 1024)))
-        ctx.fill(all, with: .radialGradient(Gradient(colors: [candle.opacity(0.28), candle.opacity(0)]),
+        ctx.fill(all, with: .radialGradient(Gradient(colors: [candle.opacity(earned ? 0.3 : 0.08), candle.opacity(0)]),
                                             center: CGPoint(x: 512, y: 470), startRadius: 0, endRadius: 560))
-    }
-
-    static func medallion(_ ctx: inout GraphicsContext, tier: Tier) {
-        let rim: [Color]
-        switch tier {
-        case .verdigris: rim = [Color(hushHex: 0x8FD6BE), Color(hushHex: 0x3E8C7A)]
-        case .silver: rim = [Color(hushHex: 0xEEF3F2), Color(hushHex: 0x8E9C9A)]
-        case .gold: rim = [goldLight, goldDeep]
-        }
-        let outer = Path(ellipseIn: CGRect(x: 132, y: 132, width: 760, height: 760))
-        ctx.fill(outer, with: .linearGradient(Gradient(colors: rim), startPoint: CGPoint(x: 512, y: 132),
-                                              endPoint: CGPoint(x: 512, y: 892)))
-        let inner = Path(ellipseIn: CGRect(x: 180, y: 180, width: 664, height: 664))
-        ctx.fill(inner, with: .radialGradient(Gradient(colors: [Color(hushHex: 0x1E4045), night]),
-                                              center: CGPoint(x: 512, y: 440), startRadius: 0, endRadius: 360))
-    }
-
-    static func crown(_ ctx: inout GraphicsContext) {
-        var p = Path()
-        p.move(to: CGPoint(x: 300, y: 640))
-        p.addLine(to: CGPoint(x: 280, y: 400))
-        p.addLine(to: CGPoint(x: 400, y: 510))
-        p.addLine(to: CGPoint(x: 512, y: 350))
-        p.addLine(to: CGPoint(x: 624, y: 510))
-        p.addLine(to: CGPoint(x: 744, y: 400))
-        p.addLine(to: CGPoint(x: 724, y: 640))
-        p.closeSubpath()
-        ctx.fill(p, with: .linearGradient(Gradient(colors: [goldLight, gold]), startPoint: CGPoint(x: 512, y: 350),
-                                          endPoint: CGPoint(x: 512, y: 640)))
-        ctx.fill(Path(CGRect(x: 300, y: 640, width: 424, height: 56)), with: .color(goldDeep))
-        for x in [280.0, 512.0, 744.0] {
-            let y: CGFloat = x == 512 ? 350 : 400
-            ctx.fill(Path(ellipseIn: CGRect(x: x - 26, y: y - 26, width: 52, height: 52)), with: .color(velvet))
-        }
-    }
-
-    static func chest(_ ctx: inout GraphicsContext) {
-        let body = Path(roundedRect: CGRect(x: 290, y: 500, width: 444, height: 210), cornerRadius: 26)
-        ctx.fill(body, with: .color(wood))
-        var lid = Path()
-        lid.move(to: CGPoint(x: 290, y: 500))
-        lid.addLine(to: CGPoint(x: 290, y: 440))
-        lid.addQuadCurve(to: CGPoint(x: 734, y: 440), control: CGPoint(x: 512, y: 300))
-        lid.addLine(to: CGPoint(x: 734, y: 500))
-        lid.closeSubpath()
-        ctx.fill(lid, with: .color(woodDark))
-        for x in [340.0, 654.0] {
-            ctx.fill(Path(CGRect(x: x, y: 380, width: 30, height: 330)), with: .color(Color(hushHex: 0x3A3F42)))
-        }
-        ctx.fill(Path(roundedRect: CGRect(x: 476, y: 470, width: 72, height: 92), cornerRadius: 12),
-                 with: .color(gold))
-    }
-
-    static func sleepingEye(_ ctx: inout GraphicsContext) {
-        var lid = Path()
-        lid.move(to: CGPoint(x: 300, y: 560))
-        lid.addQuadCurve(to: CGPoint(x: 724, y: 560), control: CGPoint(x: 512, y: 700))
-        ctx.stroke(lid, with: .color(ivory), style: StrokeStyle(lineWidth: 40, lineCap: .round))
-        for i in 0..<5 {
-            let t = CGFloat(i) / 4
-            let x = 340 + t * 344
-            let y = 560 + sin(t * .pi) * 66
-            var lash = Path()
-            lash.move(to: CGPoint(x: x, y: y + 10))
-            lash.addLine(to: CGPoint(x: x + (t - 0.5) * 40, y: y + 62))
-            ctx.stroke(lash, with: .color(ivory), style: StrokeStyle(lineWidth: 18, lineCap: .round))
-        }
-        z(&ctx, at: CGPoint(x: 600, y: 330), size: 110)
-        z(&ctx, at: CGPoint(x: 700, y: 250), size: 70)
-    }
-
-    static func z(_ ctx: inout GraphicsContext, at p: CGPoint, size: CGFloat) {
-        var path = Path()
-        path.move(to: CGPoint(x: p.x - size / 2, y: p.y - size / 2))
-        path.addLine(to: CGPoint(x: p.x + size / 2, y: p.y - size / 2))
-        path.addLine(to: CGPoint(x: p.x - size / 2, y: p.y + size / 2))
-        path.addLine(to: CGPoint(x: p.x + size / 2, y: p.y + size / 2))
-        ctx.stroke(path, with: .color(goldLight), style: StrokeStyle(lineWidth: size * 0.18, lineCap: .round,
-                                                                     lineJoin: .round))
-    }
-
-    static func teeth(_ ctx: inout GraphicsContext) {
-        ctx.fill(Path(roundedRect: CGRect(x: 270, y: 380, width: 484, height: 260), cornerRadius: 120),
-                 with: .color(velvet))
-        for i in 0..<4 {
-            let x = 300 + CGFloat(i) * 108
-            var top = Path()
-            top.move(to: CGPoint(x: x, y: 380))
-            top.addQuadCurve(to: CGPoint(x: x + 108, y: 380), control: CGPoint(x: x + 54, y: 560))
-            ctx.fill(top, with: .color(ivory))
-        }
-        for i in 0..<3 {
-            let x = 354 + CGFloat(i) * 108
-            var bottom = Path()
-            bottom.move(to: CGPoint(x: x, y: 640))
-            bottom.addQuadCurve(to: CGPoint(x: x + 108, y: 640), control: CGPoint(x: x + 54, y: 480))
-            ctx.fill(bottom, with: .color(ivory))
-        }
-    }
-
-    static func sun(_ ctx: inout GraphicsContext) {
-        ctx.fill(Path(ellipseIn: CGRect(x: 392, y: 392, width: 240, height: 240)), with: .color(gold))
+        let outline = Color(hush: ChestArt.outline)
+        // The rim (tier metal) with the chunky outline, rivets, and the velvet inside.
+        let outer = Path(ellipseIn: CGRect(x: 120, y: 120, width: 784, height: 784))
+        ctx.stroke(outer, with: .color(outline), lineWidth: 26)
+        let rim = earned ? rimColors(tier) : [Color(hushHex: 0x55625F), Color(hushHex: 0x2C3533)]
+        ctx.fill(outer, with: .linearGradient(Gradient(colors: rim), startPoint: CGPoint(x: 512, y: 120),
+                                              endPoint: CGPoint(x: 512, y: 904)))
         for i in 0..<12 {
             let a = Double(i) / 12 * 2 * .pi
-            var ray = Path()
-            ray.move(to: CGPoint(x: 512 + cos(a) * 160, y: 512 + sin(a) * 160))
-            ray.addLine(to: CGPoint(x: 512 + cos(a) * 250, y: 512 + sin(a) * 250))
-            ctx.stroke(ray, with: .color(goldLight), style: StrokeStyle(lineWidth: 26, lineCap: .round))
+            let p = CGPoint(x: 512 + cos(a) * 356, y: 512 + sin(a) * 356)
+            ctx.fill(Path(ellipseIn: CGRect(x: p.x - 12, y: p.y - 12, width: 24, height: 24)),
+                     with: .color(outline.opacity(0.55)))
         }
-    }
-
-    static func coins(_ ctx: inout GraphicsContext) {
-        for i in 0..<4 {
-            let y = 640 - CGFloat(i) * 70
-            let r = CGRect(x: 352, y: y - 40, width: 320, height: 110)
-            ctx.fill(Path(ellipseIn: r.offsetBy(dx: 0, dy: 18)), with: .color(goldDeep))
-            ctx.fill(Path(ellipseIn: r), with: .linearGradient(Gradient(colors: [goldLight, gold]),
-                                                               startPoint: CGPoint(x: 512, y: r.minY),
-                                                               endPoint: CGPoint(x: 512, y: r.maxY)))
+        let inner = Path(ellipseIn: CGRect(x: 192, y: 192, width: 640, height: 640))
+        ctx.stroke(inner, with: .color(outline), lineWidth: 14)
+        let velvet = earned ? [Color(hushHex: 0x7A2848), Color(hush: ChestArt.palette.velvet), Color(hushHex: 0x2E0A1A)]
+            : [Color(hushHex: 0x2A3436), Color(hushHex: 0x1A2224), Color(hushHex: 0x0E1416)]
+        ctx.fill(inner, with: .radialGradient(Gradient(colors: velvet), center: CGPoint(x: 470, y: 420), startRadius: 0,
+                                              endRadius: 400))
+        // The relic, 66 % of the velvet, never over the rim.
+        let art = ChestArt.relicArt(motif, radius: 50)
+        let box = CGRect(x: 512 - 212, y: 512 - 212, width: 424, height: 424)
+        let palette: LootPalette
+        switch tier {
+        case .bronze: palette = LootPalette(fill: RGBA(hex: 0xE59A55), rim: RGBA(hex: 0x6A3412), glint: RGBA(hex: 0xFFE2B4))
+        case .silver: palette = LootPalette(fill: RGBA(hex: 0xD8E2EA), rim: RGBA(hex: 0x56626F), glint: RGBA(hex: 0xFFFFFF))
+        case .gold: palette = LootPalette(fill: RGBA(hex: 0xFFC94A), rim: RGBA(hex: 0x8A5A12), glint: RGBA(hex: 0xFFF4CC))
         }
-    }
-
-    static func key(_ ctx: inout GraphicsContext) {
-        ctx.stroke(Path(ellipseIn: CGRect(x: 300, y: 360, width: 200, height: 200)), with: .color(gold),
-                   style: StrokeStyle(lineWidth: 48))
-        ctx.fill(Path(CGRect(x: 488, y: 436, width: 280, height: 48)), with: .color(gold))
-        ctx.fill(Path(CGRect(x: 680, y: 484, width: 40, height: 90)), with: .color(gold))
-        ctx.fill(Path(CGRect(x: 600, y: 484, width: 40, height: 60)), with: .color(gold))
-    }
-
-    static func number(_ ctx: inout GraphicsContext, _ n: Int) {
-        let text = Text("\(n)").font(.system(size: 360, weight: .black, design: .rounded)).foregroundColor(goldLight)
-        ctx.draw(text, at: center, anchor: .center)
+        LootPainter.paint(art, palette: palette, in: &ctx, rect: box, holeColor: Color(hush: ChestArt.palette.velvet),
+                          silhouette: earned ? nil : Color(hushHex: 0x0A1012))
     }
 }

@@ -4,8 +4,10 @@ import SpriteKit
 import Testing
 @testable import Hush
 
-/// Scene module tests: geometry and HUD layout (pure), palette contrast, the art paths (pure CoreGraphics), the light
-/// model, and a smoke run of the scene through every moment with a scripted driver.
+/// Scene module tests: geometry and HUD layout (pure), the turned-round world and touch mapping, the extension that
+/// fills tall screens, palette contrast, the art (pure CoreGraphics: 24 distinct relics, coin stacks, rendered images
+/// shared with SwiftUI), the light model, the portrait, and a smoke run of the scene through every moment with a
+/// scripted driver.
 @MainActor
 struct SceneTests {
     // MARK: Geometry
@@ -41,35 +43,106 @@ struct SceneTests {
     @Test func touchesSplitAtTheFoldBand() {
         #expect(ChestLayout.startsOnFloor(CGPoint(x: 300, y: 100)))
         #expect(ChestLayout.startsOnFloor(CGPoint(x: 300, y: 470)))
+        #expect(ChestLayout.startsOnFloor(CGPoint(x: 300, y: -200)))
         #expect(!ChestLayout.startsOnFloor(CGPoint(x: 300, y: 480)))
-        #expect(!ChestLayout.startsOnFloor(CGPoint(x: 300, y: 800)))
-        let layout = ScreenLayout(hasFold: false)
-        let low = layout.lidFraction(fromCanvas: CGPoint(x: 600, y: ScreenLayout.foldMaxY))
-        let high = layout.lidFraction(fromCanvas: CGPoint(x: 600, y: ScreenLayout.canvasHeight))
-        #expect(low < 0.01 && high > 0.99)
+        #expect(!ChestLayout.startsOnFloor(CGPoint(x: 300, y: 1100)))
+        // The slider fraction spans the whole visible lid (the canvas lid plus the extension above it).
+        #expect(ChestLayout.lidFraction(canvasY: ScreenLayout.foldMaxY, topExtension: 0) < 0.01)
+        #expect(ChestLayout.lidFraction(canvasY: ScreenLayout.canvasHeight, topExtension: 0) > 0.99)
+        let mid = ChestLayout.lidFraction(canvasY: ScreenLayout.canvasHeight, topExtension: 250)
+        #expect(mid > 0.6 && mid < 0.7)
+        #expect(ChestLayout.lidFraction(canvasY: ScreenLayout.canvasHeight + 250, topExtension: 250) > 0.99)
+        #expect(ChestLayout.lidFraction(canvasY: 5000, topExtension: 250) <= 1)
+        // A drag that overshoots into the front wall / table below the canvas still lands in the bag.
+        let below = ChestLayout.floorTouchPoint(fromCanvas: CGPoint(x: 335, y: -120))
+        #expect(FloorSpace.bagRect.contains(below))
+        let onLid = ChestLayout.floorTouchPoint(fromCanvas: CGPoint(x: 335, y: 520))
+        #expect(onLid.y < 0)
     }
 
-    /// The App's hint band sits just above the meter, the pause corner is free, and every HUD piece is on the sharp
-    /// (floor) half.
-    @Test func hudLeavesTheHintBandAndPauseCornerFree() {
+    /// R2: the App's hint band is at the floor's back edge by the fold (canvas y 404…452), the pause coin area is
+    /// inset ≥ 16 pt from every edge, and no scene HUD covers either.
+    @Test func hudLeavesTheHintBandAndPauseCoinFree() {
         let hint = ChestLayout.hintBand
         let pause = ChestLayout.pauseArea
         let floor = CGRect(x: 0, y: 0, width: ScreenLayout.canvasWidth, height: ScreenLayout.foldMinY)
-        #expect(hint.height >= CGFloat(56))
-        #expect(hint.minY >= ChestLayout.meterRect.maxY)
-        #expect(hint.minY - ChestLayout.meterRect.maxY <= CGFloat(8))
+        #expect(abs(hint.minY - 404) < CGFloat(0.001) && abs(hint.maxY - 452) < CGFloat(0.001))
         #expect(floor.contains(hint) && floor.contains(pause))
-        #expect(abs(pause.maxX - ScreenLayout.canvasWidth) < CGFloat(0.001))
-        #expect(abs(pause.maxY - ScreenLayout.foldMinY) < CGFloat(0.001))
-        #expect(pause.width >= CGFloat(70) && pause.height >= CGFloat(70))
+        #expect(!hint.intersects(pause))
+        #expect(pause.minX >= 16 && pause.maxX <= ScreenLayout.canvasWidth - 16)
+        #expect(pause.minY >= 16 && pause.maxY <= ScreenLayout.foldMinY - 16)
+        #expect(pause.width >= CGFloat(44) && pause.height >= CGFloat(44))
         for r in ChestLayout.hudRects {
             #expect(floor.contains(r))
             #expect(!r.intersects(hint))
             #expect(!r.intersects(pause))
         }
+        // The chain medallion sits by BANKED (right side, just above the plate's row).
+        #expect(ChestLayout.chainRect.minX > ChestLayout.counterRect.midX)
+        #expect(ChestLayout.chainRect.minY > ChestLayout.meterRect.maxY)
+        // IN BAG on the left, BANKED on the right, always.
+        #expect(ChestLayout.bagValueRect.maxX < ChestLayout.pouchRect.minX)
+        #expect(ChestLayout.counterRect.minX > ChestLayout.pouchRect.maxX)
         // The view-space (y down) version flips about the canvas height.
         let v = ChestLayout.viewRect(hint)
         #expect(abs(v.minY - (ScreenLayout.canvasHeight - hint.maxY)) < CGFloat(0.001))
+    }
+
+    // MARK: Turned round and filling the screen
+
+    static var phone: ScreenLayout { ScreenLayout.make(hasFold: false, viewSize: CGSize(width: 393, height: 852)) }
+
+    /// A turned touch at the VISUAL position of an item maps to that item's floor point (and an unturned one too).
+    @Test @MainActor func turnedTouchMapsToTheItemsFloorPoint() {
+        let layout = SceneTests.phone
+        let scene = ChestScene(layout: layout)
+        let driver = SceneFakeDriver()
+        scene.driver = driver
+        let item = CGPoint(x: 200, y: 250)   // floor space
+        let c = ChestLayout.canvas(fromFloor: item)
+        let h = layout.size.height
+        let off = layout.contentOffsetY
+
+        // Unturned: the canvas sits `contentOffsetY` above the scene's bottom.
+        let flat = scene.scenePoint(fromCanvas: c)
+        #expect(abs(flat.x - c.x) < CGFloat(0.01) && abs(flat.y - (c.y + off)) < CGFloat(0.01))
+
+        // Turned: rotated by π about the scene centre.
+        scene.turned = true
+        let seen = scene.scenePoint(fromCanvas: c)
+        #expect(abs(seen.x - (ScreenLayout.canvasWidth - c.x)) < CGFloat(0.01))
+        #expect(abs(seen.y - (h - off - c.y)) < CGFloat(0.01))
+        #expect(abs(seen.x - flat.x) > CGFloat(50))
+        // A finger at that visual point (what `touch.location(in: world)` gives) is the item's floor point.
+        let back = scene.canvasPoint(fromScene: seen)
+        #expect(abs(back.x - c.x) < CGFloat(0.01) && abs(back.y - c.y) < CGFloat(0.01))
+        scene.beginTouch(1, canvas: back, time: 1)
+        let f = driver.lastBegan ?? CGPoint(x: -999, y: -999)
+        #expect(abs(f.x - item.x) < CGFloat(0.01) && abs(f.y - item.y) < CGFloat(0.01))
+        scene.endTouch(1, canvas: back, time: 1.1)
+        #expect(driver.ended == 1)
+        // Turning back restores the plain placement.
+        scene.turned = false
+        let again = scene.scenePoint(fromCanvas: c)
+        #expect(abs(again.x - flat.x) < CGFloat(0.01) && abs(again.y - flat.y) < CGFloat(0.01))
+    }
+
+    @Test @MainActor func phonesGetExtensionArtAndTheDuoNone() {
+        let phone = ChestScene(layout: SceneTests.phone)
+        let h = SceneTests.phone.size.height
+        #expect(h > ScreenLayout.canvasHeight + 400)
+        #expect(abs(phone.size.height - h) < CGFloat(0.001))
+        #expect(abs(phone.extensionTop + phone.extensionBottom - (h - ScreenLayout.canvasHeight)) < CGFloat(1.01))
+        #expect(abs(phone.extensionBottom - SceneTests.phone.contentOffsetY) < CGFloat(0.51))
+        #expect(phone.scaleMode == .aspectFill)
+        let duo = ChestScene(layout: ScreenLayout(hasFold: true))
+        #expect(duo.extensionTop < CGFloat(1) && duo.extensionBottom < CGFloat(1))
+        // Re-laying out a live scene follows the new size.
+        duo.layout = SceneTests.phone
+        #expect(duo.extensionTop > CGFloat(200))
+        #expect(ChestLayout.frontWallHeight(extension: 0) == 0)
+        #expect(ChestLayout.frontWallHeight(extension: 250) <= ChestLayout.frontWallMax)
+        #expect(ChestLayout.frontWallHeight(extension: 250) < 250)
     }
 
     // MARK: Palette
@@ -82,11 +155,13 @@ struct SceneTests {
         #expect(ScenePaint.contrast(p.candle, p.dungeonDeep) >= 7)
         #expect(ScenePaint.contrast(p.amber, p.dungeonDeep) >= 4.5)
         #expect(ScenePaint.contrast(p.danger, p.dungeonDeep) >= 4.5)
-        // The name plate's dark letters on brass.
+        // The name plate's dark letters and the meter's "NOISE" on brass.
         #expect(ScenePaint.contrast(RGBA(hex: 0x2E1606), ScenePaint.brass) >= 4.5)
-        // Gold reads against the satchel's dark leather panel.
+        #expect(ScenePaint.contrast(RGBA(hex: 0x4A2408), ScenePaint.brass) >= 3)
+        // Gold and cream read against the satchel's dark leather plates.
         #expect(ScenePaint.contrast(p.gold, ScenePaint.leatherDark) >= 4.5)
         #expect(ScenePaint.contrast(p.text, ScenePaint.leatherDark) >= 7)
+        #expect(ScenePaint.contrast(p.amber, ScenePaint.leatherDark) >= 4.5)
         // The meter's three zones are distinct and visible on its dark well.
         let well = RGBA(hex: 0x120A06)
         for c in [ScenePaint.meterGreen, p.amber, p.danger] { #expect(ScenePaint.contrast(c, well) >= 3) }
@@ -98,8 +173,9 @@ struct SceneTests {
     }
 
     @Test func labelsAreNeverSmall() {
-        let l = SceneLabelProbe.make(size: 10)
-        #expect(l >= SceneLabel.minimumSize)
+        #expect(SceneLabelProbe.make(size: 10) >= SceneLabel.minimumSize)
+        // Small-caps labels may go to 14 pt, never below.
+        #expect(SceneLabelProbe.make(size: 10, minimum: 14) >= 14)
     }
 
     // MARK: Art
@@ -139,19 +215,71 @@ struct SceneTests {
         }
     }
 
-    @Test func everyRelicShapeIsDrawn() {
-        var boxes: [CGRect] = []
+    /// R2: coins are gold discs; higher values are a stack of 2–3 coins, each drawn with its own rim.
+    @Test func coinsStackByValue() {
+        var last = 0
+        for v in [5, 6, 7, 8, 9, 10] {
+            let n = ChestArt.coinCount(.copper, value: v)
+            #expect(n >= last && n >= 1 && n <= 3)
+            last = n
+            let art = ChestArt.lootArt(.copper, radius: 22, value: v)
+            #expect(art.parts.count == n)
+            #expect(art.layerDetail?.count == n)
+            #expect(within(art.silhouette, 22))
+        }
+        #expect(ChestArt.coinCount(.copper, value: 5) == 1)
+        #expect(ChestArt.coinCount(.copper, value: 10) == 3)
+        #expect(ChestArt.coinCount(.gem(.ruby), value: 999) == 1)
+        // The oil flask carries its "+Ns" tag.
+        let oil = ChestArt.lootArt(.oil, radius: 24)
+        #expect(oil.tag?.text.hasPrefix("+") == true && oil.tag?.text.hasSuffix("s") == true)
+    }
+
+    /// R2: 24 relics, 24 different silhouettes (sampled on a grid, every one distinct).
+    @Test func twentyFourDistinctRelicSilhouettes() {
+        #expect(RelicShape.allCases.count == 24)
+        var signatures = Set<String>()
         for shape in RelicShape.allCases {
-            let p = ChestArt.relicPath(shape, radius: 40)
+            let r: CGFloat = 40
+            let p = ChestArt.relicPath(shape, radius: r)
             #expect(!p.isEmpty)
-            #expect(within(p, 40))
+            #expect(within(p, r))
             let b = p.boundingBoxOfPath
             #expect(b.width > 20 && b.height > 20)
-            boxes.append(b)
+            let art = ChestArt.relicArt(shape, radius: r)
+            #expect(!art.detail.isEmpty)
+            var bits = ""
+            var filled = 0
+            for j in 0..<14 {
+                for i in 0..<14 {
+                    let pt = CGPoint(x: -r + (CGFloat(i) + 0.5) * (2 * r / 14), y: -r + (CGFloat(j) + 0.5) * (2 * r / 14))
+                    let hit = p.contains(pt)
+                    bits += hit ? "1" : "0"
+                    if hit { filled += 1 }
+                }
+            }
+            #expect(filled > 12)
+            signatures.insert(bits)
         }
-        // Not all the same silhouette.
-        let distinct = Set(boxes.map { "\(Int($0.width))x\(Int($0.height))" })
-        #expect(distinct.count >= 6)
+        #expect(signatures.count == RelicShape.allCases.count)
+    }
+
+    /// One art source: SwiftUI and SpriteKit get the same rendered images (cached).
+    @Test func lootAndRelicImagesRender() {
+        let side = ChestArt.artSide(radius: 34)
+        for kind in SceneTests.everyKind {
+            let img = ChestArt.lootImage(kind, value: 9, radius: 34, scale: 2)
+            #expect(img != nil)
+            if let img { #expect(abs(CGFloat(img.width) - (side * 2).rounded(.up)) <= 1) }
+        }
+        if let relic = RelicCatalog.all.first {
+            let found = ChestArt.relicImage(relic, found: true, radius: 40, scale: 2)
+            let locked = ChestArt.relicImage(relic, found: false, radius: 40, scale: 2)
+            #expect(found != nil && locked != nil)
+            #expect(found !== locked)
+            // Cached: the same image object comes back.
+            #expect(ChestArt.relicImage(relic, found: true, radius: 40, scale: 2) === found)
+        }
     }
 
     @Test func mimicEyeOpensWithWake() {
@@ -175,17 +303,53 @@ struct SceneTests {
         #expect(shut < ChestLayout.eyeRadius * 0.3)
         #expect(wide > ChestLayout.eyeRadius * 1.4)
         #expect(!ChestArt.mimicLashes(size: size).isEmpty)
+        // The fleshy eye bed holds the wide-open eye, below the brow.
+        let bed = ChestArt.mimicEyeBed(size: size).boundingBoxOfPath
+        #expect(bed.contains(ChestArt.mimicEye(wake: 1, size: size).white.boundingBoxOfPath))
+        #expect(bed.maxY < ChestLayout.browCenter.y)
+        #expect(bed.minY > ChestLayout.plateCenter.y + ChestLayout.plateSize.height / 2 - 8)
         // Garbage in, a valid eye out.
         #expect(!ChestArt.mimicEye(wake: .nan, size: size).white.isEmpty)
     }
 
-    @Test func teethRowsSpanTheirWidth() {
+    @Test func fangRowsArePointedAndSpanTheirWidth() {
         let down = ChestArt.teethRow(width: 670, height: 58, count: 9, pointingDown: true).boundingBoxOfPath
         #expect(down.minX >= 0 && down.maxX <= 670)
         #expect(down.minY < -40 && down.maxY <= 5)
         let up = ChestArt.teethRow(width: 670, height: 50, count: 8, pointingDown: false).boundingBoxOfPath
         #expect(up.maxY > 35 && up.minY >= -5)
         #expect(!ChestArt.teethRow(width: 100, height: 10, count: 0, pointingDown: true).isEmpty)
+        // Pointed: a fang is much narrower near its tip than at its root.
+        let one = ChestArt.teethRow(width: 100, height: 60, count: 1, pointingDown: true)
+        let tip = one.boundingBoxOfPath.minY
+        #expect(!one.contains(CGPoint(x: 20, y: tip * 0.85)))
+        #expect(one.contains(CGPoint(x: 50, y: tip * 0.7)))
+        #expect(one.contains(CGPoint(x: 20, y: -2)))
+    }
+
+    // MARK: Words on the lid
+
+    @Test func namePlateCarriesTraitAndTier() {
+        var c = SceneFakeDriver.chest(tier: .iron, index: 2)
+        c.mimic = .lightSleeper
+        c.multiplier = 1.5
+        #expect(ChestCopy.plateSubline(c) == "Light sleeper · Iron-bound · gold ×1.5")
+        c.tier = .wooden
+        c.multiplier = 1
+        c.mimic = .heavySleeper
+        #expect(ChestCopy.plateSubline(c) == "Heavy sleeper · Wooden")
+        c.mimic = .dreamer
+        #expect(ChestCopy.plateSubline(c).hasPrefix("Dreamer · fake twitches"))
+        c.mimic = .lightSleeper
+        c.golden = true
+        #expect(ChestCopy.plateSubline(c) == "GOLDEN · gold ×2 · light sleeper")
+        #expect(SceneMoments.multiplierText(1.5) == "×1.5")
+        #expect(SceneMoments.multiplierText(2) == "×2")
+        #expect(SceneMoments.multiplierText(.nan) == "×1")
+        let names = Set(ChestTier.allCases.map { ChestCopy.tierShort($0) })
+        #expect(names.count == ChestTier.allCases.count)
+        let traits = Set(MimicKind.allCases.map { ChestCopy.trait($0) })
+        #expect(traits.count == MimicKind.allCases.count)
     }
 
     // MARK: Light and the tells
@@ -203,32 +367,80 @@ struct SceneTests {
         #expect(SceneFloor.darknessLevels(openness: 0).uniform > CGFloat(0.6))
         #expect(SceneFloor.darknessLevels(openness: 1).uniform < CGFloat(0.12))
         #expect(SceneFloor.washReach(openness: 1) > CGFloat(0.99))
+        // The candle-low gloom grows as the last seconds run out.
+        #expect(SceneFloor.gloomLevel(remaining: 50, total: 100) == 0)
+        #expect(SceneFloor.gloomLevel(remaining: 2, total: 100) > SceneFloor.gloomLevel(remaining: 10, total: 100))
     }
 
-    @Test func eyeAndTeethFollowTheStage() {
+    @Test func eyeTeethAndBrowFollowTheStage() {
         let stages: [MimicStage] = [.asleep, .stirring, .waking, .biting]
         var w = -1.0
         var t = CGFloat(-1)
+        var b = CGFloat(-1)
         for s in stages {
             let nw = SceneLid.wakeTarget(stage: s, noise: s == .waking ? 0.8 : 0.2)
             let nt = SceneLid.teethTarget(stage: s, noise: s == .waking ? 0.8 : 0.2)
+            let nb = SceneLid.browTarget(stage: s)
             #expect(nw > w)
             #expect(nt > t)
+            #expect(nb > b)
             w = nw
             t = nt
+            b = nb
         }
         #expect(SceneLid.wakeTarget(stage: .asleep, noise: 0) < 0.01)
         #expect(SceneLid.wakeTarget(stage: .biting, noise: 1) > 0.99)
+        // The brow tilts angry: about 5° stirring, 12° waking.
+        #expect(abs(SceneLid.browTarget(stage: .stirring) - 0.09) < 0.02)
+        #expect(abs(SceneLid.browTarget(stage: .waking) - 0.21) < 0.02)
     }
 
-    @Test func titlesReadWell() {
-        #expect(SceneMoments.multiplierText(1) == "×1")
-        #expect(SceneMoments.multiplierText(1.5) == "×1.5")
-        #expect(SceneMoments.multiplierText(2) == "×2")
-        #expect(SceneMoments.multiplierText(3) == "×3")
-        #expect(SceneMoments.multiplierText(.nan) == "×1")
-        let names = Set(ChestTier.allCases.map { SceneMoments.tierName($0) })
-        #expect(names.count == ChestTier.allCases.count)
+    @Test func relicGlimmersOnlyWhenAlmostLit() {
+        #expect(SceneLootView.glimmer(depth: 0.85, openness: 0.4, light: 0) == 0)
+        #expect(SceneLootView.glimmer(depth: 0.85, openness: 0.7, light: 0) > 0.3)
+        #expect(SceneLootView.glimmer(depth: 0.85, openness: 0.84, light: 0) >
+                SceneLootView.glimmer(depth: 0.85, openness: 0.7, light: 0))
+        // Once it is lit (revealed), the glimmer gives way to the real glint.
+        #expect(SceneLootView.glimmer(depth: 0.85, openness: 0.95, light: 1) < 0.01)
+        #expect(SceneLootView.glimmer(depth: .nan, openness: 0.5, light: 0) == 0)
+    }
+
+    @Test func candleCountdownReadsMinutesAndSeconds() {
+        #expect(SceneFloorHUD.countdownText(remaining: 12, total: 100) == "0:12")
+        #expect(SceneFloorHUD.countdownText(remaining: 4.2, total: 100) == "0:05")
+        #expect(SceneFloorHUD.countdownText(remaining: Tuning.torchLowSeconds + 1, total: 100) == nil)
+        #expect(SceneFloorHUD.countdownText(remaining: 0, total: 100) == nil)
+        #expect(SceneFloorHUD.countdownText(remaining: 5, total: 0) == nil)
+    }
+
+    // MARK: The portrait
+
+    @Test @MainActor func portraitFollowsItsInputs() {
+        let p = MimicPortraitScene(size: CGSize(width: 300, height: 260))
+        p.reduceMotion = true
+        p.openness = 0
+        p.wake = 0
+        p.update(1)
+        p.update(1.1)
+        let shut = p.gap
+        p.openness = 1
+        p.update(1.2)
+        #expect(p.gap > shut + 40)
+        p.openness = 7
+        #expect(p.openness <= 1)
+        p.wake = 1
+        for i in 0..<60 { p.update(1.3 + Double(i) / 60) }
+        #expect(p.shownWake > 0.8)
+        p.wake = .nan
+        #expect(p.wake == 0)
+        p.tier = .royal
+        #expect(p.dress == .tier(.royal))
+        p.golden = true
+        #expect(p.dress == .golden)
+        p.showsBackdrop = true
+        p.size = CGSize(width: 120, height: 400)
+        p.update(3)
+        #expect(p.backgroundColor.cgColor.alpha < 0.01)
     }
 
     // MARK: The scene
@@ -237,7 +449,6 @@ struct SceneTests {
         let scene = ChestScene(layout: ScreenLayout(hasFold: true))
         #expect(abs(scene.size.width - ScreenLayout.canvasWidth) < CGFloat(0.001))
         #expect(abs(scene.size.height - ScreenLayout.canvasHeight) < CGFloat(0.001))
-        #expect(scene.scaleMode == .aspectFit)
         let driver = SceneFakeDriver()
         scene.driver = driver
         driver.startChest(SceneFakeDriver.chest(tier: .wooden, index: 0))
@@ -246,17 +457,22 @@ struct SceneTests {
         driver.openTo(0.95)
         SceneFakeDriver.run(scene, frames: 60, clock: &clock)
         #expect(scene.visibleLoot >= 4)
-        #expect(scene.drawnNodeCount <= 160)
-        #expect(scene.nodeCount <= 260)
+        #expect(scene.drawnNodeCount <= 185)
+        #expect(scene.nodeCount <= 330)
+        #expect(scene.mimicName == "Snoring Sam")
+        #expect(scene.plateSubline == "Snorer · Wooden · gold ×1.5")
     }
 
     @Test @MainActor func steadyFramesBuildNoTexturesAndFewEyePaths() {
-        let scene = ChestScene(layout: ScreenLayout(hasFold: true))
+        let scene = ChestScene(layout: SceneTests.phone)
         let driver = SceneFakeDriver()
         scene.driver = driver
         driver.startChest(SceneFakeDriver.chest(tier: .iron, index: 2))
         var clock = 10.0
         driver.openTo(0.6)
+        driver.snap.torchTotal = 100
+        driver.snap.torchRemaining = 12
+        driver.hold(1)
         SceneFakeDriver.run(scene, frames: 120, clock: &clock)
         let textures = SceneTextures.count
         let rebuilds = scene.eyeRebuilds
@@ -284,9 +500,10 @@ struct SceneTests {
         #expect(scene.tongueCurl > CGFloat(0.8))
         #expect(scene.eyeWake > 0.45)
         #expect(scene.teethShown > CGFloat(0.6))
+        #expect(scene.browTilt > CGFloat(0.15))
     }
 
-    @Test @MainActor func biteSlamsShakesAndEatsTheLootInHand() {
+    @Test @MainActor func biteSlamsShakesEatsTheLootAndSaysWhatItCost() {
         for reduce in [false, true] {
             let scene = ChestScene(layout: ScreenLayout(hasFold: true))
             scene.reduceMotion = reduce
@@ -296,18 +513,27 @@ struct SceneTests {
             var clock = 0.0
             driver.openTo(0.9)
             driver.bag([0, 1])
+            driver.snap.torchTotal = 100
+            driver.snap.torchRemaining = 60
             SceneFakeDriver.run(scene, frames: 60, clock: &clock)
             driver.loseBag()
             driver.snap.phase = .bitten(elapsed: 0)
             driver.snap.stage = .biting
             driver.snap.noise = 1
-            driver.pending = [.stageChanged(from: .waking, to: .biting), .bitten(lostValue: 38)]
+            // biteCost may come before or after bitten in the frame.
+            driver.pending = reduce
+                ? [.stageChanged(from: .waking, to: .biting), .biteCost(lostValue: 164, seconds: 10),
+                   .bitten(lostValue: 164)]
+                : [.stageChanged(from: .waking, to: .biting), .bitten(lostValue: 164),
+                   .biteCost(lostValue: 164, seconds: 10)]
             var maxShake: CGFloat = 0
-            for _ in 0..<40 {
+            for _ in 0..<70 {
                 SceneFakeDriver.run(scene, frames: 1, clock: &clock)
                 maxShake = max(maxShake, abs(scene.shakeOffset.x) + abs(scene.shakeOffset.y))
             }
             #expect(scene.biteActive)
+            #expect(scene.biteCalloutShowing)
+            #expect(scene.biteLossText == "−164")
             #expect(scene.eyeWake > 0.8)
             #expect(scene.teethShown > CGFloat(0.8))
             if reduce {
@@ -321,11 +547,12 @@ struct SceneTests {
             // The chest hops and leaves off the front.
             SceneFakeDriver.run(scene, frames: 120, clock: &clock)
             #expect(scene.chestOffset < CGFloat(-300))
+            #expect(!scene.biteCalloutShowing)
         }
     }
 
-    @Test @MainActor func bankRollsTheCounterAndShowsTheRelic() {
-        let scene = ChestScene(layout: ScreenLayout(hasFold: true))
+    @Test @MainActor func bankRollsTheCounterShowsTheRelicAndGrowsTheChain() {
+        let scene = ChestScene(layout: SceneTests.phone)
         let driver = SceneFakeDriver()
         scene.driver = driver
         let spec = SceneFakeDriver.chest(tier: .gilded, index: 4)
@@ -335,25 +562,37 @@ struct SceneTests {
         driver.bag([0, 1, 2, 4])
         driver.snap.bagValue = 640
         SceneFakeDriver.run(scene, frames: 60, clock: &clock)
+        #expect(!scene.chainBadgeShowing)
         driver.openTo(0.05)
         driver.snap.shutHold = 1
         driver.snap.phase = .banked(elapsed: 0)
         driver.snap.banked = 640
         driver.snap.bagValue = 0
-        var events: [HeistEvent] = [.banked(value: 640, items: 4, hushed: true)]
+        driver.snap.chain = 2
+        driver.snap.chainMultiplier = 1.2
+        var events: [HeistEvent] = [.banked(value: 640, items: 4, hushed: true), .chainUp(count: 2, multiplier: 1.2)]
         if let r = RelicCatalog.all.first { events.append(.relicFound(r.id)) }
         driver.pending = events
         SceneFakeDriver.run(scene, frames: 2, clock: &clock)
         #expect(scene.bankActive)
         #expect(scene.shownBanked < 640)
-        SceneFakeDriver.run(scene, frames: 60, clock: &clock)
+        SceneFakeDriver.run(scene, frames: 200, clock: &clock)
         if !RelicCatalog.all.isEmpty { #expect(scene.relicBannerShowing) }
+        #expect(scene.chainBadgeShowing)
         SceneFakeDriver.run(scene, frames: 150, clock: &clock)
         #expect(scene.shownBanked == 640)
-        #expect(scene.chestOffset < CGFloat(-300))
+        #expect(scene.chestOffset < CGFloat(-300 - scene.extensionBottom))
+        // A stir breaks the chain: it cracks, then goes.
+        driver.snap.chain = 0
+        driver.snap.chainMultiplier = 1
+        driver.pending = [.chainBroken(count: 2)]
+        SceneFakeDriver.run(scene, frames: 3, clock: &clock)
+        #expect(scene.chainCracking)
+        SceneFakeDriver.run(scene, frames: 150, clock: &clock)
+        #expect(!scene.chainBadgeShowing)
     }
 
-    @Test @MainActor func arrivalSlidesInAndDressesTheChest() {
+    @Test @MainActor func arrivalSlidesInAndDressesTheChestAndPlate() {
         let scene = ChestScene(layout: ScreenLayout(hasFold: true))
         let driver = SceneFakeDriver()
         scene.driver = driver
@@ -365,10 +604,37 @@ struct SceneTests {
         #expect(abs(scene.chestOffset) < CGFloat(1))
         #expect(scene.floorTier == .royal)
         #expect(scene.mimicName == "Dozy Dora")
+        #expect(scene.plateSubline.contains("Royal"))
+        // A golden mimic is dressed in gold leaf.
+        var gold = SceneFakeDriver.chest(tier: .iron, index: 8, name: "Wary Wendell")
+        gold.golden = true
+        gold.mimic = .lightSleeper
+        driver.startChest(gold)
+        SceneFakeDriver.run(scene, frames: 30, clock: &clock)
+        #expect(scene.dress == .golden)
+        #expect(scene.plateSubline == "GOLDEN · gold ×2 · light sleeper")
     }
 
-    @Test @MainActor func torchBurnsDownThenTheDarkClosesIn() {
+    @Test @MainActor func relicGlimmersAndThePouchGlowsWhileHolding() {
         let scene = ChestScene(layout: ScreenLayout(hasFold: true))
+        let driver = SceneFakeDriver()
+        scene.driver = driver
+        driver.startChest(SceneFakeDriver.chest(tier: .iron, index: 3))
+        var clock = 0.0
+        driver.openTo(0.3)
+        SceneFakeDriver.run(scene, frames: 20, clock: &clock)
+        #expect(scene.glimmeringRelics == 0)
+        driver.openTo(0.72)
+        SceneFakeDriver.run(scene, frames: 20, clock: &clock)
+        #expect(scene.glimmeringRelics >= 1)
+        #expect(scene.pouchGlow < CGFloat(0.05))
+        driver.hold(1)
+        SceneFakeDriver.run(scene, frames: 40, clock: &clock)
+        #expect(scene.pouchGlow > CGFloat(0.4))
+    }
+
+    @Test @MainActor func candleBurnsDownCountsDownThenTheDarkClosesIn() {
+        let scene = ChestScene(layout: SceneTests.phone)
         let driver = SceneFakeDriver()
         scene.driver = driver
         driver.startChest(SceneFakeDriver.chest(tier: .wooden, index: 0))
@@ -377,14 +643,17 @@ struct SceneTests {
         driver.snap.torchRemaining = 50
         SceneFakeDriver.run(scene, frames: 10, clock: &clock)
         #expect(abs(scene.torchFraction - CGFloat(0.5)) < CGFloat(0.01))
+        #expect(scene.candleCountdown == nil)
         driver.snap.torchRemaining = 12
-        driver.pending = [.torchLow]
+        driver.pending = [.torchLow, .oilAdded(seconds: 6)]
         SceneFakeDriver.run(scene, frames: 30, clock: &clock)
+        #expect(scene.candleCountdown == "0:12")
         driver.snap.torchRemaining = 0
         driver.snap.phase = .torchOut(elapsed: 0)
         driver.pending = [.torchOut]
         SceneFakeDriver.run(scene, frames: 280, clock: &clock)
         #expect(scene.torchOutLevel > CGFloat(0.99))
+        #expect(scene.candleCountdown == nil)
         // A new session clears it.
         scene.reset()
         driver.snap = HeistSnapshot()
@@ -393,7 +662,8 @@ struct SceneTests {
     }
 
     @Test @MainActor func everyEventIsDrawnWithoutADriverHiccup() {
-        let scene = ChestScene(layout: ScreenLayout(hasFold: false))
+        let scene = ChestScene(layout: SceneTests.phone)
+        scene.turned = true
         let driver = SceneFakeDriver()
         driver.usesSlider = true
         scene.driver = driver
@@ -406,13 +676,20 @@ struct SceneTests {
         let all: [HeistEvent] = [
             .lidCracked, .itemRevealed(id: 0, kind: .copper), .itemRevealed(id: 4, kind: .relic(relic)),
             .itemPicked(id: 1, kind: .silver), .itemDropped(id: 1), .itemBagged(id: 2, kind: .gem(.ruby), value: 135),
-            .oilAdded(seconds: 8), .stageChanged(from: .asleep, to: .stirring), .dreamTwitch, .newBest, .torchLow,
-            .relicFound(relic), .finished,
+            .oilAdded(seconds: 6), .stageChanged(from: .asleep, to: .stirring), .dreamTwitch, .newBest, .torchLow,
+            .relicFound(relic), .chainUp(count: 1, multiplier: 1.1), .chainBroken(count: 3),
+            .biteCost(lostValue: 0, seconds: 10), .finished,
         ]
         for e in all {
             driver.pending = [e]
             SceneFakeDriver.run(scene, frames: 8, clock: &clock)
         }
+        // The slider on the lid (and in the extension above it) reaches the driver.
+        scene.beginTouch(9, canvas: CGPoint(x: 606, y: 700), time: 1)
+        scene.moveTouch(9, canvas: CGPoint(x: 606, y: 1000), time: 1.1)
+        scene.endTouch(9, canvas: CGPoint(x: 606, y: 1000), time: 1.2)
+        #expect(driver.sliderTouches == 3)
+        #expect(driver.lastFraction > 0.6)
         // A held item and a pause (the session stops stepping): FX run on briefly, then freeze.
         driver.hold(1)
         driver.frozen = true
@@ -427,8 +704,9 @@ struct SceneTests {
 
 /// Reads a `SceneLabel`'s clamped size (it must be made on the main actor).
 enum SceneLabelProbe {
-    @MainActor static func make(size: CGFloat) -> CGFloat {
-        SceneLabel(size: size, color: .white).size
+    @MainActor static func make(size: CGFloat, minimum: CGFloat? = nil) -> CGFloat {
+        if let m = minimum { return SceneLabel(size: size, color: .white, minimumSize: m).size }
+        return SceneLabel(size: size, color: .white).size
     }
 }
 
@@ -441,6 +719,10 @@ final class SceneFakeDriver: SceneDriver {
     /// When true the session doesn't step (a pause / a CI freeze).
     var frozen = false
     private(set) var floorTouches = 0
+    private(set) var lastBegan: CGPoint?
+    private(set) var ended = 0
+    private(set) var sliderTouches = 0
+    private(set) var lastFraction: Double = 0
 
     func advance(dt: TimeInterval, now: TimeInterval) -> (HeistSnapshot, [HeistEvent]) {
         if !frozen { snap.time += dt }
@@ -449,10 +731,22 @@ final class SceneFakeDriver: SceneDriver {
         return (snap, e)
     }
 
-    func floorTouchBegan(_ id: Int, at point: CGPoint, time: TimeInterval) { floorTouches += 1 }
+    func floorTouchBegan(_ id: Int, at point: CGPoint, time: TimeInterval) {
+        floorTouches += 1
+        lastBegan = point
+    }
+
     func floorTouchMoved(_ id: Int, to point: CGPoint, time: TimeInterval) { floorTouches += 1 }
-    func floorTouchEnded(_ id: Int, at point: CGPoint, time: TimeInterval) { floorTouches += 1 }
-    func sliderTouch(began: Bool, ended: Bool, fraction: Double, time: TimeInterval) {}
+
+    func floorTouchEnded(_ id: Int, at point: CGPoint, time: TimeInterval) {
+        floorTouches += 1
+        ended += 1
+    }
+
+    func sliderTouch(began: Bool, ended: Bool, fraction: Double, time: TimeInterval) {
+        sliderTouches += 1
+        lastFraction = fraction
+    }
 
     static func chest(tier: ChestTier, index: Int, name: String = "Snoring Sam") -> ChestSpec {
         var items: [LootItem] = [
@@ -514,7 +808,7 @@ final class SceneFakeDriver: SceneDriver {
         for i in 0..<snap.loot.count where snap.loot[i].place == .inBag { snap.loot[i].place = .lost }
     }
 
-    static func run(_ scene: ChestScene, frames: Int, clock: inout Double) {
+    static func run(_ scene: SKScene, frames: Int, clock: inout Double) {
         for _ in 0..<max(frames, 0) {
             scene.update(clock)
             clock += 1.0 / 120.0

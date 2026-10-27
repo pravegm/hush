@@ -25,6 +25,9 @@ final class GameCenterManager {
     static var achievementIDs: [String] { Achievements.all.map { gameCenterID($0.id) } }
 
     private(set) var isAuthenticated = false
+    /// Achievement banners are drawn by UIKit in iOS's own orientation, upside down for a turned-round Duo player
+    /// (QA-1 P2-6): off on a Duo (Results names what was earned anyway).
+    var bannersAllowed = true
     private var started = false
     private var disabled = false
     private let reportedKey = "hush.gc.reported"
@@ -53,19 +56,35 @@ final class GameCenterManager {
 
     enum DashboardResult: Equatable { case shown, signingIn, signedOut }
 
-    /// Home's Game Center button (it must never do nothing).
-    func showDashboard() -> DashboardResult {
+    /// Home's Game Center button (it must never do nothing). `onDismiss` runs once the sheet has gone (the app draws
+    /// itself un-turned while a Game Center sheet is up, QA-1 P2-6).
+    func showDashboard(onDismiss: @escaping @MainActor () -> Void = {}) -> DashboardResult {
         if disabled { return .signedOut }
         if GKLocalPlayer.local.isAuthenticated {
-            GKAccessPoint.shared.trigger(handler: {})
+            GKAccessPoint.shared.trigger(handler: {
+                Task { @MainActor in onDismiss() }
+            })
             return .shown
         }
         if let signIn = signInController, let top = Self.topViewController() {
             signInController = nil
             top.present(signIn, animated: true)
+            Self.watchDismissal(of: signIn, then: onDismiss)
             return .signingIn
         }
         return .signedOut
+    }
+
+    /// Polls until a presented controller has gone (UIKit gives no callback for a sheet we didn't make).
+    private static func watchDismissal(of vc: UIViewController, then done: @escaping @MainActor () -> Void) {
+        Task { @MainActor [weak vc] in
+            try? await Task.sleep(nanoseconds: 800_000_000)
+            for _ in 0..<1_200 {
+                guard let vc, vc.presentingViewController != nil || vc.isBeingPresented else { break }
+                try? await Task.sleep(nanoseconds: 500_000_000)
+            }
+            done()
+        }
     }
 
     private static func topViewController() -> UIViewController? {
@@ -209,7 +228,7 @@ final class GameCenterManager {
         let achievements: [GKAchievement] = ids.map { id in
             let achievement = GKAchievement(identifier: id)
             achievement.percentComplete = 100
-            achievement.showsCompletionBanner = true
+            achievement.showsCompletionBanner = bannersAllowed
             return achievement
         }
         GKAchievement.report(achievements) { error in

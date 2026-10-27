@@ -1,14 +1,15 @@
 import SpriteKit
 import SwiftUI
 
-/// The whole app: the SpriteKit chest underneath (framed to the aspect-fit canvas), the SwiftUI screens on top, the pose
-/// cards above all.
+/// The whole app: the SpriteKit chest underneath (R2: filling the screen, no bars), the SwiftUI screens on top, the
+/// pose cards above all.
 ///
-/// TURNED ROUND (GAME-DESIGN §3, the blurred-half rule; Brim's method, simpler): on a Duo's portrait canvas with "Turn
-/// the chest round" on (the default), everything portrait is drawn rotated 180°, so the floor (and every
-/// time-critical thing) lands on the half iOS keeps sharp, and the player lifts the half that blurs as the lid. Hush
-/// never asks iOS for upside down (it isn't in the plist), so there is no "already upside down" case. The safe areas
-/// are turned with it (`AppRules.insets`), and both screen ends defer system gestures during play.
+/// TURNED ROUND (GAME-DESIGN §3, the blurred-half rule): on a Duo's portrait canvas with "Turn the chest round" on (the
+/// default), the floor (and every time-critical thing) is drawn on the half iOS keeps sharp, and the player lifts the
+/// half that blurs as the lid. R2: the SCENE turns itself (`ChestScene.turned`, touches read in its world, so they are
+/// right by construction); SwiftUI turns only its own layer (HUD, cards, the lesson, the pages) by 180°. Hush never
+/// asks iOS for upside down. The safe areas are turned with it (`AppRules.insets`), and both screen ends defer system
+/// gestures during play. A Game Center sheet (UIKit, in iOS's own orientation) un-turns the app while it is up.
 ///
 /// The hinge is read here, once, for the whole app (HingeReader → GameController.hingeSample → HingeLidSource).
 struct RootView: View {
@@ -30,14 +31,10 @@ struct RootView: View {
                 let pose = currentPose(canvas)
                 let fold = AppRules.hasFold(canvas: canvas, hingeSeen: controller.hingeSeen,
                                             demoFold: controller.demoFold)
-                let turned = AppRules.turnsRound(wanted: controller.wantsTurnRound, pose: pose,
-                                                 portrait: canvas.height >= canvas.width, hasFold: fold)
-                let insets = AppRules.insets(merged(safe, windowInsets), turnedRound: turned)
-                content(canvas: canvas, pose: pose, fold: fold, turned: turned, insets: insets,
-                        rawInsets: merged(safe, windowInsets))
+                let turned = turnsRound(canvas, pose: pose, fold: fold)
+                let raw = merged(safe, windowInsets)
+                content(canvas: canvas, pose: pose, fold: fold, turned: turned, rawInsets: raw)
                     .frame(width: canvas.width, height: canvas.height)
-                    .rotationEffect(turned ? .degrees(180) : .zero)
-                    .animation(nil, value: turned)
                     .onAppear {
                         refreshWindowInsets()
                         handleCanvas(canvas, fold: fold, turned: turned, pose: pose)
@@ -48,9 +45,7 @@ struct RootView: View {
                         let p = currentPose(newSize)
                         let f = AppRules.hasFold(canvas: newSize, hingeSeen: controller.hingeSeen,
                                                  demoFold: controller.demoFold)
-                        let t = AppRules.turnsRound(wanted: controller.wantsTurnRound, pose: p,
-                                                    portrait: newSize.height >= newSize.width, hasFold: f)
-                        handleCanvas(newSize, fold: f, turned: t, pose: p)
+                        handleCanvas(newSize, fold: f, turned: turnsRound(newSize, pose: p, fold: f), pose: p)
                     }
                     .onChange(of: fold) { _, f in handleCanvas(canvas, fold: f, turned: turned, pose: pose) }
                     .onChange(of: turned) { _, t in handleCanvas(canvas, fold: fold, turned: t, pose: pose) }
@@ -65,11 +60,12 @@ struct RootView: View {
             controller.hingeUnavailable()
         }))
         .onChange(of: scenePhase) { _, phase in
-            controller.setAppActive(phase == .active)
+            controller.setScenePhase(phase)
             if phase == .active { refreshWindowInsets() }
         }
         .onReceive(NotificationCenter.default.publisher(for: UIDevice.orientationDidChangeNotification)) { _ in
             refreshWindowInsets()
+            controller.deviceOrientationChanged()
         }
         .onChange(of: systemReduceMotion) { _, on in controller.setSystemReduceMotion(on) }
         .onChange(of: settings.reduceMotion) { _, _ in controller.refreshMotion() }
@@ -78,29 +74,41 @@ struct RootView: View {
         .persistentSystemOverlays(.hidden)
     }
 
+    private func turnsRound(_ canvas: CGSize, pose: AppPose, fold: Bool) -> Bool {
+        AppRules.turnsRound(wanted: controller.wantsTurnRound, pose: pose, portrait: canvas.height >= canvas.width,
+                            hasFold: fold, systemSheet: controller.systemSheetUp)
+    }
+
     // MARK: - Content
 
     @ViewBuilder
-    private func content(canvas: CGSize, pose: AppPose, fold: Bool, turned: Bool, insets: EdgeInsets,
-                         rawInsets: EdgeInsets) -> some View {
-        let info = AppCanvas(size: canvas, insets: insets, hasFold: fold, turned: turned)
+    private func content(canvas: CGSize, pose: AppPose, fold: Bool, turned: Bool, rawInsets: EdgeInsets) -> some View {
+        let info = AppCanvas(size: canvas, insets: AppRules.insets(rawInsets, turnedRound: turned), hasFold: fold,
+                             turned: turned)
         ZStack {
             HushTheme.night
+            // The scene is never rotated by SwiftUI (it turns itself).
+            gameLayer(canvas, hidden: pose != .play)
             switch pose {
             case .play:
-                gameLayer(info, hidden: false)
                 screenLayer(info)
+                    .rotationEffect(turned ? .degrees(180) : .zero)
+                    .animation(nil, value: turned)
             case .standUp:
-                gameLayer(info, hidden: true)
                 StandUpCard(insets: rawInsets,
                             liftSide: AppRules.liftSide(interface: interfaceSide,
                                                         turned: controller.wantsTurnRound),
-                            reduceMotion: controller.reduceMotion)
+                            reduceMotion: controller.reduceMotion,
+                            onStoodUp: { controller.stoodItUp() })
                     .transition(.opacity)
             case .cover:
-                gameLayer(info, hidden: true)
-                CoverCard(midRun: controller.isLiveRun, reduceMotion: controller.reduceMotion)
+                CoverCard(midRun: controller.isLiveRun, portrait: controller.portraits.cover,
+                          reduceMotion: controller.reduceMotion)
                     .transition(.opacity)
+            }
+            if controller.showsHoldHint && pose == .play {
+                HoldHintBanner(size: canvas)
+                    .allowsHitTesting(false)
             }
             if controller.showsIcon {
                 iconLayer(canvas)
@@ -108,6 +116,8 @@ struct RootView: View {
         }
         .frame(width: canvas.width, height: canvas.height)
         .animation(HushTheme.settle(controller.reduceMotion), value: pose)
+        .defersSystemGestures(on: AppRules.deferredEdges(live: controller.isLiveRun && !controller.isPaused,
+                                                         turnedRound: turned))
     }
 
     private func currentPose(_ canvas: CGSize) -> AppPose {
@@ -151,20 +161,23 @@ struct RootView: View {
     // MARK: - Layers
 
     /// The scene renders only while a chest is on screen (real runs; CI's demo launches always render, they wait for
-    /// `HUSH-T frame 120`).
+    /// `HUSH-T frame 120`), and holds still on a demo event freeze.
     private func sceneIdle(hidden: Bool) -> Bool {
+        if controller.sceneHeld { return true }
         guard !controller.isDemo else { return false }
         return hidden || !controller.route.isPlay
     }
 
+    /// R2: the SpriteView fills the screen; the scene is laid out for it (`ScreenLayout.make(hasFold:viewSize:)`,
+    /// aspect-fill) and turns itself. Its frame rate follows Feel (`FeedbackDirector.preferredFPS`: 60 under Low Power
+    /// or a hot device).
     @ViewBuilder
-    private func gameLayer(_ info: AppCanvas, hidden: Bool) -> some View {
+    private func gameLayer(_ canvas: CGSize, hidden: Bool) -> some View {
         if let scene = controller.scene {
-            let fit = info.fit
-            SpriteView(scene: scene, isPaused: sceneIdle(hidden: hidden), preferredFramesPerSecond: 120)
+            SpriteView(scene: scene, isPaused: sceneIdle(hidden: hidden),
+                       preferredFramesPerSecond: controller.preferredFPS)
                 .id(controller.sceneGeneration)
-                .frame(width: fit.rect.width, height: fit.rect.height)
-                .position(x: fit.rect.midX, y: fit.rect.midY)
+                .frame(width: canvas.width, height: canvas.height)
                 .opacity(controller.route.isPlay && !hidden ? 1 : 0.001)
                 .allowsHitTesting(controller.route.isPlay && !hidden)
                 .accessibilityHidden(true)
@@ -189,6 +202,9 @@ struct RootView: View {
             case .codex:
                 CodexView(controller: controller, store: store, info: info)
                     .transition(HushTheme.pageTransition(controller.reduceMotion))
+            case .badges:
+                BadgesView(controller: controller, store: store, info: info)
+                    .transition(HushTheme.pageTransition(controller.reduceMotion))
             case .settings:
                 SettingsView(controller: controller, settings: settings, info: info)
                     .transition(HushTheme.pageTransition(controller.reduceMotion))
@@ -199,8 +215,6 @@ struct RootView: View {
         }
         .frame(width: info.size.width, height: info.size.height)
         .animation(HushTheme.settle(controller.reduceMotion), value: controller.route)
-        .defersSystemGestures(on: AppRules.deferredEdges(live: controller.isLiveRun && !controller.isPaused,
-                                                         turnedRound: info.turned))
     }
 
     @ViewBuilder
@@ -213,5 +227,34 @@ struct RootView: View {
         }
         .frame(width: canvas.width, height: canvas.height)
         .onAppear { IconExport.render() }
+    }
+}
+
+/// R2 (REVIEW-1-duo P1-7): held upright the normal way (camera end up) while the chest is drawn turned round, the
+/// whole game reads upside down. This banner is drawn UN-turned, once on each half, so it reads right as held.
+struct HoldHintBanner: View {
+    let size: CGSize
+
+    static let text = "Other way round: lift the glowing half ↻"
+
+    var body: some View {
+        ZStack {
+            ForEach([0.25, 0.75], id: \.self) { f in
+                Text(Self.text)
+                    .font(.system(size: 22, weight: .heavy, design: .rounded))
+                    .foregroundStyle(HushTheme.ink)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 18)
+                    .padding(.vertical, 12)
+                    .background(Capsule().fill(HushTheme.gold))
+                    .shadow(color: .black.opacity(0.4), radius: 10, y: 4)
+                    .frame(maxWidth: size.width - 48)
+                    .position(x: size.width / 2, y: size.height * f)
+            }
+        }
+        .frame(width: size.width, height: size.height)
+        .transition(.opacity)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Turn the phone the other way round, and lift the glowing half")
     }
 }

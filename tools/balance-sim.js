@@ -1,54 +1,68 @@
 #!/usr/bin/env node
-// Hush balance simulator: a line-by-line Node port of Hush/Core (Tuning, ChestFactory, HeistSession, ThiefPilot).
-// KEEP IN SYNC with Hush/Core/*.swift. Used to tune Tuning numerically without a Swift compiler.
+// Hush balance simulator (Round 2): a line-by-line Node port of Hush/Core (Tuning, ChestFactory, HeistSession,
+// ThiefPilot). KEEP IN SYNC with Hush/Core/*.swift. Used to tune Tuning numerically without a Swift compiler.
+// R2 = REVIEW-1-feel's tools/balance-sim-r2.js proposal (kept as the reference, with its r1=1 baseline) plus the Duo
+// relic depth 0.80-0.88 and the Swift rule that the Hush Chain breaks the moment the mimic stirs (same gold: that chest
+// can no longer be Hushed either way).
 //
 //   node tools/balance-sim.js                      # 8 seeds x 4 skills at 60 Hz, prints HUSH-BAL lines + target checks
 //   node tools/balance-sim.js seeds=40 skills=casual,expert
 //   node tools/balance-sim.js verbose=1 seeds=2    # one line per run
+//   node tools/balance-sim.js windows=40           # robustness: medians of 40 different 8-seed windows (min..max)
 //   Any Tuning value can be overridden: T.decayWooden=0.12
+//   Seeds are 1000 + 7919*i (base= and stride= move them), the same as HushTests/BalanceTests.swift.
 //
-// Numbers will not be bit-identical to Swift (libm differs: exp), but the statistics match.
-// The port omits hints and the cosmetic parts of the snapshot (nothing balance-relevant).
+// Numbers are not bit-identical to Swift (libm differs: exp), but R1's CI matched this sim within 1 gold per median.
+// The port omits hints, rest()/resumeGrace() and the cosmetic parts of the snapshot (nothing balance-relevant).
 'use strict';
 
 // MARK: Tuning (mirror of Hush/Core/Tuning.swift)
 const T = {
   shutAngle: 100, wideAngle: 165, shutZoneAngle: 110, tooWideAngle: 172,
-  quietSpeed: 8, loudSpeed: 30, lidRateLinear: 0.006, lidRateQuadratic: 0.00035,
-  dragQuietSpeed: 250, dragRatePerPoint: 0.0006,
+  quietSpeed: 12, loudSpeed: 30, lidRateLinear: 0.008, lidRateQuadratic: 0.0004,
+  dragQuietSpeed: 350, dragRatePerPoint: 0.0006,
   pickNoise: 0.02, bagNoise: 0.03, dropNoise: 0.08,
-  decayGrace: 0.4, quietRateThreshold: 0.01, restlessPerSecond: 0.02, restlessFloor: 0.5,
+  decayGrace: 0.3, quietRateThreshold: 0.01, restlessPerSecond: 0.02, restlessFloor: 0.5,
   stirringNoise: 0.35, wakingNoise: 0.70, biteNoise: 1.0, stageHysteresis: 0.04, noBiteCap: 0.99,
   multSnorer: 1.0, multLight: 1.35, multHeavy: 0.7, multDreamer: 1.0,
   dreamTwitchMin: 4, dreamTwitchMax: 9,
   ironFromIndex: 2, gildedFromIndex: 4, royalFromIndex: 6,
   multWooden: 1, multIron: 1.5, multGilded: 2, multRoyal: 3,
-  decayWooden: 0.14, decayIron: 0.12, decayGilded: 0.10, decayRoyal: 0.085,
+  decayWooden: 0.16, decayIron: 0.14, decayGilded: 0.12, decayRoyal: 0.10,
   itemsWoodenMin: 5, itemsWoodenMax: 6, itemsIronMin: 6, itemsIronMax: 7,
   itemsGildedMin: 7, itemsGildedMax: 8, itemsRoyalMin: 8, itemsRoyalMax: 9,
   heavySleeperItemPenalty: 1,
   copperValueMin: 5, copperValueMax: 10, copperDepthMin: 0.0, copperDepthMax: 0.45, copperMin: 2, copperMax: 3,
   silverValueMin: 20, silverValueMax: 35, silverDepthMin: 0.20, silverDepthMax: 0.60,
   gemValueMin: 60, gemValueMax: 110, gemDepthMin: 0.45, gemDepthMax: 0.80, gemMin: 1, gemMax: 2,
-  relicValueMin: 250, relicValueMax: 450, relicDepthMin: 0.84, relicDepthMax: 0.92, relicChance: 0.35,
+  relicValueMin: 250, relicValueMax: 450, relicDepthMin: 0.80, relicDepthMax: 0.88, relicChance: 0.25,
   oilDepthMin: 0.25, oilDepthMax: 0.55, oilChance: 0.33,
   radiusCopper: 22, radiusSilver: 24, radiusGem: 26, radiusRelic: 34, radiusOil: 24,
   mimicWeightSnorer: 0.35, mimicWeightLight: 0.25, mimicWeightHeavy: 0.20, mimicWeightDreamer: 0.20,
   lootGap: 6, placementJitterY: 60, placementTries: 60, placementGridStep: 12,
-  torchSeconds: 100, oilSeconds: 8, biteTorchPenalty: 15, torchLowSeconds: 15,
+  torchSeconds: 100, oilSeconds: 6, biteTorchPenalty: 10, torchLowSeconds: 15,
   shutHoldSeconds: 0.35, bankMomentSeconds: 1.4, biteMomentSeconds: 1.8, torchOutSeconds: 2.0,
   lightRamp: 0.10, revealLight: 0.4, grabLight: 0.6, lootingStartOpenness: 0.02, lidCrackedOpenness: 0.05,
   grabSlop: 14, maxSubstep: 1 / 120,
   dragSmoothing: 0.06, dragStillAfter: 0.06, dragStillDecay: 0.10,
+  // --- R2 rules (set to 0 to switch one off for an ablation) ---
+  chainStep: 0.1, chainMax: 5,          // Hush chain: a Hushed bank pays x(1 + chainStep*min(chain, chainMax))
+  goldenChance: 0.06, goldenFromIndex: 2, goldenValueMult: 2, goldenNoiseMult: 1.25,  // rare golden mimic
+  jinglePerItem: 0.035,                 // bag jingle: noise cannot decay below jinglePerItem*bagCount*mimicMult
+  jingleMax: 0.30,                      // ... capped here (below Stirring 0.35, so a full bag never stirs by itself)
+  greedExpert: 0.20, greedPerfect: 0.22, // adapted pilots bank once the jingle floor reaches this
+  closeQuietSpeed: 18,                  // >0: the lid is silent below this while CLOSING (0 = same as quietSpeed)
+  relicGlimmer: 1,                      // >0: relic chests twinkle; novice/casual then go for the relic (lure odds below)
+  lureNovice: 0.5, lureCasual: 0.6,
+  adaptPilots: 1,                       // expert/perfect play to the quiet thresholds (speeds x quiet / R1 quiet)
 };
+const R1_QUIET = 8, R1_DRAG_QUIET = 250;
 const FLOOR = { width: 670, height: 456, bagMinY: 346, ix: 78, iy: 36, iw: 514, ih: 286 };
 
 // overrides
 const args = {};
-for (const a of process.argv.slice(2)) {
-  const [k, v] = a.split('=');
-  if (k.startsWith('T.')) T[k.slice(2)] = Number(v); else args[k] = v === undefined ? '1' : v;
-}
+for (const a of process.argv.slice(2)) { const [k, v] = a.split('='); if (!k.startsWith('T.')) args[k] = v === undefined ? '1' : v; }
+for (const a of process.argv.slice(2)) { const [k, v] = a.split('='); if (k.startsWith('T.')) T[k.slice(2)] = Number(v); }
 
 // MARK: SeededRandom (SplitMix64)
 const M64 = (1n << 64n) - 1n;
@@ -67,7 +81,7 @@ class SeededRandom {
 }
 
 // MARK: Noise / Lid
-function lidRate(speed) { if (!(speed > T.quietSpeed)) return 0; const x = speed - T.quietSpeed; return T.lidRateLinear * x + T.lidRateQuadratic * x * x; }
+function lidRate(speed, closing) { const q = closing && T.closeQuietSpeed > 0 ? T.closeQuietSpeed : T.quietSpeed; if (!(speed > q)) return 0; const x = speed - q; return T.lidRateLinear * x + T.lidRateQuadratic * x * x; }
 function dragRate(speed) { if (!(speed > T.dragQuietSpeed)) return 0; return T.dragRatePerPoint * (speed - T.dragQuietSpeed); }
 const ASLEEP = 0, STIRRING = 1, WAKING = 2, BITING = 3;
 function upThreshold(s) { return s === STIRRING ? T.stirringNoise : s === WAKING ? T.wakingNoise : s === BITING ? T.biteNoise : 0; }
@@ -146,7 +160,11 @@ function chest(seed, index, found) {
     items.push({ id, kind: k, relicID, value, depth, x: pos.x, y: pos.y, radius, rotation });
     id += 1;
   }
-  return { index, tier, mimic, multiplier: tierMult(tier), decay: tierDecay(tier), items, nameRoll };
+  // R2 golden mimic: its own stream, so every other draw (and the Daily) is unchanged.
+  const grng = new SeededRandom(chestSeed(seed, index) ^ 0x601DE7n);
+  const golden = index >= T.goldenFromIndex && grng.unit() < T.goldenChance;
+  const multiplier = tierMult(tier) * (golden ? T.goldenValueMult : 1);
+  return { index, tier, mimic, golden, multiplier, decay: tierDecay(tier), items, nameRoll };
 }
 function place(rng, depth, radius, items) {
   const minX = FLOOR.ix + radius, maxX = FLOOR.ix + FLOOR.iw - radius;
@@ -173,6 +191,8 @@ class HeistSession {
     this.torch = T.torchSeconds; this.torchTotal = T.torchSeconds; this.torchLowSent = false;
     this.banked = 0; this.chestsBanked = 0; this.hushed = 0; this.bites = 0; this.chestsOpened = 0;
     this.lostToBites = 0; this.itemsBagged = 0; this.relics = []; this.bestChest = 0;
+    this.chain = 0; this.bestChain = 0; this.goldens = 0; this.goldenBanked = 0; this.chainGold = 0; this.chainBreaks = 0;
+    this.chestLog = [];
     this.touches = new Map();
     this.lid = { openness: 0, speed: 0, inShutZone: true, tooWide: false };
     this.pending = [];
@@ -188,13 +208,16 @@ class HeistSession {
     this.twitchRng = new SeededRandom(chestSeed(this.seed, spec.index) ^ 0x7417C4n);
     this.twitchIn = this.twitchRng.range(T.dreamTwitchMin, T.dreamTwitchMax);
   }
-  mult() { return mimicMult(this.chest.mimic) * this.opt.noiseScale; }
+  jingleFloor() { return Math.min(T.jingleMax, T.jinglePerItem * this.bagCount * this.mult()); }
+  mult() { return mimicMult(this.chest.mimic) * (this.chest.golden ? T.goldenNoiseMult : 1) * this.opt.noiseScale; }
   scaled(v) { return Math.round(v * this.chest.multiplier); }
   step(dt, lid) {
     if (this.phase === 'finished') return [];
     const ev = this.pending; this.pending = [];
     const d = Number.isFinite(dt) ? Math.max(0, dt) : 0;
-    this.lid = { openness: Math.min(Math.max(lid.openness, 0), 1), speed: Math.max(0, lid.speed), inShutZone: lid.inShutZone, tooWide: lid.tooWide };
+    const newO = Math.min(Math.max(lid.openness, 0), 1);
+    this.closing = newO < this.lid.openness - 1e-9;
+    this.lid = { openness: newO, speed: Math.max(0, lid.speed), inShutZone: lid.inShutZone, tooWide: lid.tooWide };
     const n = Math.max(1, Math.ceil(d / T.maxSubstep - 1e-9));
     const h = d / n;
     for (let i = 0; i < n; i++) { this.tick(h, ev); if (this.phase === 'finished') break; }
@@ -222,14 +245,17 @@ class HeistSession {
     // held-drag stillness
     for (const t of this.touches.values()) { t.stillFor += h; if (t.stillFor > T.dragStillAfter) t.speed *= Math.exp(-h / T.dragStillDecay); }
     // noise
-    let raw = lidRate(this.lid.speed);
+    let raw = lidRate(this.lid.speed, this.closing);
     for (const t of this.touches.values()) raw += dragRate(t.speed);
     const rate = raw * this.mult();
     this.noise += rate * h;
     if (rate > T.quietRateThreshold) this.quietFor = 0; else this.quietFor += h;
     if (this.quietFor >= T.decayGrace) {
       const restless = Math.max(T.restlessFloor, 1 - T.restlessPerSecond * this.chestTime);
+      const floor = this.jingleFloor();
+      const before = this.noise;
       this.noise -= this.chest.decay * restless * h;
+      if (this.noise < floor) this.noise = Math.min(before, floor);
     }
     this.settleNoise(ev);
     if (this.phase !== 'ready' && this.phase !== 'looting') return;
@@ -267,8 +293,11 @@ class HeistSession {
     this.noise = Math.min(Math.max(this.noise, 0), cap);
     if (this.canBite() && this.noise >= T.biteNoise) { this.bite(ev); return; }
     const ns = stageFor(this.noise, this.stage);
-    if (ns !== this.stage) { ev.push({ e: 'stageChanged', from: this.stage, to: ns }); this.stage = ns; if (ns > ASLEEP) this.leftAsleep = true; }
+    if (ns !== this.stage) { ev.push({ e: 'stageChanged', from: this.stage, to: ns }); this.stage = ns; if (ns > ASLEEP) this.markStirred(ev); }
   }
+  // Swift: the chain breaks the moment the mimic leaves Asleep (that chest can no longer be Hushed).
+  markStirred(ev) { if (this.leftAsleep) return; this.leftAsleep = true; this.breakChain(ev); }
+  breakChain(ev) { if (this.chain >= 2) { ev.push({ e: 'chainBroken', count: this.chain }); this.chainBreaks += 1; } this.chain = 0; }
   addOneOff(a, ev) { this.noise += a * this.mult(); this.quietFor = 0; this.settleNoise(ev); }
   inHandValue() {
     let v = this.bagValue;
@@ -279,16 +308,26 @@ class HeistSession {
     const lost = this.inHandValue();
     for (const s of this.loot) if (s.place === 'held' || s.place === 'inBag') s.place = 'lost';
     this.touches.clear();
-    ev.push({ e: 'stageChanged', from: this.stage, to: BITING }); this.stage = BITING; this.leftAsleep = true;
+    ev.push({ e: 'stageChanged', from: this.stage, to: BITING }); this.stage = BITING;
     ev.push({ e: 'bitten', lost });
     this.bites += 1; this.lostToBites += lost; this.bagValue = 0; this.bagCount = 0;
+    const torchBefore = this.torch;
     if (this.opt.torch) this.torch = Math.max(0, this.torch - T.biteTorchPenalty);
+    ev.push({ e: 'biteCost', lost, seconds: torchBefore - this.torch });
+    this.chestLog.push({ tier: this.chest.tier, golden: this.chest.golden, value: 0, hushed: false, bitten: true });
+    this.leftAsleep = true; this.breakChain(ev);
     this.phase = 'bitten'; this.elapsed = 0; this.shutHold = 0; this.noise = 1;
   }
   bank(ev) {
-    const value = this.bagValue; const hushedNow = !this.leftAsleep;
+    const hushedNow = !this.leftAsleep;
+    if (hushedNow) this.chain += 1; else this.chain = 0;
+    this.bestChain = Math.max(this.bestChain, this.chain);
+    const value = hushedNow ? Math.round(this.bagValue * (1 + T.chainStep * Math.min(this.chain, T.chainMax))) : this.bagValue;
+    this.chainGold += value - this.bagValue;
+    if (this.chest.golden) this.goldenBanked += 1;
     this.banked += value; this.chestsBanked += 1; if (hushedNow) this.hushed += 1;
     this.bestChest = Math.max(this.bestChest, value);
+    this.chestLog.push({ tier: this.chest.tier, golden: this.chest.golden, value, hushed: hushedNow, bitten: false });
     for (const s of this.loot) {
       if (s.place === 'inBag' && s.item.kind === 'relic') { this.relics.push(s.item.relicID); this.found.add(s.item.relicID); }
       if (s.place === 'held') { s.place = 'inChest'; s.touch = -1; }
@@ -301,9 +340,11 @@ class HeistSession {
     this.index += 1;
     if (this.stage !== ASLEEP) { ev.push({ e: 'stageChanged', from: this.stage, to: ASLEEP }); this.stage = ASLEEP; }
     this.setupChest(chest(this.seed, this.index, this.found));
+    if (this.chest.golden) this.goldens += 1;
     ev.push({ e: 'chestArrived' });
   }
   startTorchOut(ev) {
+    if (this.phase === 'looting') this.chestLog.push({ tier: this.chest.tier, golden: this.chest.golden, value: 0, hushed: false, bitten: false });
     for (const s of this.loot) if (s.place === 'held' || s.place === 'inBag') s.place = 'lost';
     this.touches.clear(); this.bagValue = 0; this.bagCount = 0;
     this.phase = 'torchOut'; this.elapsed = 0; ev.push({ e: 'torchOut' });
@@ -379,6 +420,23 @@ const LID_TRAVEL = () => T.wideAngle - T.shutAngle;
 class ThiefPilot {
   constructor(skill, seed) {
     this.skill = skill; this.p = PROFILES[skill]; this.rng = new SeededRandom(seed);
+    // Sensitivity (args, not Tuning): casualObey=0.85 (a human sometimes fails to freeze); casualScale=1 (casual also
+    // plays relative to the new thresholds: speeds x quiet/8, drags x dragQuiet/250).
+    if (skill === 'casual' && (args.casualObey || args.casualScale)) {
+      const p = this.p; const q = {};
+      if (args.casualObey) q.freezeObey = Number(args.casualObey);
+      if (args.casualScale) { const kl = T.quietSpeed / R1_QUIET, kd = T.dragQuietSpeed / R1_DRAG_QUIET; q.open = p.open.map((x) => x * kl); q.close = p.close.map((x) => x * kl); q.drag = p.drag.map((x) => x * kd); }
+      this.p = Object.assign({}, p, q);
+    }
+    if (T.adaptPilots && (skill === 'expert' || skill === 'perfect')) {
+      const kl = T.quietSpeed / R1_QUIET, kd = T.dragQuietSpeed / R1_DRAG_QUIET; const p = this.p;
+      // Experts play just under the audible creak: close at 0.75-1.0 x quiet (perfect 0.95 x), open as R1 x quiet/8.
+      const cq = T.closeQuietSpeed > 0 ? T.closeQuietSpeed : T.quietSpeed;
+      const close = skill === 'perfect' ? [0.95 * cq, 0.95 * cq] : [0.75 * cq, cq];
+      this.p = Object.assign({}, p, { open: p.open.map((x) => x * kl), close, drag: p.drag.map((x) => x * kd) });
+      // With a jingling bag they leave the copper (base value < 15) unless nothing else is left.
+      this.skipCheap = T.jinglePerItem > 0;
+    }
     this.o = P.shutTarget; this.speed = 0; this.lastChest = -1; this.mode = 'open';
     this.openSpeed = 6; this.closeSpeed = 10; this.slam = false; this.slamSpeed = 0;
     this.frozen = false; this.freezeDecided = false; this.obey = true; this.wait = 0; this.drag = null; this.nextID = 1;
@@ -399,7 +457,10 @@ class ThiefPilot {
   }
   wanted(snap) {
     const inChest = snap.loot.filter((s) => s.place === 'inChest');
-    const w = inChest.filter((s) => s.item.depth <= this.p.reach);
+    let reach = this.p.reach;
+    if (this.lured && inChest.some((s) => s.item.kind === 'relic')) reach = 1;
+    let w = inChest.filter((s) => s.item.depth <= reach);
+    if (this.skipCheap) { const rich = w.filter((s) => s.item.kind !== 'copper'); if (rich.length > 0) w = rich; }
     if (w.length > 0) return w;
     // Nothing within reach: only then (bag empty, nothing held) does it go deeper, so it never gets stuck.
     const inHand = snap.loot.some((s) => s.place === 'inBag' || s.place === 'held');
@@ -419,7 +480,12 @@ class ThiefPilot {
       return { lid: this.lidOut(), touches };
     }
     const idx = snap.chestIndex;
-    if (idx !== this.lastChest) { this.lastChest = idx; this.rollChest(); this.mode = this.o > P.shutTarget + 0.04 ? 'settle' : 'open'; this.wait = 0; }
+    if (idx !== this.lastChest) {
+      if (T.relicGlimmer && (this.skill === 'novice' || this.skill === 'casual')) {
+        if (!this.lureRng) this.lureRng = new SeededRandom(0x6117AE5n ^ BigInt(this.skill.length));
+        this.lured = this.lureRng.unit() < (this.skill === 'novice' ? T.lureNovice : T.lureCasual);
+      }
+      this.lastChest = idx; this.rollChest(); this.mode = this.o > P.shutTarget + 0.04 ? 'settle' : 'open'; this.wait = 0; }
     // freeze
     const slamming = this.mode === 'close' && this.slam;
     if (!this.frozen) {
@@ -427,7 +493,7 @@ class ThiefPilot {
         if (!this.freezeDecided) { this.freezeDecided = true; this.obey = this.rng.unit() < this.p.freezeObey; }
         if (this.obey && !slamming) this.frozen = true;
       } else this.freezeDecided = false;
-    } else if (snap.noise < this.p.unfreeze) { this.frozen = false; this.freezeDecided = false; this.wait = this.p.reaction; }
+    } else if (snap.noise < Math.max(this.p.unfreeze, (T.adaptPilots ? snap.jingle + 0.04 : 0))) { this.frozen = false; this.freezeDecided = false; this.wait = this.p.reaction; }
     if (this.frozen) return { lid: this.lidOut(), touches };
     if (this.wait > 0) this.wait -= dt;
     // the held drag
@@ -450,6 +516,9 @@ class ThiefPilot {
       }
     }
     const bagHas = snap.loot.some((s) => s.place === 'inBag');
+    // R2: adapted expert/perfect bank once the bag jingles too loudly (the new push-your-luck call).
+    if (T.adaptPilots && T.jinglePerItem > 0 && (this.skill === 'expert' || this.skill === 'perfect') && bagHas && !this.drag
+        && this.mode !== 'close' && this.mode !== 'settle' && snap.jingle >= (this.skill === 'expert' ? T.greedExpert : T.greedPerfect)) this.mode = 'close';
     // torch awareness: bank what's in hand before the torch goes out
     if (this.p.torchAware && snap.torchOn && bagHas && this.mode !== 'close' && this.mode !== 'settle') {
       const need = this.o * LID_TRAVEL() / this.closeSpeed + T.shutHoldSeconds + P.torchMargin;
@@ -499,7 +568,7 @@ function pilotWorth(s) { return s.item.kind === 'oil' ? 60 : s.item.value; }
 
 function snapshotOf(s) {
   return {
-    phase: s.phase, chestIndex: s.chest.index, stage: s.stage, noise: s.noise, torchRemaining: s.torch, torchOn: s.opt.torch,
+    phase: s.phase, chestIndex: s.chest.index, stage: s.stage, noise: s.noise, torchRemaining: s.torch, torchOn: s.opt.torch, jingle: s.jingleFloor(),
     loot: s.loot.map((l) => ({ item: l.item, x: l.x, y: l.y, place: l.place, touch: l.touch, grabbable: l.grabbable })),
   };
 }
@@ -509,6 +578,7 @@ function runOne(skill, seed) {
   const session = new HeistSession(seed, {});
   const pilot = new ThiefPilot(skill, BigInt.asUintN(64, BigInt(seed) * 7n + 1n));
   const dt = 1 / 60; let t = 0; let frames = 0; let maxNoise = 0; let stirs = 0;
+  const use = { moment: 0, open: 0, close: 0, drag: 0, frozen: 0, idle: 0 }; let firstChestBitten = false;
   while (session.phase !== 'finished' && frames < 60 * 600) {
     const out = pilot.step(dt, snapshotOf(session));
     for (const tc of out.touches) {
@@ -518,42 +588,111 @@ function runOne(skill, seed) {
       else session.touchEnded(tc.id, p, t);
     }
     const ev = session.step(dt, out.lid);
-    for (const e of ev) if (e.e === 'stageChanged' && e.from === ASLEEP && e.to === STIRRING) stirs += 1;
+    for (const e of ev) {
+      if (e.e === 'stageChanged' && e.from === ASLEEP && e.to === STIRRING) stirs += 1;
+      if (e.e === 'bitten' && session.index === 0) firstChestBitten = true;
+    }
+    const ph = session.phase;
+    if (ph === 'banked' || ph === 'bitten' || ph === 'torchOut' || ph === 'finished') use.moment += dt;
+    else if (pilot.frozen) use.frozen += dt;
+    else if (pilot.drag) use.drag += dt;
+    else if (pilot.speed > 0.05 && pilot.mode === 'open') use.open += dt;
+    else if (pilot.speed > 0.05) use.close += dt;
+    else use.idle += dt;
     maxNoise = Math.max(maxNoise, session.noise);
     t += dt; frames += 1;
   }
-  return { gold: session.banked, seconds: session.time, banked: session.chestsBanked, opened: session.chestsOpened, bites: session.bites, hushed: session.hushed, relics: session.relics.length, lost: session.lostToBites, stirs, capped: session.phase !== 'finished' };
+  const logOK = session.chestLog.length === session.chestsOpened && session.chestLog.reduce((a, c) => a + c.value, 0) === session.banked;
+  return { logOK, chainBreaks: session.chainBreaks, use, firstChestBitten, bestChain: session.bestChain, goldens: session.goldens, goldenBanked: session.goldenBanked, chainGold: session.chainGold, gold: session.banked, seconds: session.time, banked: session.chestsBanked, opened: session.chestsOpened, bites: session.bites, hushed: session.hushed, relics: session.relics.length, lost: session.lostToBites, stirs, capped: session.phase !== 'finished' };
 }
 function pct(a, p) { if (a.length === 0) return 0; const s = a.slice().sort((x, y) => x - y); const pos = (s.length - 1) * p; const lo = Math.floor(pos); const hi = Math.min(s.length - 1, lo + 1); return s[lo] + (s[hi] - s[lo]) * (pos - lo); }
 
+// MARK: Targets (mirror of HushTests/BalanceTests.swift: medians, with bands around the R2 table)
+//   R2 table (40 seeds): novice ~1,635 gold / 5 chests / 3 bites; casual ~3,945 / 8 / 0 bites / 2 Hushed;
+//   expert ~10,847 / 13; perfect ~11,553 / never bitten. 8 seeds: novice >= 1,000 gold and >= 3 chests.
+const BANDS = {
+  novice: { gold: [1000, 2600], banked: [3, 8], bites: [1, 6] },
+  casual: { gold: [3000, 5200], banked: [5, 10], bites: [0, 0.5], hushed: [1, 5], seconds: [90, 160] },
+  expert: { gold: [8000, 14000], banked: [10, 16], bites: [0, 1], hushed: [8, 16] },
+  perfect: { gold: [8500, 15000], banked: [10, 16], hushed: [9, 16] },
+};
+function medians(runs) {
+  const m = (f) => pct(runs.map(f), 0.5);
+  return { gold: m((r) => r.gold), seconds: m((r) => r.seconds), banked: m((r) => r.banked), bites: m((r) => r.bites),
+    hushed: m((r) => r.hushed), relics: m((r) => r.relics), maxBites: Math.max(...runs.map((r) => r.bites)),
+    capped: runs.filter((r) => r.capped).length, logBad: runs.filter((r) => !r.logOK).length };
+}
+function checks(med) {
+  const out = [];
+  for (const sk of Object.keys(BANDS)) {
+    const m = med[sk]; if (!m) continue;
+    for (const [k, [lo, hi]] of Object.entries(BANDS[sk])) out.push([`${sk} ${k} ${lo}-${hi} (${m[k]})`, m[k] >= lo && m[k] <= hi]);
+    out.push([`${sk} never capped, chest log adds up`, m.capped === 0 && m.logBad === 0]);
+  }
+  if (med.perfect) out.push(['perfect never bitten (max)', med.perfect.maxBites === 0]);
+  if (med.novice && med.casual) out.push(['novice < casual (gold)', med.novice.gold < med.casual.gold]);
+  if (med.casual && med.expert) out.push(['casual < expert (gold)', med.casual.gold < med.expert.gold]);
+  if (med.expert && med.perfect) out.push(['perfect >= 0.95 x expert (gold)', med.perfect.gold >= 0.95 * med.expert.gold]);
+  return out;
+}
+
 function main() {
   const seeds = Number(args.seeds || 8);
+  const base = Number(args.base || 1000), stride = Number(args.stride || 7919);
   const skills = (args.skills || 'novice,casual,expert,perfect').split(',');
+  if (args.attract) {
+    // Attract mode (torch off, no bites) must never stall: chests banked in 600 s per skill (CoreTests: >= 4 in 120 s).
+    for (const sk of skills) {
+      const session = new HeistSession(7, { torch: false, bites: false });
+      const pilot = new ThiefPilot(sk, 7n);
+      const dt = 1 / 60; let t = 0; let at120 = 0;
+      for (let f = 0; f < 60 * 600; f++) {
+        const out = pilot.step(dt, snapshotOf(session));
+        for (const tc of out.touches) {
+          const p = { x: tc.x, y: tc.y };
+          if (tc.phase === 'began') session.touchBegan(tc.id, p, t); else if (tc.phase === 'moved') session.touchMoved(tc.id, p, t); else session.touchEnded(tc.id, p, t);
+        }
+        session.step(dt, out.lid); t += dt;
+        if (f === 60 * 120 - 1) at120 = session.chestsBanked;
+      }
+      console.log(`ATTRACT skill=${sk} banked@120s=${at120} banked@600s=${session.chestsBanked} bites=${session.bites}`);
+    }
+    return;
+  }
+  if (args.windows) {
+    // Robustness: the medians of N disjoint windows of `seeds` seeds (window w starts at seed index w*seeds).
+    const n = Number(args.windows); const per = {}; let fails = 0; const failNames = {};
+    for (let w = 0; w < n; w++) {
+      const med = {};
+      for (const sk of skills) {
+        const runs = []; for (let i = 0; i < seeds; i++) runs.push(runOne(sk, base + (w * seeds + i) * stride));
+        med[sk] = medians(runs); (per[sk] = per[sk] || []).push(med[sk]);
+      }
+      const bad = checks(med).filter(([, ok]) => !ok);
+      if (bad.length) { fails += 1; for (const [name] of bad) { const key = name.replace(/ \(.*\)$/, ''); failNames[key] = (failNames[key] || 0) + 1; } }
+    }
+    for (const sk of skills) {
+      const f = (k) => { const a = per[sk].map((m) => m[k]); return `${k} ${pct(a, 0).toFixed(1)}..${pct(a, 0.5).toFixed(1)}..${pct(a, 1).toFixed(1)}`; };
+      console.log(`WINDOWS skill=${sk} n=${n}x${seeds}: ${['gold', 'banked', 'bites', 'hushed', 'seconds', 'maxBites'].map(f).join(' | ')}`);
+    }
+    console.log(`windows failing a check: ${fails}/${n}`, JSON.stringify(failNames));
+    return;
+  }
   const med = {};
-  const all = {};
   for (const sk of skills) {
     const runs = [];
     for (let i = 0; i < seeds; i++) {
-      const seed = 1000 + i * 7919;
+      const seed = base + i * stride;
       const r = runOne(sk, seed); runs.push(r);
-      if (args.verbose) console.log(`  ${sk} seed=${seed} gold=${r.gold} s=${r.seconds.toFixed(1)} banked=${r.banked}/${r.opened} bites=${r.bites} hushed=${r.hushed} relics=${r.relics} stirs=${r.stirs}`);
+      if (args.verbose) console.log(`  ${sk} seed=${seed} gold=${r.gold} s=${r.seconds.toFixed(1)} banked=${r.banked}/${r.opened} bites=${r.bites} hushed=${r.hushed} relics=${r.relics} stirs=${r.stirs} chain=${r.bestChain} golden=${r.goldenBanked}/${r.goldens}`);
     }
-    all[sk] = runs;
+    med[sk] = medians(runs);
     const g = runs.map((r) => r.gold), s = runs.map((r) => r.seconds), b = runs.map((r) => r.banked), bi = runs.map((r) => r.bites);
-    med[sk] = { gold: pct(g, 0.5), seconds: pct(s, 0.5), banked: pct(b, 0.5), bites: pct(bi, 0.5), maxBites: Math.max(...bi) };
+    const u = {}; for (const k of ['moment', 'open', 'close', 'drag', 'frozen', 'idle']) u[k] = pct(runs.map((r) => r.use[k]), 0.5).toFixed(1);
+    const cb = runs.filter((r) => r.firstChestBitten).length;
+    console.log(`  ${sk} use(s): moments=${u.moment} open=${u.open} close=${u.close} drag=${u.drag} frozen=${u.frozen} idle=${u.idle} | chest#1 bitten ${cb}/${runs.length} | lost=${pct(runs.map((r) => r.lost), 0.5).toFixed(0)} chainGold=${pct(runs.map((r) => r.chainGold), 0.5).toFixed(0)} bestChain=${pct(runs.map((r) => r.bestChain), 0.5).toFixed(1)} chainBreaks=${pct(runs.map((r) => r.chainBreaks), 0.5).toFixed(1)} golden seen/banked=${runs.reduce((a, r) => a + r.goldens, 0)}/${runs.reduce((a, r) => a + r.goldenBanked, 0)} | hushed p10-p90 ${pct(runs.map((r) => r.hushed), 0.1).toFixed(0)}-${pct(runs.map((r) => r.hushed), 0.9).toFixed(0)} | banked p10 ${pct(runs.map((r) => r.banked), 0.1).toFixed(0)}`);
     console.log(`HUSH-BAL skill=${sk} gold=${pct(g, 0.5).toFixed(0)} p10=${pct(g, 0.1).toFixed(0)} p90=${pct(g, 0.9).toFixed(0)} seconds=${pct(s, 0.5).toFixed(1)} (${Math.min(...s).toFixed(0)}-${Math.max(...s).toFixed(0)}) banked=${pct(b, 0.5).toFixed(1)} (${Math.min(...b)}-${Math.max(...b)}) bites=${pct(bi, 0.5).toFixed(1)} max=${Math.max(...bi)} hushed=${pct(runs.map((r) => r.hushed), 0.5).toFixed(1)} relics=${pct(runs.map((r) => r.relics), 0.5).toFixed(1)} stirs=${pct(runs.map((r) => r.stirs), 0.5).toFixed(1)} n=${runs.length}`);
   }
-  if (med.novice && med.casual && med.expert && med.perfect) {
-    const checks = [
-      ['novice < casual (gold)', med.novice.gold < med.casual.gold],
-      ['casual < expert (gold)', med.casual.gold < med.expert.gold],
-      ['expert <= perfect (gold)', med.expert.gold <= med.perfect.gold],
-      ['casual banks 4-8', med.casual.banked >= 4 && med.casual.banked <= 8],
-      ['novice bitten >= 1 (median)', med.novice.bites >= 1],
-      ['perfect never bitten', med.perfect.maxBites === 0],
-      ['casual run 90-160 s', med.casual.seconds >= 90 && med.casual.seconds <= 160],
-    ];
-    for (const [name, ok] of checks) console.log(`${ok ? 'PASS' : 'FAIL'} ${name}`);
-  }
+  for (const [name, ok] of checks(med)) console.log(`${ok ? 'PASS' : 'FAIL'} ${name}`);
 }
 main();

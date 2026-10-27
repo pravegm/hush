@@ -36,6 +36,12 @@ jobs:
         run: |
           sudo xcode-select -s /Applications/Xcode_27.1.app
           xcodebuild -version
+      - name: Check the app icon
+        # QA-1 P0-1: fail if AppIcon-1024.png is still the R1 placeholder (hash of d969f22's file), isn't 1024 x 1024
+        # or is a flat fill (< 40 colours); an alpha channel is flattened in the workspace for this build (ITMS-90717).
+        env:
+          FIX_ALPHA: "1"
+        run: bash ci/icon-check.sh
       - name: Generate project
         run: |
           brew install xcodegen
@@ -100,6 +106,12 @@ jobs:
         run: |
           sudo xcode-select -s /Applications/Xcode_27.1.app
           xcodebuild -version
+
+      - name: Check the app icon
+        # Same guard as release-check: never upload the R1 placeholder icon (QA-1 P0-1). Fails the run.
+        env:
+          FIX_ALPHA: "1"
+        run: bash ci/icon-check.sh
 
       - name: Generate project
         run: |

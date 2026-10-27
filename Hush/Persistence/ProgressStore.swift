@@ -56,8 +56,8 @@ struct RecordOutcome: Equatable {
 
 /// Everything the game remembers. JSON under `ProgressStore.key`, versioned, decoded tolerantly.
 struct ProgressData: Codable, Equatable {
-    /// v1 (R1). v0 = a save without a version (never shipped; the migration rule is still tested).
-    static let currentVersion = 1
+    /// v2 (R2: `pendingRun`). v1 (R1). v0 = a save without a version (never shipped; the migration rule is still tested).
+    static let currentVersion = 2
 
     var version = ProgressData.currentVersion
     /// Best gold banked in a Run.
@@ -88,6 +88,9 @@ struct ProgressData: Codable, Equatable {
     var lastDailyDay = Int.min
     /// The First Chest lesson was finished or skipped.
     var lessonDone = false
+    /// R2 (QA-1 P1-3): a live run's result so far, saved when the app goes to the background. A kill there never
+    /// loses its relics, gold or achievements: the next launch files it (`ProgressStore.recoverPendingRun`).
+    var pendingRun: RunResult?
 
     init() {}
 
@@ -115,6 +118,7 @@ struct ProgressData: Codable, Equatable {
         dailyAttempted = (try? c.decodeIfPresent(Set<Int>.self, forKey: .dailyAttempted)) ?? []
         lastDailyDay = (try? c.decodeIfPresent(Int.self, forKey: .lastDailyDay)) ?? Int.min
         lessonDone = (try? c.decodeIfPresent(Bool.self, forKey: .lessonDone)) ?? false
+        pendingRun = (try? c.decodeIfPresent(RunResult.self, forKey: .pendingRun)) ?? nil
         ProgressRules.migrate(&self, fromVersion: storedVersion)
     }
 
@@ -155,12 +159,21 @@ enum ProgressRules {
         if data.daily[day] == nil { data.daily[day] = DailyRecord(gold: 0, finished: false, practiceBest: 0) }
     }
 
-    /// A scored try left early: the gold banked so far is that day's score.
-    static func recordPartialDaily(_ data: inout ProgressData, day: Int, gold: Int) {
-        var record = data.daily[day] ?? DailyRecord()
-        record.gold = max(record.gold, max(gold, 0))
-        data.daily[day] = record
-        data.bestDaily = max(data.bestDaily, record.gold)
+    /// R2 (QA-1 P1-3): a run left early (Home, Restart, a kill in the background) files its result so far like any
+    /// other run (relics into the Codex, gold into the rank, achievements), and a scored Daily left early keeps its gold
+    /// as the day's score, marked unfinished. "New best!" compares against the best from before the run (QA-1 P2-2: a
+    /// partial never raises the best on its own any more).
+    static func recordAbandoned(_ result: RunResult, into data: inout ProgressData, today: Int,
+                                rankFor: (Int) -> Int = { ThiefRanks.rank(forLifetimeGold: $0) },
+                                earn: (RunResult, Int, Int, Set<String>) -> [AchievementDef] = {
+                                    Achievements.earned(after: $0, lifetimeGold: $1, relicsFound: $2, alreadyEarned: $3)
+                                }) -> RecordOutcome {
+        let outcome = record(result, into: &data, today: today, rankFor: rankFor, earn: earn)
+        if case let .daily(day, scored) = result.mode, scored, var r = data.daily[day] {
+            r.finished = false
+            data.daily[day] = r
+        }
+        return outcome
     }
 
     /// The personal best a session shows for `mode` (Run: the best Run; Daily: that day's best).
@@ -268,16 +281,39 @@ enum ProgressRules {
 final class ProgressStore: ObservableObject {
     static let key = "hush.progress"
 
+    /// Where a save that can't be decoded is kept (QA-1 P2-15). Never overwritten: a second, different bad save goes
+    /// to `hush.progress.bak.<unix time>`.
+    static let backupKey = "hush.progress.bak"
+
     @Published private(set) var data: ProgressData
     private let defaults: UserDefaults?
 
     init(defaults: UserDefaults?) {
         self.defaults = defaults
-        if let raw = defaults?.data(forKey: Self.key), let decoded = Self.decode(raw) {
-            data = decoded
+        if let raw = defaults?.data(forKey: Self.key) {
+            if let decoded = Self.decode(raw) {
+                data = decoded
+            } else {
+                // One bad write (or a future format) must never wipe progress for good: keep the raw bytes first.
+                if let defaults { Self.backUp(raw, in: defaults) }
+                data = ProgressData()
+            }
         } else {
             data = ProgressData()
         }
+    }
+
+    /// Copies an undecodable save aside without overwriting an earlier copy. Returns the key used.
+    @discardableResult
+    nonisolated static func backUp(_ raw: Data, in defaults: UserDefaults, now: Date = Date()) -> String {
+        if let existing = defaults.data(forKey: backupKey) {
+            if existing == raw { return backupKey }
+            let key = "\(backupKey).\(Int(now.timeIntervalSince1970))"
+            defaults.set(raw, forKey: key)
+            return key
+        }
+        defaults.set(raw, forKey: backupKey)
+        return backupKey
     }
 
     init(inMemory data: ProgressData) {
@@ -299,17 +335,42 @@ final class ProgressStore: ObservableObject {
         commit(d)
     }
 
-    func recordPartialDaily(day: Int, gold: Int) {
-        var d = data
-        ProgressRules.recordPartialDaily(&d, day: day, gold: gold)
-        commit(d)
-    }
-
     func record(_ result: RunResult, today: Int) -> RecordOutcome {
         var d = data
+        d.pendingRun = nil
         let outcome = ProgressRules.record(result, into: &d, today: today)
         commit(d)
         return outcome
+    }
+
+    /// A run left early (Home, Restart, a new run): filed now.
+    func recordAbandoned(_ result: RunResult, today: Int) -> RecordOutcome {
+        var d = data
+        d.pendingRun = nil
+        let outcome = ProgressRules.recordAbandoned(result, into: &d, today: today)
+        commit(d)
+        return outcome
+    }
+
+    /// The app went to the background mid-run: keep the result so far in case it is killed there.
+    func saveCheckpoint(_ result: RunResult) {
+        var d = data
+        d.pendingRun = result
+        commit(d)
+    }
+
+    func clearCheckpoint() {
+        guard data.pendingRun != nil else { return }
+        var d = data
+        d.pendingRun = nil
+        commit(d)
+    }
+
+    /// At launch: a run killed in the background is filed as left early. Returns it (for Game Center) or nil.
+    func recoverPendingRun(today: Int) -> (RunResult, RecordOutcome)? {
+        guard let pending = data.pendingRun else { return nil }
+        let outcome = recordAbandoned(pending, today: today)
+        return (pending, outcome)
     }
 
     func markLessonDone() {

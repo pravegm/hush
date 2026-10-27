@@ -3,16 +3,18 @@ import Foundation
 
 /// The First Chest's fixed chest (GAME-DESIGN §8, ROUND-1 App): 2 copper, 1 silver, 1 gem, a Heavy sleeper. The coin
 /// nearest the light is the first thing the lid reveals, and nothing sits behind the lesson card's band.
+/// R2 (QA-1 P2-1): the first coin lies deeper (0.20, lit well clear of the shut zone), so a gentle opener who bags it at
+/// "Look: gold!" can't bank by accident before the Freeze step is taught.
 enum LessonChest {
     static let mimicName = "Dozy Doris"
 
     static var spec: ChestSpec {
         let items: [LootItem] = [
-            LootItem(id: 1, kind: .copper, value: 8, depth: 0.02, position: CGPoint(x: 250, y: 150), radius: 22,
+            LootItem(id: 1, kind: .copper, value: 8, depth: 0.20, position: CGPoint(x: 250, y: 150), radius: 22,
                      rotation: 0.3),
-            LootItem(id: 2, kind: .copper, value: 6, depth: 0.12, position: CGPoint(x: 420, y: 120), radius: 22,
+            LootItem(id: 2, kind: .copper, value: 6, depth: 0.26, position: CGPoint(x: 420, y: 120), radius: 22,
                      rotation: -0.5),
-            LootItem(id: 3, kind: .silver, value: 24, depth: 0.30, position: CGPoint(x: 335, y: 95), radius: 24,
+            LootItem(id: 3, kind: .silver, value: 24, depth: 0.36, position: CGPoint(x: 335, y: 95), radius: 24,
                      rotation: 0.1),
             LootItem(id: 4, kind: .gem(.ruby), value: 70, depth: 0.50, position: CGPoint(x: 180, y: 85), radius: 26,
                      rotation: 0.6),
@@ -21,7 +23,7 @@ enum LessonChest {
                          decay: 0.14, items: items)
     }
 
-    /// No torch, no bites, 0.6× noise, this chest on repeat (ARCHITECTURE SessionOptions).
+    /// No candle, no bites, 0.6× noise, this chest on repeat (ARCHITECTURE SessionOptions).
     static var options: SessionOptions {
         SessionOptions(torch: false, bites: false, noiseScale: 0.6, fixedChest: spec)
     }
@@ -36,11 +38,13 @@ struct LessonDisplay: Equatable {
     /// Red/amber: "Slower…", "Freeze!".
     var warning: Bool
     var canSkip: Bool
-    /// The pose step: glow the lid half ("Lift this half").
+    /// The pose step: glow the lid half ("Lift this half") or point at the lever ("Slide this up… slowly").
     var marksLid: Bool
-    /// Step 6: the closing card ("Your torch burns down…").
+    /// Step 6: the closing card (the stakes: candle, bite, bank).
     var isFinal: Bool
     var usesSlider: Bool
+    /// R2: the open step points at the noise meter ("Watch the noise").
+    var pointsAtMeter: Bool = false
 }
 
 /// The First Chest lesson's script (GAME-DESIGN §8): one sentence per step, passed by doing. Pure; tested.
@@ -78,9 +82,10 @@ struct LessonScript: Equatable {
         case nudgeNoise(Double)
     }
 
-    // GAME-DESIGN §8 gates
-    static let poseMin: Double = 95
-    static let poseMax: Double = 125
+    // GAME-DESIGN §8 gates. R2 (REVIEW-1-duo P1-6): 90…112°, so the pose step never passes where the chest still says
+    // "Ease the lid down first" (looting starts at θ ≤ 110°).
+    static let poseMin: Double = 90
+    static let poseMax: Double = 112
     static let poseHold: Double = 0.5
     /// The slider's "pose" step passes once the lid has been slid up this far.
     static let sliderStart: Double = 0.04
@@ -107,6 +112,8 @@ struct LessonScript: Equatable {
     private(set) var movedDuringFreeze = false
     private var slowerUntil: Double = -100
     private var calmPending = false
+    /// R2 (QA-1 P2-1): banks made before the Freeze step was taught. The first sends the lesson round once more.
+    private(set) var earlyBanks = 0
 
     init(start: Step = .pose, replay: Bool = false) {
         self.step = start
@@ -130,10 +137,20 @@ struct LessonScript: Equatable {
             if case .itemBagged = e { return true }
             return false
         }
-        // Banked early (the lid shut while the bag had the coin): the lesson is learnt, whatever step it was on.
+        // Banked in the bank step: the lesson is learnt. Banked early (grab or freeze: the lid shut while the bag had
+        // the coin) the Freeze was never taught, so the lesson goes round once more; a second early bank ends it.
         let current = next ?? step
-        if banked && (current == .grab || current == .freeze || current == .bank) {
+        if banked && (current == .bank || (current == .freeze && stirred && next == nil)) {
             pass(to: .done, praise: "Banked! Gently does it.", at: i.time)
+            return actions
+        }
+        if banked && (current == .grab || current == .freeze) {
+            earlyBanks += 1
+            if earlyBanks >= 2 {
+                pass(to: .done, praise: "Banked! Gently does it.", at: i.time)
+            } else {
+                pass(to: .open, praise: "Banked! Once more, slowly.", at: i.time)
+            }
             return actions
         }
         if let until = praiseUntil {
@@ -219,31 +236,34 @@ struct LessonScript: Equatable {
         }
     }
 
-    /// The card's one line (GAME-DESIGN §8), in the slider's words without a hinge.
+    /// The card's one line (GAME-DESIGN §8), in the slider's words without a hinge. R2: "candle", the lever by name,
+    /// and the open step points at the noise meter (UX P0-2).
     func line(slider: Bool, angle: Double?, hint: HeistHint?) -> String {
         if let praiseLine { return praiseLine }
         if isSlower { return "Slower… it's grumbling." }
         switch step {
         case .pose:
-            if slider { return "Slide the lid up… slowly." }
+            if slider { return "Slide the lever up… slowly." }
             if let a = angle {
                 if a >= 168 { return "Stand it up: lift this half." }
-                if a > Self.poseMax { return "Like a laptop. A little lower…" }
+                if a > Self.poseMax { return "Close it a little, nearly upright…" }
                 if a < Self.poseMin { return "Lift this half a little more…" }
             }
             return "Stand your Duo like a little laptop. Lift this half."
         case .open:
-            if hint == .easeLidDown { return slider ? "Slide it all the way down first." : "Ease the lid down first." }
-            return slider ? "Keep sliding… slowly." : "Open the lid… slowly."
+            if hint == .easeLidDown {
+                return slider ? "Slide the lever all the way down first." : "Ease the lid down first."
+            }
+            return slider ? "Slide the lever up… slowly. Watch the noise." : "Open the lid… slowly. Watch the noise."
         case .grab:
             return "Drag the coin into your bag."
         case .freeze:
             if !stirred { return "Shh… did you hear that?" }
             return movedDuringFreeze ? "Freeze! Not a twitch." : "It's stirring. Freeze!"
         case .bank:
-            return slider ? "Slide it down to keep it." : "Ease the lid shut to keep it."
+            return slider ? "Slide the lever down to keep it." : "Ease the lid shut to keep it."
         case .done:
-            return "Your torch burns down. Loot all you can, gently."
+            return "Candle out = run over"
         }
     }
 
@@ -252,6 +272,7 @@ struct LessonScript: Equatable {
         return LessonDisplay(step: step.rawValue, line: line(slider: slider, angle: angle, hint: hint),
                              praise: praiseLine != nil, warning: warning, canSkip: canSkip,
                              marksLid: step == .pose && praiseLine == nil, isFinal: step == .done && praiseLine == nil,
-                             usesSlider: slider)
+                             usesSlider: slider,
+                             pointsAtMeter: praiseLine == nil && (step == .open || (step == .freeze && stirred)))
     }
 }

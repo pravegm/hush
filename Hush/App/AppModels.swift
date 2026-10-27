@@ -1,26 +1,103 @@
 import Combine
 import QuartzCore
+import SpriteKit
 import SwiftUI
 
 /// The HUD's state over the scene, published at ≤ 15 Hz (and at once when the hint changes).
 @MainActor
 final class HUDState: ObservableObject {
     @Published private(set) var hint: HeistHint?
-    /// The run-start line ("Light's lit. Open it gently."), shown for a beat when no hint is up.
+    /// The run-start line ("Candle lit. Open it gently."), shown for a beat when no hint is up.
     @Published private(set) var banner: String?
     @Published private(set) var stage: MimicStage = .asleep
+    /// Items in the bag (`hud.bag`'s accessibility value: VoiceOver and CI's turned-drag UI test).
+    @Published private(set) var bagCount = 0
+    /// Demo runs only: the most-lit grabbable item (`debug.loot`, CI's turned-drag UI test).
+    @Published private(set) var debugLoot: DebugLoot?
 
-    func update(hint: HeistHint?, banner: String?, stage: MimicStage) {
+    func update(hint: HeistHint?, banner: String?, stage: MimicStage, bagCount: Int, debugLoot: DebugLoot?) {
         if self.hint != hint { self.hint = hint }
         if self.banner != banner { self.banner = banner }
         if self.stage != stage { self.stage = stage }
+        if self.bagCount != bagCount { self.bagCount = bagCount }
+        if self.debugLoot != debugLoot { self.debugLoot = debugLoot }
     }
+}
+
+/// An item the UI test can aim at: its id, kind name, floor-space point and radius.
+struct DebugLoot: Equatable {
+    var id: Int
+    var kind: String
+    var floorPoint: CGPoint
+    var radius: CGFloat
 }
 
 /// Home's title chest: the live lid (hinge on a Duo, a drag on other iPhones).
 struct HomeLid: Equatable {
     var openness: Double = 0
     var speed: Double = 0
+}
+
+/// Home's caption follows the lid at ≤ 30 Hz. Its own object (QA-1 P2-14): publishing it on the controller re-built
+/// the whole RootView, SpriteView included, 30 times a second.
+@MainActor
+final class HomeLidState: ObservableObject {
+    @Published private(set) var lid = HomeLid()
+
+    func update(_ fresh: HomeLid) {
+        if fresh != lid { lid = fresh }
+    }
+}
+
+/// R2 (juror P0-1, one art style): the Scene's front-view mimic (`MimicPortraitScene`, the app icon's chest in the
+/// in-game textures) for Home, the cover card and Results. One scene per place (an SKScene shows in one view at a
+/// time), made on first use.
+@MainActor
+final class PortraitScenes {
+    /// The scenes' design size (the chest front, a little wider than tall).
+    static let size = CGSize(width: 600, height: 480)
+    static var aspect: CGFloat { size.width / size.height }
+
+    private(set) lazy var home: MimicPortraitScene = PortraitScenes.make()
+    private(set) lazy var cover: MimicPortraitScene = PortraitScenes.make()
+    private(set) lazy var results: MimicPortraitScene = PortraitScenes.make()
+
+    private static func make() -> MimicPortraitScene {
+        let s = MimicPortraitScene(size: size)
+        s.scaleMode = .aspectFit
+        s.backgroundColor = .clear
+        return s
+    }
+
+    func setReduceMotion(_ on: Bool) {
+        home.reduceMotion = on
+        cover.reduceMotion = on
+        results.reduceMotion = on
+    }
+
+    /// Home's chest dresses up with the thief's rank. Pure; tested.
+    nonisolated static func homeTier(rank: Int) -> ChestTier {
+        switch rank {
+        case ..<3: return .wooden
+        case 3..<6: return .iron
+        case 6..<9: return .gilded
+        default: return .royal
+        }
+    }
+
+    /// The live lid → how awake the portrait looks: asleep while quiet, glaring when loud. Pure; tested.
+    nonisolated static func wake(speed: Double) -> Double {
+        guard speed.isFinite else { return 0 }
+        let span = max(Tuning.loudSpeed - Tuning.quietSpeed, 1)
+        return min(max((speed - Tuning.quietSpeed) / span, 0), 1)
+    }
+
+    /// How the Results mimic looks after a run: smug and half-open if it bit, a sleepy peek if hushed. Pure; tested.
+    nonisolated static func resultsPose(_ r: RunResult) -> (openness: Double, wake: Double) {
+        if r.bites > 0 { return (0.35, min(0.55 + 0.15 * Double(r.bites), 1)) }
+        if r.hushed > 0 { return (0.12, 0) }
+        return (0.2, 0.25)
+    }
 }
 
 /// Everything the Results screen shows (built once when a run is recorded).
@@ -35,6 +112,8 @@ struct ResultSummary: Equatable {
     var rankProgressBefore: Double
     var rankProgressAfter: Double
     var againLabel: String
+    /// R2: "312 short of your best" (nil on a new best, a first haul or an empty run).
+    var nearMiss: String? = nil
 }
 
 /// Demo `lid=`: the lid held at one openness, shut for the first 0.25 s so the chest opens (static frames).

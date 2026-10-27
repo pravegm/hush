@@ -12,7 +12,12 @@ import Foundation
 // - Novice and casual open first and then collect, front items first, and never reach for a relic (unless nothing
 //   else is left in an empty-bagged chest, so they never get stuck).
 // - Freezing: when the stage reaches its freeze stage it stops the lid and the finger (novice obeys half the time;
-//   a slam in progress is never stopped) and carries on once the noise has fallen below its unfreeze level.
+//   a slam in progress is never stopped) and carries on once the noise has fallen below its unfreeze level, or the
+//   bag jingle floor + 0.04 if that is higher (R2: without it the noise can never get there and the pilot hangs).
+// - R2 (REVIEW-1-feel caveats): expert and perfect play to the thresholds: opening speed × quietSpeed/8, closing at
+//   0.75–1.0 × closeQuietSpeed (perfect 0.95 ×), drags × dragQuietSpeed/250; with the bag jingle on they leave the
+//   copper while anything better is left and bank once the jingle floor reaches 0.20 (perfect 0.22).
+// - R2 relic glimmer: in each chest the novice (50 %) and casual (60 %) pilot may be lured by a relic and reach for it.
 // Keep in sync with ThiefPilot in tools/balance-sim.js (same draw order).
 
 enum PilotSkill: String, CaseIterable, Sendable {
@@ -40,7 +45,7 @@ struct PilotProfile {
     /// Chance per chest of slamming the lid shut instead, and the slam speed (°/s).
     var slamChance: Double
     var slam: ClosedRange<Double>
-    /// Drag speed per item (pt/s). 250 is the silent limit.
+    /// Drag speed per item (pt/s). Tuning.dragQuietSpeed (R2: 350) is the silent limit.
     var drag: ClosedRange<Double>
     /// Pause after each drag (s).
     var reaction: Double
@@ -52,7 +57,7 @@ struct PilotProfile {
     var unfreeze: Double
     /// Drags while the lid is still opening (two hands).
     var concurrent: Bool
-    /// Deepest item it wants (relics sit at 0.84–0.92).
+    /// Deepest item it wants (relics sit at 0.80–0.88).
     var reach: Double
     /// Chance a drag is let go short of the bag (a clunk).
     var drop: Double
@@ -60,17 +65,26 @@ struct PilotProfile {
     var torchAware: Bool
     /// Takes the front item first (else the most valuable).
     var frontFirst: Bool
+    /// R2 relic glimmer: chance per chest of being lured into reaching for a relic (0 = never rolled).
+    var lure: Double = 0
+    /// R2 bag jingle: leaves the copper while anything better is wanted.
+    var skipCheap: Bool = false
+    /// R2 bag jingle: banks once the jingle floor reaches this (0 = never).
+    var greed: Double = 0
 
-    static func profile(_ skill: PilotSkill) -> PilotProfile {
+    /// The R1 behaviour table (speeds in R1 terms: quiet 8 °/s, silent drags 250 pt/s).
+    static func base(_ skill: PilotSkill) -> PilotProfile {
         switch skill {
         case .novice:
             return PilotProfile(open: 10...35, close: 10...15, slamChance: 0.3, slam: 70...120, drag: 700...1200,
                                 reaction: 0.6, freezeStage: .waking, freezeObey: 0.5, unfreeze: 0.5,
-                                concurrent: false, reach: 0.62, drop: 0.15, torchAware: false, frontFirst: true)
+                                concurrent: false, reach: 0.62, drop: 0.15, torchAware: false, frontFirst: true,
+                                lure: 0.5)
         case .casual:
             return PilotProfile(open: 8...16, close: 8...15, slamChance: 0, slam: 0...0, drag: 450...800,
                                 reaction: 0.55, freezeStage: .waking, freezeObey: 1, unfreeze: 0.5,
-                                concurrent: false, reach: 0.80, drop: 0.05, torchAware: false, frontFirst: true)
+                                concurrent: false, reach: 0.80, drop: 0.05, torchAware: false, frontFirst: true,
+                                lure: 0.6)
         case .expert:
             return PilotProfile(open: 5...9, close: 8...12, slamChance: 0, slam: 0...0, drag: 200...320,
                                 reaction: 0.25, freezeStage: .stirring, freezeObey: 1, unfreeze: 0.25,
@@ -81,6 +95,39 @@ struct PilotProfile {
                                 concurrent: true, reach: 1, drop: 0, torchAware: true, frontFirst: false)
         }
     }
+
+    /// The pilot actually used: novice and casual as in R1; expert and perfect adapted to the R2 thresholds.
+    static func profile(_ skill: PilotSkill) -> PilotProfile {
+        var p: PilotProfile = base(skill)
+        switch skill {
+        case .novice, .casual:
+            return p
+        case .expert, .perfect:
+            let kl: Double = Tuning.quietSpeed / r1QuietSpeed
+            let kd: Double = Tuning.dragQuietSpeed / r1DragQuietSpeed
+            let cq: Double = Tuning.closeQuietSpeed
+            p.open = (p.open.lowerBound * kl)...(p.open.upperBound * kl)
+            let perfectClose: ClosedRange<Double> = (0.95 * cq)...(0.95 * cq)
+            let expertClose: ClosedRange<Double> = (0.75 * cq)...cq
+            p.close = skill == .perfect ? perfectClose : expertClose
+            p.drag = (p.drag.lowerBound * kd)...(p.drag.upperBound * kd)
+            let jingle: Bool = Tuning.jinglePerItem > 0
+            p.skipCheap = jingle
+            p.greed = jingle ? (skill == .expert ? greedExpert : greedPerfect) : 0
+            return p
+        }
+    }
+
+    /// R1 quiet lines the base table was written for.
+    static let r1QuietSpeed: Double = 8
+    static let r1DragQuietSpeed: Double = 250
+    /// Bag-jingle floors at which the adapted pilots bank.
+    static let greedExpert: Double = 0.20
+    static let greedPerfect: Double = 0.22
+    /// Unfreezes at max(unfreeze, the jingle floor + this).
+    static let floorUnfreezeMargin: Double = 0.04
+    /// The glimmer lure stream (one per skill, shared by every run, as in the sim).
+    static let lureSeed: UInt64 = 0x6117AE5
 
     /// Where the pilot rests the lid when shut (openness; θ ≈ 104°, inside the shut zone).
     static let shutTarget: Double = 0.06
@@ -130,11 +177,14 @@ struct ThiefPilot {
     private var reactionLeft: Double = 0
     private var drag: Drag? = nil
     private var nextTouchID: Int = PilotProfile.firstTouchID
+    private var lureRng: SeededRandom
+    private var lured: Bool = false
 
     init(skill: PilotSkill, seed: UInt64) {
         self.skill = skill
         self.profile = PilotProfile.profile(skill)
         self.rng = SeededRandom(seed: seed)
+        self.lureRng = SeededRandom(seed: PilotProfile.lureSeed ^ UInt64(skill.rawValue.count))
     }
 
     private var lidOutput: LidInput {
@@ -163,7 +213,13 @@ struct ThiefPilot {
 
     private func wanted(_ snap: HeistSnapshot) -> [LootState] {
         let inChest: [LootState] = snap.loot.filter { (s: LootState) -> Bool in s.place == .inChest }
-        let w: [LootState] = inChest.filter { (s: LootState) -> Bool in s.item.depth <= profile.reach }
+        var reach: Double = profile.reach
+        if lured && inChest.contains(where: { (s: LootState) -> Bool in ThiefPilot.isRelic(s) }) { reach = 1 }
+        var w: [LootState] = inChest.filter { (s: LootState) -> Bool in s.item.depth <= reach }
+        if profile.skipCheap {
+            let rich: [LootState] = w.filter { (s: LootState) -> Bool in s.item.kind != .copper }
+            if !rich.isEmpty { w = rich }
+        }
         if !w.isEmpty { return w }
         let inHand: Bool = snap.loot.contains { (s: LootState) -> Bool in
             if s.place == .inBag { return true }
@@ -179,6 +235,11 @@ struct ThiefPilot {
         var d: Double = 0
         for s in w { d = max(d, s.item.depth) }
         return min(1, d + Tuning.grabLight * Tuning.lightRamp + PilotProfile.openMargin)
+    }
+
+    private static func isRelic(_ s: LootState) -> Bool {
+        if case .relic = s.item.kind { return true }
+        return false
     }
 
     private static func worth(_ s: LootState) -> Double {
@@ -217,6 +278,7 @@ struct ThiefPilot {
 
         let idx: Int = snap.chest?.index ?? -1
         if idx != lastChest {
+            if profile.lure > 0 { lured = lureRng.unit() < profile.lure }
             lastChest = idx
             rollChest()
             mode = openness > PilotProfile.shutTarget + 0.04 ? .settle : .open
@@ -235,7 +297,7 @@ struct ThiefPilot {
             } else {
                 freezeDecided = false
             }
-        } else if snap.noise < profile.unfreeze {
+        } else if snap.noise < max(profile.unfreeze, snap.noiseFloor + PilotProfile.floorUnfreezeMargin) {
             frozen = false
             freezeDecided = false
             reactionLeft = profile.reaction
@@ -272,6 +334,12 @@ struct ThiefPilot {
         }
 
         let bagHas: Bool = snap.loot.contains { (s: LootState) -> Bool in s.place == .inBag }
+
+        // R2: bank once the bag jingles too loudly (the master's push-your-luck call).
+        if profile.greed > 0 && bagHas && drag == nil && mode != .close && mode != .settle
+            && snap.noiseFloor >= profile.greed {
+            mode = .close
+        }
 
         // Bank what's in hand before the torch goes out.
         if profile.torchAware && ThiefPilot.torchBurns(snap.mode) && bagHas && mode != .close && mode != .settle {

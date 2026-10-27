@@ -6,6 +6,7 @@ import Foundation
 // Deterministic from (run seed, chest index, relics already found). `found` only changes WHICH relic a relic chest
 // holds (it prefers unfound ones); every value, depth and position is drawn the same way regardless, so the Daily
 // Dungeon scores the same for everyone. Mirrored by `chest()` in tools/balance-sim.js (same draw order).
+// R2: `ChestSpec.multiplier` is the tier multiplier × `Tuning.goldenValueMultiplier` on a golden mimic.
 
 enum ChestFactory {
 
@@ -159,9 +160,19 @@ enum ChestFactory {
             id += 1
         }
 
+        // R2 golden mimic: its own stream, so every draw above (and the Daily) is unchanged.
+        let golden: Bool = isGolden(seed: seed, index: index)
+        let mult: Double = multiplier(for: tier) * (golden ? Tuning.goldenValueMultiplier : 1)
         return ChestSpec(index: index, tier: tier, mimic: mimic,
-                         mimicName: MimicNames.name(for: mimic, seed: nameRoll),
-                         multiplier: multiplier(for: tier), decay: decay(for: tier), items: items)
+                         mimicName: MimicNames.name(for: mimic, seed: nameRoll, golden: golden),
+                         multiplier: mult, decay: decay(for: tier), items: items, golden: golden)
+    }
+
+    /// R2: whether chest `index` of the run `seed` is a golden mimic (6 % from chest #3), from its own stream.
+    static func isGolden(seed: UInt64, index: Int) -> Bool {
+        guard index >= Tuning.goldenFromIndex else { return false }
+        var g = SeededRandom(seed: chestSeed(seed: seed, index: index) ^ Tuning.goldenSeedSalt)
+        return g.unit() < Tuning.goldenChance
     }
 
     /// A free spot inside FloorSpace.interior: deeper items sit further back (smaller y) on average, with jitter.

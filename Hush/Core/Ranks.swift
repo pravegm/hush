@@ -4,10 +4,10 @@ import Foundation
 
 enum ThiefRanks {
 
-    /// Lifetime gold needed for each rank. A casual run banks about 2,500 (expert about 4,500), so the last rank
-    /// takes roughly 60 casual runs.
-    static let thresholds: [Int] = [0, 500, 1_500, 3_500, 7_000, 12_000, 20_000, 32_000, 50_000, 75_000, 110_000,
-                                    160_000]
+    /// Lifetime gold needed for each rank. R2 (REVIEW-1-feel #8): a first session (about 1.6k, 2.5k, 3.9k gold) earns
+    /// about one rank per run; the last rank takes roughly 50–60 runs.
+    static let thresholds: [Int] = [0, 1_000, 3_000, 7_000, 14_000, 25_000, 42_000, 66_000, 100_000, 150_000,
+                                    220_000, 320_000]
 
     static let titles: [String] = ["Pickpocket", "Cutpurse", "Sneak", "Lockpick", "Cat Burglar", "Shadow",
                                    "Vault Diver", "Gem Fancier", "Night Raider", "Master Thief", "Dungeon Legend",
@@ -55,18 +55,20 @@ enum Achievements {
     static let notAPeep = def("notapeep", "Not a Peep", "Bank a chest without the mimic ever stirring.")
     static let firstRelic = def("firstrelic", "Relic Hunter", "Bank your first relic.")
     static let fiveChests = def("fivechests", "Light Fingers", "Bank 5 chests in one run.")
-    static let royal = def("royal", "Royal Treatment", "Reach a Royal chest.")
-    static let heavyBag = def("heavybag", "Heavy Bag", "Bank 2,000 gold in one run.")
-    static let hoard = def("hoard", "Dragon's Hoard", "Bank 5,000 gold in one run.")
+    /// R2: replaces "Royal Treatment" (the key stays "royal", so the Game Center id and the badge slot are unchanged).
+    static let midasTouch = def("royal", "Midas Touch", "Bank a golden mimic.")
+    static let heavyBag = def("heavybag", "Heavy Bag", "Bank 3,000 gold in one run.")
+    static let hoard = def("hoard", "Dragon's Hoard", "Bank 8,000 gold in one run.")
     static let untouchable = def("untouchable", "Untouchable", "Bank 3 chests in a run without a single bite.")
-    static let hushHush = def("hushhush", "Hush Hush", "Bank 3 chests in one run without the mimic stirring.")
+    /// R2: replaces "Hush Hush" (key "hushhush" kept): a Hush Chain of 5, which pays ×1.5.
+    static let hushChain = def("hushhush", "Hush Chain", "Bank 5 chests in a row without the mimic stirring.")
     static let curator = def("curator", "Curator", "Find 12 relics for the Codex.")
     static let fullCodex = def("fullcodex", "Keeper of Curiosities", "Find all 24 relics.")
-    static let fortune = def("fortune", "A Small Fortune", "Bank 25,000 gold in total.")
+    static let fortune = def("fortune", "A Small Fortune", "Bank 50,000 gold in total.")
 
     /// Exactly 12.
-    static let all: [AchievementDef] = [firstHaul, notAPeep, firstRelic, fiveChests, royal, heavyBag, hoard,
-                                        untouchable, hushHush, curator, fullCodex, fortune]
+    static let all: [AchievementDef] = [firstHaul, notAPeep, firstRelic, fiveChests, midasTouch, heavyBag, hoard,
+                                        untouchable, hushChain, curator, fullCodex, fortune]
 
     /// Newly earned after `run` (given lifetime totals including the run and what's already earned).
     /// Attract and lesson runs earn nothing.
@@ -84,14 +86,14 @@ enum Achievements {
         check(notAPeep, run.hushed >= 1)
         check(firstRelic, relicsFound >= 1 || !run.relics.isEmpty)
         check(fiveChests, run.chestsBanked >= 5)
-        check(royal, run.highestTier == .royal)
-        check(heavyBag, run.gold >= 2_000)
-        check(hoard, run.gold >= 5_000)
+        check(midasTouch, run.goldenBanked >= 1)
+        check(heavyBag, run.gold >= 3_000)
+        check(hoard, run.gold >= 8_000)
         check(untouchable, run.bites == 0 && run.chestsBanked >= 3)
-        check(hushHush, run.hushed >= 3)
+        check(hushChain, run.bestChain >= Tuning.chainMax)
         check(curator, relicsFound >= 12)
         check(fullCodex, relicsFound >= RelicCatalog.all.count)
-        check(fortune, lifetimeGold >= 25_000)
+        check(fortune, lifetimeGold >= 50_000)
         return out
     }
 }

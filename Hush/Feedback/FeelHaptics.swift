@@ -86,7 +86,9 @@ enum FeelHapticBook {
 
     // MARK: The continuous creak texture (the hinge you can feel)
 
-    /// Creak intensity (0…1) for a lid speed: ∝ (speed − 8) / 30 in the creak zone, 0 at or below the quiet speed.
+    /// Creak intensity (0…1) for a lid speed: ∝ (speed − quiet) / 30 in the creak zone, 0 at or below
+    /// `Tuning.quietSpeed`. The director passes `FeelSoundBook.creakSpeed(_:closing:)`, so a closing lid is silent up to
+    /// `FeelSoundBook.closeQuietSpeed` here too.
     static let creakSpan = 30.0
     static func creakLevel(speed: Double) -> Float {
         guard speed.isFinite, speed > Tuning.quietSpeed else { return 0 }
@@ -182,6 +184,62 @@ enum FeelHapticBook {
     static let uiConfirm = FeelHapticCue(notes: [.tap(0.5, 0.8), .tap(0.4, 0.9, at: 0.06)])
     static let celebrate = FeelHapticCue(notes: [.tap(0.5, 0.6), .tap(0.6, 0.7, at: 0.09), .tap(0.75, 0.8, at: 0.18),
                                                  .tap(1.0, 0.9, at: 0.3)])
+
+    // MARK: R2 moments
+
+    /// The Hush Chain grew: one keen tap per chime of `FeelSoundBook.chainNotes`, climbing, starting at `delay`.
+    static func chainUp(count: Int, delay: Double = 0) -> FeelHapticCue {
+        let notes = FeelSoundBook.chainNotes(count: count)
+        var taps: [FeelHapticNote] = []
+        for index in 0..<notes.count {
+            let k = Float(index) / Float(max(notes.count - 1, 1))
+            taps.append(.tap(0.3 + 0.2 * k, 0.85 + 0.15 * k, at: max(delay, 0) + 0.065 * Double(index)))
+        }
+        return FeelHapticCue(notes: taps)
+    }
+
+    /// The chain broke: a sharp crack, then the shards as tiny ticks (the sound's own times).
+    static func chainBroken(delay: Double = 0) -> FeelHapticCue {
+        let start = max(delay, 0)
+        var notes: [FeelHapticNote] = [.tap(0.7, 1.0, at: start)]
+        for (index, time) in FeelSoundBook.chainShardTimes.enumerated() {
+            notes.append(.tap(0.28 - 0.04 * Float(index), 1.0, at: start + Double(time)))
+        }
+        return FeelHapticCue(notes: notes)
+    }
+
+    /// A golden mimic arrives: a rising ripple of light taps with the glissando, then a soft swell.
+    static func goldenArrived(delay: Double = 0.4) -> FeelHapticCue {
+        let start = max(delay, 0)
+        var notes: [FeelHapticNote] = []
+        for index in 0..<7 {
+            let k = Float(index) / 6
+            notes.append(.tap(0.2 + 0.3 * k, 0.6 + 0.4 * k, at: start + 0.045 * Double(index)))
+        }
+        notes.append(.buzz(0.3, 0.5, at: start + 0.32, duration: 0.4))
+        return FeelHapticCue(notes: notes,
+                             curve: [FeelHapticPoint(time: 0, value: 1),
+                                     FeelHapticPoint(time: start + 0.31, value: 1),
+                                     FeelHapticPoint(time: start + 0.32, value: 0.2),
+                                     FeelHapticPoint(time: start + 0.5, value: 1),
+                                     FeelHapticPoint(time: start + 0.72, value: 0)])
+    }
+
+    /// The bite's coins spill: a light patter on the spill's own times (after the bite's slam and shudder).
+    static func coinSpill(times: [Double]) -> FeelHapticCue {
+        var notes: [FeelHapticNote] = []
+        for (index, time) in times.prefix(12).enumerated() {
+            let fade = Float(1 - 0.5 * Double(index) / Double(max(times.count - 1, 1)))
+            notes.append(.tap(0.4 * fade, 0.85, at: max(time, 0)))
+        }
+        return FeelHapticCue(notes: notes)
+    }
+
+    /// The candle clock: the faintest tick from 15 s, a firmer, keener one twice a second in the last 5.
+    static func candleTick(urgent: Bool) -> FeelHapticCue {
+        let note: FeelHapticNote = urgent ? FeelHapticNote.tap(0.32, 0.9) : FeelHapticNote.tap(0.14, 0.8)
+        return FeelHapticCue(notes: [note])
+    }
 }
 
 /// Core Haptics for Hush: two looping advanced players carry the continuous feel (the creak texture and the loot

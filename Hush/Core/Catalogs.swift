@@ -1,6 +1,6 @@
 import Foundation
 
-// MARK: - The Relic Codex (24 relics: the 12 RelicShapes twice, with different tints)
+// MARK: - The Relic Codex (R2: 24 relics, one per RelicShape, each named for its shape; no two share a tint)
 
 enum RelicCatalog {
 
@@ -23,18 +23,18 @@ enum RelicCatalog {
         make(10, "The Hushing Horn", "Blow it and the room goes quiet. Even you.", .horn, 0xC98B4F),
         make(11, "Lord Wobble's Loaded Dice", "Always rolls a seven. On one die.", .dice, 0xF4F1E6),
         make(12, "The Homesick Compass", "Always points to its old chest.", .compass, 0xB5874B),
-        make(13, "The Tin Crown of King Nobody", "Ruled a kingdom of one sock.", .crown, 0xA9B4BE),
-        make(14, "The Goblet of Lukewarm Fire", "Cosy. Mildly singed.", .goblet, 0xF08A3C),
-        make(15, "The Chipped Cup of Courage", "Tastes like doing it anyway.", .teacup, 0x7FB3E0),
-        make(16, "The Skeleton Key", "Literally. It has a tiny skull.", .key, 0xE6E0D0),
-        make(17, "The Mimic's Wedding Ring", "It would like it back.", .ring, 0xF5D06B),
-        make(18, "The Amulet of Slightly Better Luck", "Two per cent luckier. Allegedly.", .amulet, 0x5FA8E0),
-        make(19, "The Laughing Skull", "Gets every joke a minute late.", .skull, 0xD4E07A),
-        make(20, "The Golden Goose Egg", "The goose is still looking for it.", .egg, 0xF2C94C),
-        make(21, "The Mirror of Tomorrow's Hair", "It's going to be a bad day.", .mirror, 0xE59AC4),
-        make(22, "The Horn of Polite Thunder", "A rumble, then an apology.", .horn, 0x8C9EDB),
-        make(23, "The Dice of Second Chances", "Roll again. Nobody saw.", .dice, 0xE5534B),
-        make(24, "The Compass of True North-ish", "Close enough, usually.", .compass, 0x4FC3B0),
+        make(13, "The Candlestick That Never Drips", "It burns all night. The wax stays put.", .candlestick, 0xD6B370),
+        make(14, "The Hourglass of Five More Minutes", "The sand stops whenever you get comfy.", .hourglass, 0xE3C58E),
+        make(15, "The Bell That Will Not Ring", "Muffled on purpose. Thieves adore it.", .bell, 0xA9B4BE),
+        make(16, "The Lantern of Polite Light", "Lights your way. Dims for sleepers.", .lantern, 0xF08A3C),
+        make(17, "The Pocket Watch of Borrowed Time", "Runs a little slow. On purpose.", .pocketWatch, 0xC0C8D0),
+        make(18, "The Spyglass of Next Door", "Sees one room over. Never further.", .spyglass, 0x8A6E4B),
+        make(19, "The Scroll of Every Mimic", "Lists them all by name. Still going.", .scroll, 0xEADBB6),
+        make(20, "The Potion of Quiet Feet", "Smells of socks. Works anyway.", .potion, 0x7B5CD6),
+        make(21, "The Shell That Snores Back", "Hold it to your ear. It snores.", .shell, 0xF0B8C8),
+        make(22, "The Feather of Tiptoes", "Tickles a lid open, ever so softly.", .feather, 0x5FA8E0),
+        make(23, "The Lullaby Music Box", "One tune, and every mimic yawns.", .musicBox, 0xE5534B),
+        make(24, "The Idol of the Sleepy God", "Its eyes close when you look away.", .idol, 0x4FC3B0),
     ]
 
     /// All 24 ids in order.
@@ -69,9 +69,13 @@ enum MimicNames {
         }
     }
 
-    /// A name for this personality, picked by `seed` (deterministic).
-    static func name(for kind: MimicKind, seed: UInt64) -> String {
-        let list: [String] = names(for: kind)
+    /// R2: golden mimics have gold names whatever their personality ("Midas Mo").
+    static let goldenNames: [String] = ["Midas Mo", "Gilded Gwen", "Bullion Bob", "Goldie Locke", "Sovereign Sal",
+                                        "Glittering Gil", "Nugget Nan", "Ducat Dan", "Auric Aggie", "Treasure Trev"]
+
+    /// A name for this personality (or a gold name when `golden`), picked by `seed` (deterministic).
+    static func name(for kind: MimicKind, seed: UInt64, golden: Bool = false) -> String {
+        let list: [String] = golden ? goldenNames : names(for: kind)
         if list.isEmpty { return "The Mimic" }
         return list[Int(seed % UInt64(list.count))]
     }

@@ -1,7 +1,24 @@
 import SpriteKit
 import UIKit
 
-/// How each chest tier is dressed (GAME-DESIGN §6: wooden → iron-bound → gilded → royal, visibly richer).
+/// What a chest is dressed as: its tier, or the rare golden mimic (gold leaf, whatever the tier).
+enum ChestDress: Hashable {
+    case tier(ChestTier)
+    case golden
+
+    static func of(tier: ChestTier, golden: Bool) -> ChestDress { golden ? .golden : .tier(tier) }
+
+    var key: String {
+        switch self {
+        case .tier(let t): return t.rawValue
+        case .golden: return "golden"
+        }
+    }
+
+    static var all: [ChestDress] { ChestTier.allCases.map { ChestDress.tier($0) } + [.golden] }
+}
+
+/// How each chest is dressed (GAME-DESIGN §6: wooden → iron-bound → gilded → royal, visibly richer; R2 golden).
 struct TierStyle {
     let wood: RGBA
     let woodDark: RGBA
@@ -13,27 +30,35 @@ struct TierStyle {
     let bands: Bool
     /// Gold trim, gold studs and corner filigree.
     let gilt: Bool
-    /// Set gems and the lid crest.
+    /// Set gems.
     let gems: Bool
+    /// Gold leaf flecks over the wood (the golden mimic).
+    let leaf: Bool
 
-    static func of(_ tier: ChestTier) -> TierStyle {
-        switch tier {
-        case .wooden:
+    static func of(_ tier: ChestTier) -> TierStyle { of(.tier(tier)) }
+
+    static func of(_ dress: ChestDress) -> TierStyle {
+        switch dress {
+        case .tier(.wooden):
             return TierStyle(wood: RGBA(hex: 0x8A5A33), woodDark: RGBA(hex: 0x4A2C18), band: RGBA(hex: 0x5E6873),
                              stud: RGBA(hex: 0xA3ACB6), velvet: RGBA(hex: 0x5C1A33), tuft: RGBA(hex: 0x3A0E20),
-                             bands: false, gilt: false, gems: false)
-        case .iron:
+                             bands: false, gilt: false, gems: false, leaf: false)
+        case .tier(.iron):
             return TierStyle(wood: RGBA(hex: 0x74503A), woodDark: RGBA(hex: 0x3A2414), band: RGBA(hex: 0x4E5862),
                              stud: RGBA(hex: 0xB4BDC7), velvet: RGBA(hex: 0x40264A), tuft: RGBA(hex: 0x28142E),
-                             bands: true, gilt: false, gems: false)
-        case .gilded:
+                             bands: true, gilt: false, gems: false, leaf: false)
+        case .tier(.gilded):
             return TierStyle(wood: RGBA(hex: 0x7E4628), woodDark: RGBA(hex: 0x40200F), band: RGBA(hex: 0xE3AC3A),
                              stud: RGBA(hex: 0xFFE08A), velvet: RGBA(hex: 0x701832), tuft: RGBA(hex: 0x480E20),
-                             bands: true, gilt: true, gems: false)
-        case .royal:
+                             bands: true, gilt: true, gems: false, leaf: false)
+        case .tier(.royal):
             return TierStyle(wood: RGBA(hex: 0x6A2230), woodDark: RGBA(hex: 0x320C16), band: RGBA(hex: 0xFFC94A),
                              stud: RGBA(hex: 0xFFF0B4), velvet: RGBA(hex: 0x4C1C62), tuft: RGBA(hex: 0x2E0C3C),
-                             bands: true, gilt: true, gems: true)
+                             bands: true, gilt: true, gems: true, leaf: false)
+        case .golden:
+            return TierStyle(wood: RGBA(hex: 0xC8912E), woodDark: RGBA(hex: 0x6E4A12), band: RGBA(hex: 0xFFE08A),
+                             stud: RGBA(hex: 0xFFF6CC), velvet: RGBA(hex: 0x1E5A4A), tuft: RGBA(hex: 0x12382E),
+                             bands: true, gilt: true, gems: false, leaf: true)
         }
     }
 }
@@ -42,12 +67,14 @@ extension SceneTextures {
     // MARK: The floor: chest walls and bed
 
     /// The chest seen from above (canvas `ChestLayout.frameRect`): rims, inner wall faces, the velvet bed, metalwork.
-    static func chestFrame(_ tier: ChestTier) -> SKTexture {
+    static func chestFrame(_ tier: ChestTier) -> SKTexture { chestFrame(.tier(tier)) }
+
+    static func chestFrame(_ dress: ChestDress) -> SKTexture {
         let fr = ChestLayout.frameRect
-        return make("frame-\(tier.rawValue)", width: fr.width, height: fr.height) { ctx, _ in
+        return make("frame-\(dress.key)", width: fr.width, height: fr.height) { ctx, _ in
             // Draw in canvas coordinates.
             ctx.translateBy(x: -fr.minX, y: -fr.minY)
-            drawChestFrame(ctx, TierStyle.of(tier))
+            drawChestFrame(ctx, TierStyle.of(dress))
         }
     }
 
@@ -58,7 +85,7 @@ extension SceneTextures {
         let lit = ScenePaint.lighter(st.wood, 0.12)
         Painter.fill(ctx, rect: fr, st.woodDark)
 
-        // The rims' top surfaces (lit by the player's torch).
+        // The rims' top surfaces (lit by the player's candle).
         let leftRim = CGRect(x: 0, y: fr.minY, width: rim.minX, height: fr.height)
         let rightRim = CGRect(x: rim.maxX, y: fr.minY, width: fr.maxX - rim.maxX, height: fr.height)
         let frontRim = CGRect(x: 0, y: fr.minY, width: fr.width, height: rim.minY - fr.minY)
@@ -160,6 +187,9 @@ extension SceneTextures {
         if st.gilt {
             Painter.stroke(ctx, Painter.rect(rim.insetBy(dx: -5, dy: -5)), st.band, width: 3, 0.95)
         }
+        if st.leaf {
+            for r in [leftRim, rightRim, frontRim, backRim] { goldLeaf(ctx, r, seed: UInt64(r.minX + r.minY + 5)) }
+        }
 
         // Metalwork.
         drawCornerBrackets(ctx, st, frame: fr, rim: rim)
@@ -198,7 +228,26 @@ extension SceneTextures {
         }
     }
 
-    private static func strap(_ ctx: CGContext, _ r: CGRect, _ st: TierStyle) {
+    /// Gold-leaf flecks and a sheen over wood (the golden mimic).
+    static func goldLeaf(_ ctx: CGContext, _ r: CGRect, seed: UInt64) {
+        var rng = SceneRNG(seed: seed &+ 0x601D)
+        ctx.saveGState()
+        ctx.addPath(Painter.rect(r))
+        ctx.clip()
+        Painter.linear(ctx, [RGBA(1, 0.95, 0.7, 0), RGBA(1, 0.95, 0.7, 0.28), RGBA(1, 0.95, 0.7, 0)], [0, 0.5, 1],
+                       from: CGPoint(x: r.minX, y: r.maxY), to: CGPoint(x: r.maxX, y: r.minY))
+        let n = max(Int(r.width * r.height / 900), 4)
+        for _ in 0..<n {
+            let p = CGPoint(x: rng.range(r.minX, r.maxX), y: rng.range(r.minY, r.maxY))
+            let s = rng.range(1.5, 4)
+            Painter.fill(ctx, Painter.polygon([CGPoint(x: p.x - s, y: p.y), CGPoint(x: p.x, y: p.y + s * 0.7),
+                                               CGPoint(x: p.x + s, y: p.y), CGPoint(x: p.x, y: p.y - s * 0.7)]),
+                         RGBA(hex: 0xFFF3C0), Double(rng.range(0.4, 0.8)))
+        }
+        ctx.restoreGState()
+    }
+
+    static func strap(_ ctx: CGContext, _ r: CGRect, _ st: TierStyle) {
         let p = Painter.roundRect(r, 3)
         Painter.chunky(ctx, p, st.band, outline: 1.6, light: 0.35, shade: 0.35,
                        from: CGPoint(x: r.minX, y: r.maxY), to: CGPoint(x: r.maxX, y: r.minY))
@@ -209,6 +258,13 @@ extension SceneTextures {
             let c = long ? CGPoint(x: r.minX + t * r.width, y: r.midY) : CGPoint(x: r.midX, y: r.minY + t * r.height)
             Painter.rivet(ctx, c, 3.2, st.stud)
         }
+    }
+
+    static func bracket(_ ctx: CGContext, _ r: CGRect, _ metal: RGBA) {
+        Painter.stroke(ctx, Painter.roundRect(r, 4), ScenePaint.outline, width: 3.2, 0.9)
+        Painter.gradient(ctx, Painter.roundRect(r, 4),
+                         [ScenePaint.lighter(metal, 0.3), metal, ScenePaint.darker(metal, 0.35)], [0, 0.5, 1],
+                         from: CGPoint(x: r.minX, y: r.maxY), to: CGPoint(x: r.maxX, y: r.minY))
     }
 
     private static func drawCornerBrackets(_ ctx: CGContext, _ st: TierStyle, frame fr: CGRect, rim: CGRect) {
@@ -255,26 +311,336 @@ extension SceneTextures {
         Painter.stroke(ctx, p, gold, width: 2.6, 1)
     }
 
-    private static func gemStud(_ ctx: CGContext, _ c: CGPoint, _ color: RGBA) {
-        Painter.rivet(ctx, c, 12, RGBA(hex: 0xFFC94A))
-        let g = Painter.circle(c, 8)
+    static func gemStud(_ ctx: CGContext, _ c: CGPoint, _ color: RGBA, size: CGFloat = 12) {
+        Painter.rivet(ctx, c, size, RGBA(hex: 0xFFC94A))
+        let g = Painter.circle(c, size * 0.67)
         Painter.stroke(ctx, g, ScenePaint.outline, width: 2, 0.8)
         Painter.radial(ctx, [ScenePaint.lighter(color, 0.6), color, ScenePaint.darker(color, 0.4)], [0, 0.4, 1],
-                       center: CGPoint(x: c.x - 2, y: c.y + 2), radius: 9)
-        Painter.fill(ctx, Painter.circle(CGPoint(x: c.x - 3, y: c.y + 3), 2.2), RGBA(1, 1, 1), 0.85)
+                       center: CGPoint(x: c.x - size * 0.17, y: c.y + size * 0.17), radius: size * 0.75)
+        Painter.fill(ctx, Painter.circle(CGPoint(x: c.x - size * 0.25, y: c.y + size * 0.25), size * 0.18),
+                     RGBA(1, 1, 1), 0.85)
+    }
+
+    /// Horizontal planks with grain, alternating shade by plank index (shared by the lid, its extension and the
+    /// front wall so they line up). `firstIndex` is the index of the plank whose bottom edge is at `firstBottom`.
+    private static func planks(_ ctx: CGContext, _ area: CGRect, firstBottom: CGFloat, firstIndex: Int, height: CGFloat,
+                               _ st: TierStyle, darkness: Double, seedBase: UInt64) {
+        ctx.saveGState()
+        ctx.addPath(Painter.rect(area))
+        ctx.clip()
+        var y = firstBottom
+        var i = firstIndex
+        while y < area.maxY {
+            let r = CGRect(x: area.minX, y: y, width: area.width, height: height)
+            let c = i % 2 == 0 ? ScenePaint.darker(st.wood, darkness) : ScenePaint.darker(st.wood, darkness + 0.08)
+            Painter.gradient(ctx, Painter.rect(r), [ScenePaint.lighter(c, 0.06), c], [0, 1],
+                             from: CGPoint(x: 0, y: r.maxY), to: CGPoint(x: 0, y: r.minY))
+            Painter.grain(ctx, r, alongX: true, st.woodDark, seed: seedBase &+ UInt64(max(i, 0)), count: 3)
+            Painter.stroke(ctx, Painter.rect(CGRect(x: r.minX, y: r.minY, width: r.width, height: 0.01)), st.woodDark,
+                           width: 3, 0.9)
+            y += height
+            i += 1
+        }
+        ctx.restoreGState()
+    }
+
+    // MARK: The lid's underside (the mimic's upper jaw and face)
+
+    static func lid(_ tier: ChestTier) -> SKTexture { lid(.tier(tier)) }
+
+    /// The lid half's body (canvas lid, 670 × 456): planks to the top edge, side borders, bands, the fleshy eye bed.
+    /// The far border and corner brackets are `lidCap` (drawn at the top of the visible lid, which may be higher).
+    static func lid(_ dress: ChestDress) -> SKTexture {
+        let s = ChestLayout.lidSize
+        return make("lid-\(dress.key)", width: s.width, height: s.height) { ctx, sz in
+            drawLid(ctx, sz, TierStyle.of(dress))
+        }
+    }
+
+    static let lidBorder: CGFloat = 34
+
+    private static func drawLid(_ ctx: CGContext, _ s: CGSize, _ st: TierStyle) {
+        let border = lidBorder
+        let mouthTop = ChestLayout.gumY + 4
+        let inner = CGRect(x: border, y: mouthTop, width: s.width - 2 * border, height: s.height - mouthTop)
+        Painter.fill(ctx, rect: CGRect(origin: .zero, size: s), st.woodDark)
+        planks(ctx, inner, firstBottom: mouthTop, firstIndex: 0, height: 60, st, darkness: 0.18, seedBase: 100)
+        // The side borders (to the top edge: the extension continues them).
+        for r in [CGRect(x: 0, y: mouthTop, width: border, height: s.height - mouthTop),
+                  CGRect(x: s.width - border, y: mouthTop, width: border, height: s.height - mouthTop)] {
+            sideBorder(ctx, r, st)
+        }
+        for x in [border, s.width - border] {
+            Painter.stroke(ctx, Painter.rect(CGRect(x: x, y: mouthTop, width: 0.01, height: s.height - mouthTop)),
+                           ScenePaint.outline, width: 4, 0.85)
+        }
+        Painter.stroke(ctx, Painter.rect(CGRect(x: border, y: mouthTop, width: inner.width, height: 0.01)),
+                       ScenePaint.outline, width: 4, 0.85)
+        if st.leaf { goldLeaf(ctx, inner, seed: 41) }
+        // The mouth: the dark throat behind the teeth.
+        let mouth = CGRect(x: 0, y: 0, width: s.width, height: mouthTop)
+        Painter.linear(ctx, [ScenePaint.throat, RGBA(hex: 0x4A1022)], [0, 1], from: CGPoint(x: 0, y: 0),
+                       to: CGPoint(x: 0, y: mouth.maxY))
+        // Bands.
+        if st.bands {
+            for x in [CGFloat(140), 530] {
+                strap(ctx, CGRect(x: x - 15, y: mouthTop, width: 30, height: s.height - mouthTop), st)
+            }
+        }
+        // Studs along the side borders.
+        var sy = mouthTop + 40
+        while sy < s.height - 10 {
+            Painter.rivet(ctx, CGPoint(x: border * 0.5, y: sy), 4, st.stud)
+            Painter.rivet(ctx, CGPoint(x: s.width - border * 0.5, y: sy), 4, st.stud)
+            sy += 58
+        }
+        // R2: the eye sits in a fleshy eyelid bed, not a carved porthole.
+        let ec = ChestLayout.eyeCenter
+        let er = ChestLayout.eyeRadius
+        let bed = ChestArt.mimicEyeBed(size: s)
+        if st.gilt {
+            var t = CGAffineTransform(translationX: ec.x, y: ec.y).scaledBy(x: 1.08, y: 1.12)
+                .translatedBy(x: -ec.x, y: -ec.y)
+            if let ring = bed.copy(using: &t) {
+                Painter.stroke(ctx, ring, ScenePaint.outline, width: 9, 0.8)
+                Painter.stroke(ctx, ring, st.band, width: 5, 1)
+            }
+        }
+        Painter.stroke(ctx, bed, ScenePaint.outline, width: 10, 0.9)
+        ctx.saveGState()
+        ctx.addPath(bed)
+        ctx.clip()
+        Painter.radial(ctx, [ScenePaint.lighter(ChestArt.flesh, 0.12), ChestArt.flesh, ChestArt.fleshDark],
+                       [0, 0.55, 1], center: CGPoint(x: ec.x - er * 0.3, y: ec.y + er * 0.3), radius: er * 1.9,
+                       extend: true)
+        // The socket's dark hollow right round the eyeball.
+        let hollow = ChestArt.mimicEye(wake: 1, size: s).white
+        var grow = CGAffineTransform(translationX: ec.x, y: ec.y).scaledBy(x: 1.06, y: 1.12)
+            .translatedBy(x: -ec.x, y: -ec.y)
+        if let h = hollow.copy(using: &grow) { Painter.fill(ctx, h, RGBA(hex: 0x2A0A12), 0.9) }
+        ctx.restoreGState()
+        // A soft crease above the bed.
+        let crease = CGMutablePath()
+        crease.move(to: CGPoint(x: ec.x - er * 1.2, y: ec.y + er * 1.05))
+        crease.addQuadCurve(to: CGPoint(x: ec.x + er * 1.2, y: ec.y + er * 1.05),
+                            control: CGPoint(x: ec.x, y: ec.y + er * 1.6))
+        Painter.stroke(ctx, crease, ChestArt.fleshDark, width: 4, 0.55)
+        if st.gems {
+            // Clear of the brow above and the plate below.
+            for (k, a) in [CGFloat(0.25), 0.7, 2.44, 2.89].enumerated() {
+                let p = CGPoint(x: ec.x + cos(a) * (er * 1.75 + 10), y: ec.y + sin(a) * (er * 1.2 + 14))
+                gemStud(ctx, p, k % 2 == 0 ? RGBA(hex: 0xEC3352) : RGBA(hex: 0x3C7CEE), size: 10)
+            }
+        }
+    }
+
+    private static func sideBorder(_ ctx: CGContext, _ r: CGRect, _ st: TierStyle) {
+        Painter.gradient(ctx, Painter.rect(r), [st.wood, ScenePaint.darker(st.wood, 0.2)], [0, 1],
+                         from: CGPoint(x: r.minX, y: r.maxY), to: CGPoint(x: r.maxX, y: r.minY))
+        Painter.grain(ctx, r, alongX: false, st.woodDark, seed: UInt64(r.minX + 3), count: 2)
+        if st.leaf { goldLeaf(ctx, r, seed: UInt64(r.minX + 9)) }
+    }
+
+    /// The lid's far border and its corner brackets (670 × 90, transparent below the brackets).
+    static func lidCap(_ dress: ChestDress) -> SKTexture {
+        make("lid-cap-\(dress.key)", width: 670, height: ChestLayout.lidCapHeight) { ctx, s in
+            let st = TierStyle.of(dress)
+            let border = lidBorder
+            let top = CGRect(x: 0, y: s.height - border, width: s.width, height: border)
+            Painter.fill(ctx, rect: top.insetBy(dx: 0, dy: -1), ScenePaint.outline, 0.85)
+            Painter.gradient(ctx, Painter.rect(top), [st.wood, ScenePaint.darker(st.wood, 0.2)], [0, 1],
+                             from: CGPoint(x: 0, y: top.maxY), to: CGPoint(x: 0, y: top.minY))
+            Painter.grain(ctx, top, alongX: true, st.woodDark, seed: 7, count: 2)
+            if st.leaf { goldLeaf(ctx, top, seed: 17) }
+            Painter.stroke(ctx, Painter.rect(CGRect(x: border, y: top.minY, width: s.width - 2 * border, height: 0.01)),
+                           ScenePaint.outline, width: 4, 0.85)
+            if st.bands {
+                for x in [CGFloat(140), 530] {
+                    strap(ctx, CGRect(x: x - 15, y: top.minY, width: 30, height: border), st)
+                }
+            }
+            let metal = st.gilt ? st.band : RGBA(hex: 0x5E6873)
+            for (cx, sx) in [(CGFloat(0), CGFloat(1)), (s.width, -1)] {
+                let a = CGRect(x: sx > 0 ? cx : cx - 84, y: s.height - border, width: 84, height: border)
+                let b = CGRect(x: sx > 0 ? cx : cx - border, y: s.height - 84, width: border, height: 84)
+                for r in [a, b] { Painter.stroke(ctx, Painter.roundRect(r, 4), ScenePaint.outline, width: 3.2, 0.9) }
+                for r in [a, b] { bracket(ctx, r, metal) }
+                Painter.rivet(ctx, CGPoint(x: cx + sx * border * 0.5, y: s.height - border * 0.5), 4.5, st.stud)
+                Painter.rivet(ctx, CGPoint(x: cx + sx * 64, y: s.height - border * 0.5), 3.4, st.stud)
+                Painter.rivet(ctx, CGPoint(x: cx + sx * border * 0.5, y: s.height - 66), 3.4, st.stud)
+            }
+            if st.gems {
+                gemStud(ctx, CGPoint(x: s.width / 2, y: s.height - border / 2), RGBA(hex: 0xEC3352), size: 11)
+            }
+        }
+    }
+
+    /// Two more lid planks with the side borders and bands (repeated upward above the canvas lid).
+    static func lidTile(_ dress: ChestDress) -> SKTexture {
+        let h = ChestLayout.lidTileHeight
+        return make("lid-tile-\(dress.key)", width: 670, height: h) { ctx, s in
+            let st = TierStyle.of(dress)
+            let border = lidBorder
+            Painter.fill(ctx, rect: CGRect(origin: .zero, size: s), st.woodDark)
+            // The canvas lid's planks start at 64 every 60, so a tile starting at lid y 456 has edges at 28 and 88.
+            let inner = CGRect(x: border, y: 0, width: s.width - 2 * border, height: s.height)
+            planks(ctx, inner, firstBottom: -32, firstIndex: 6, height: 60, st, darkness: 0.18, seedBase: 100)
+            if st.leaf { goldLeaf(ctx, inner, seed: 43) }
+            for r in [CGRect(x: 0, y: 0, width: border, height: s.height),
+                      CGRect(x: s.width - border, y: 0, width: border, height: s.height)] {
+                sideBorder(ctx, r, st)
+            }
+            for x in [border, s.width - border] {
+                Painter.stroke(ctx, Painter.rect(CGRect(x: x, y: 0, width: 0.01, height: s.height)), ScenePaint.outline,
+                               width: 4, 0.85)
+            }
+            if st.bands {
+                for x in [CGFloat(140), 530] {
+                    strap(ctx, CGRect(x: x - 15, y: 0, width: 30, height: s.height), st)
+                }
+            }
+            for y in [CGFloat(54), 112] {
+                Painter.rivet(ctx, CGPoint(x: border * 0.5, y: y), 4, st.stud)
+                Painter.rivet(ctx, CGPoint(x: s.width - border * 0.5, y: y), 4, st.stud)
+            }
+        }
+    }
+
+    // MARK: Below the floor: the chest's front wall, the big lock, the tabletop
+
+    /// The chest's front face (670 × 314: its top 104 pt sit behind the satchel), planks, corner posts, bands.
+    static func frontWall(_ dress: ChestDress) -> SKTexture {
+        let h = ChestLayout.frontWallTop + ChestLayout.frontWallMax
+        // 1.5× is plenty for the wall under the satchel (it keeps five dresses' walls under 10 MB).
+        return make("front-\(dress.key)", width: 670, height: h, scale: 1.5) { ctx, s in
+            let st = TierStyle.of(dress)
+            Painter.fill(ctx, rect: CGRect(origin: .zero, size: s), st.woodDark)
+            let body = CGRect(x: 40, y: 14, width: s.width - 80, height: s.height - 14)
+            planks(ctx, body, firstBottom: s.height - 60 * 6, firstIndex: 0, height: 60, st, darkness: 0.0,
+                   seedBase: 500)
+            if st.leaf { goldLeaf(ctx, body, seed: 61) }
+            // Corner posts.
+            for r in [CGRect(x: 0, y: 0, width: 40, height: s.height), CGRect(x: s.width - 40, y: 0, width: 40,
+                                                                             height: s.height)] {
+                Painter.gradient(ctx, Painter.rect(r), [ScenePaint.lighter(st.wood, 0.1), ScenePaint.darker(st.wood, 0.3)],
+                                 [0, 1], from: CGPoint(x: r.minX, y: 0), to: CGPoint(x: r.maxX, y: 0))
+                Painter.grain(ctx, r, alongX: false, st.woodDark, seed: UInt64(r.minX + 71), count: 2)
+                Painter.stroke(ctx, Painter.rect(r), ScenePaint.outline, width: 3, 0.85)
+            }
+            // The base trim and its shadow.
+            let base = CGRect(x: 0, y: 0, width: s.width, height: 16)
+            Painter.gradient(ctx, Painter.rect(base), [ScenePaint.darker(st.wood, 0.1), ScenePaint.darker(st.wood, 0.45)],
+                             [0, 1], from: CGPoint(x: 0, y: 16), to: CGPoint(x: 0, y: 0))
+            Painter.stroke(ctx, Painter.rect(CGRect(x: 0, y: 16, width: s.width, height: 0.01)), ScenePaint.outline,
+                           width: 3, 0.9)
+            if st.bands {
+                for x in [CGFloat(172), 498] {
+                    strap(ctx, CGRect(x: x - 12, y: 0, width: 24, height: s.height), st)
+                }
+            }
+            // Corner brackets at the bottom corners.
+            let metal = st.gilt ? st.band : RGBA(hex: 0x5E6873)
+            for (cx, sx) in [(CGFloat(0), CGFloat(1)), (s.width, -1)] {
+                let a = CGRect(x: sx > 0 ? cx : cx - 90, y: 0, width: 90, height: 30)
+                let b = CGRect(x: sx > 0 ? cx : cx - 40, y: 0, width: 40, height: 96)
+                for r in [a, b] { Painter.stroke(ctx, Painter.roundRect(r, 4), ScenePaint.outline, width: 3.2, 0.9) }
+                for r in [a, b] { bracket(ctx, r, metal) }
+                Painter.rivet(ctx, CGPoint(x: cx + sx * 20, y: 15), 4.5, st.stud)
+                Painter.rivet(ctx, CGPoint(x: cx + sx * 72, y: 15), 3.6, st.stud)
+                Painter.rivet(ctx, CGPoint(x: cx + sx * 20, y: 78), 3.6, st.stud)
+            }
+            var y: CGFloat = 130
+            while y < s.height - 10 {
+                Painter.rivet(ctx, CGPoint(x: 20, y: y), 3.6, st.stud)
+                Painter.rivet(ctx, CGPoint(x: s.width - 20, y: y), 3.6, st.stud)
+                y += 52
+            }
+            if st.gems {
+                gemStud(ctx, CGPoint(x: 20, y: 150), RGBA(hex: 0xEC3352), size: 10)
+                gemStud(ctx, CGPoint(x: s.width - 20, y: 150), RGBA(hex: 0x3C7CEE), size: 10)
+            }
+        }
+    }
+
+    /// The big brass lock on the chest's front (150 × 170): a hasp from the lid edge, a shield plate, a keyhole.
+    static var bigLock: SKTexture {
+        make("big-lock", width: 150, height: 170) { ctx, s in
+            let hasp = Painter.roundRect(CGRect(x: s.width / 2 - 22, y: s.height - 60, width: 44, height: 58), 10)
+            Painter.chunky(ctx, hasp, ScenePaint.brass, outline: 2.4, light: 0.4, shade: 0.4,
+                           from: CGPoint(x: 0, y: s.height), to: CGPoint(x: 0, y: s.height - 60))
+            Painter.rivet(ctx, CGPoint(x: s.width / 2, y: s.height - 18), 5, ScenePaint.brassLight)
+            let shield = CGMutablePath()
+            shield.move(to: CGPoint(x: 14, y: s.height - 56))
+            shield.addLine(to: CGPoint(x: s.width - 14, y: s.height - 56))
+            shield.addCurve(to: CGPoint(x: s.width / 2, y: 6), control1: CGPoint(x: s.width - 10, y: 60),
+                            control2: CGPoint(x: s.width * 0.7, y: 18))
+            shield.addCurve(to: CGPoint(x: 14, y: s.height - 56), control1: CGPoint(x: s.width * 0.3, y: 18),
+                            control2: CGPoint(x: 10, y: 60))
+            shield.closeSubpath()
+            Painter.chunky(ctx, shield, ScenePaint.brass, outline: 3, light: 0.5, shade: 0.45,
+                           from: CGPoint(x: 14, y: s.height - 56), to: CGPoint(x: s.width - 14, y: 10))
+            var inset = CGAffineTransform(translationX: s.width / 2, y: 60).scaledBy(x: 0.8, y: 0.8)
+                .translatedBy(x: -s.width / 2, y: -60)
+            if let inner = shield.copy(using: &inset) {
+                Painter.stroke(ctx, inner, ScenePaint.brassDark, width: 2.5, 0.8)
+            }
+            // The keyhole.
+            let kc = CGPoint(x: s.width / 2, y: 74)
+            let hole = CGMutablePath()
+            ArtPrim.oval(hole, CGRect(x: kc.x - 12, y: kc.y - 2, width: 24, height: 24))
+            ArtPrim.polygon(hole, [CGPoint(x: kc.x - 6, y: kc.y + 2), CGPoint(x: kc.x + 6, y: kc.y + 2),
+                                   CGPoint(x: kc.x + 9, y: kc.y - 32), CGPoint(x: kc.x - 9, y: kc.y - 32)])
+            Painter.fill(ctx, hole, RGBA(hex: 0x140804))
+            Painter.stroke(ctx, hole, ScenePaint.brassLight, width: 1.5, 0.6)
+            for c in [CGPoint(x: 30, y: s.height - 70), CGPoint(x: s.width - 30, y: s.height - 70),
+                      CGPoint(x: s.width / 2, y: 22)] {
+                Painter.rivet(ctx, c, 4.5, ScenePaint.brassLight)
+            }
+            Painter.fill(ctx, Painter.oval(CGRect(x: 30, y: s.height - 92, width: 16, height: 30)), RGBA(1, 1, 1), 0.45)
+        }
+    }
+
+    /// The tabletop under the chest (670 × 160): dark oak, a contact shadow along the top.
+    static var tabletop: SKTexture {
+        make("tabletop", width: 670, height: 160) { ctx, s in
+            Painter.fill(ctx, rect: CGRect(origin: .zero, size: s), RGBA(hex: 0x24160C))
+            var y = s.height
+            var i = 0
+            while y > 0 {
+                let r = CGRect(x: 0, y: y - 44, width: s.width, height: 44)
+                let c = i % 2 == 0 ? RGBA(hex: 0x3A2414) : RGBA(hex: 0x33200F)
+                Painter.gradient(ctx, Painter.rect(r), [ScenePaint.lighter(c, 0.06), c], [0, 1],
+                                 from: CGPoint(x: 0, y: r.maxY), to: CGPoint(x: 0, y: r.minY))
+                Painter.grain(ctx, r, alongX: true, RGBA(hex: 0x1A0E06), seed: UInt64(900 + i), count: 3)
+                Painter.stroke(ctx, Painter.rect(CGRect(x: 0, y: r.minY, width: s.width, height: 0.01)),
+                               RGBA(hex: 0x140A04), width: 2.5, 0.9)
+                y -= 44
+                i += 1
+            }
+            // The chest's contact shadow and a candle-lit sheen.
+            Painter.linear(ctx, [RGBA(0, 0, 0, 0), RGBA(0, 0, 0, 0.75)], [0, 1], from: CGPoint(x: 0, y: s.height - 30),
+                           to: CGPoint(x: 0, y: s.height))
+            Painter.radial(ctx, [RGBA(1, 0.8, 0.5, 0.12), RGBA(1, 0.8, 0.5, 0)], [0, 1],
+                           center: CGPoint(x: s.width / 2, y: s.height * 0.4), radius: s.width * 0.5)
+        }
     }
 
     // MARK: The tongue (the mimic's tell, on the bed)
 
     static let tongueSize = CGSize(width: 460, height: 282)
 
-    private static func tonguePath(_ s: CGSize) -> CGPath {
+    /// R2: a tongue, tapering from a wide root at the throat to a rounded tip pointing at the bag (~70 % of the
+    /// floor's width at the root).
+    static func tonguePath(_ s: CGSize) -> CGPath {
         let p = CGMutablePath()
-        p.move(to: CGPoint(x: s.width * 0.065, y: s.height))
-        p.addCurve(to: CGPoint(x: s.width * 0.5, y: 6), control1: CGPoint(x: -s.width * 0.01, y: s.height * 0.52),
-                   control2: CGPoint(x: s.width * 0.2, y: 6))
-        p.addCurve(to: CGPoint(x: s.width * 0.935, y: s.height), control1: CGPoint(x: s.width * 0.8, y: 6),
-                   control2: CGPoint(x: s.width * 1.01, y: s.height * 0.52))
+        let w = s.width, h = s.height
+        p.move(to: CGPoint(x: w * 0.11, y: h))
+        p.addCurve(to: CGPoint(x: w * 0.34, y: h * 0.16), control1: CGPoint(x: w * 0.04, y: h * 0.56),
+                   control2: CGPoint(x: w * 0.2, y: h * 0.26))
+        p.addCurve(to: CGPoint(x: w * 0.66, y: h * 0.16), control1: CGPoint(x: w * 0.42, y: h * 0.02),
+                   control2: CGPoint(x: w * 0.58, y: h * 0.02))
+        p.addCurve(to: CGPoint(x: w * 0.89, y: h), control1: CGPoint(x: w * 0.8, y: h * 0.26),
+                   control2: CGPoint(x: w * 0.96, y: h * 0.56))
         p.closeSubpath()
         return p
     }
@@ -282,39 +648,50 @@ extension SceneTextures {
     /// The velvet tongue lying on the bed: root at the top (the throat at the hinge), tip toward the player.
     static var tongue: SKTexture {
         let s = tongueSize
-        return make("tongue", width: s.width, height: s.height) { ctx, sz in
+        return make("tongue-r2", width: s.width, height: s.height) { ctx, sz in
             let t = ChestArt.palette.tongue
             let path = tonguePath(sz)
             Painter.stroke(ctx, path, ScenePaint.darker(t, 0.6), width: 8, 0.95)
             ctx.saveGState()
             ctx.addPath(path)
             ctx.clip()
-            Painter.radial(ctx, [ScenePaint.lighter(t, 0.16), t, ScenePaint.darker(t, 0.32)], [0, 0.55, 1],
-                           center: CGPoint(x: sz.width / 2, y: sz.height * 0.55), radius: sz.width * 0.56, extend: true)
-            // Velvet sheen on each lobe.
-            for cx in [sz.width * 0.3, sz.width * 0.7] {
-                Painter.radial(ctx, [RGBA(1, 0.85, 0.9, 0.3), RGBA(1, 0.85, 0.9, 0)], [0, 1],
-                               center: CGPoint(x: cx, y: sz.height * 0.55), radius: 80)
-            }
-            // Papillae.
+            Painter.radial(ctx, [ScenePaint.lighter(t, 0.12), t, ScenePaint.darker(t, 0.34)], [0, 0.5, 1],
+                           center: CGPoint(x: sz.width * 0.44, y: sz.height * 0.46), radius: sz.width * 0.5,
+                           extend: true)
+            // Velvet stipple: fine light papillae and a few darker pores.
             var rng = SceneRNG(seed: 0x70_9E)
-            for _ in 0..<90 {
-                let p = CGPoint(x: rng.range(20, sz.width - 20), y: rng.range(20, sz.height - 30))
-                Painter.fill(ctx, Painter.circle(p, rng.range(1.6, 3)), ScenePaint.lighter(t, 0.35), 0.4)
+            for _ in 0..<220 {
+                let p = CGPoint(x: rng.range(10, sz.width - 10), y: rng.range(10, sz.height - 10))
+                Painter.fill(ctx, Painter.circle(p, rng.range(0.9, 2.2)), ScenePaint.lighter(t, 0.42),
+                             Double(rng.range(0.12, 0.3)))
             }
-            // The centre groove.
-            let groove = CGMutablePath()
-            groove.move(to: CGPoint(x: sz.width / 2, y: sz.height))
-            groove.addQuadCurve(to: CGPoint(x: sz.width / 2, y: sz.height * 0.26),
-                                control: CGPoint(x: sz.width / 2 - 8, y: sz.height * 0.6))
-            Painter.stroke(ctx, groove, ScenePaint.darker(t, 0.45), width: 8, 0.7)
-            var hi = CGAffineTransform(translationX: 6, y: 0)
-            if let g2 = groove.copy(using: &hi) {
-                Painter.stroke(ctx, g2, ScenePaint.lighter(t, 0.3), width: 3, 0.6)
+            for _ in 0..<70 {
+                let p = CGPoint(x: rng.range(10, sz.width - 10), y: rng.range(10, sz.height - 10))
+                Painter.fill(ctx, Painter.circle(p, rng.range(0.8, 1.6)), ScenePaint.darker(t, 0.35), 0.25)
             }
-            // The throat: the root recedes into the dark.
-            Painter.linear(ctx, [RGBA(0.05, 0.01, 0.02, 0), RGBA(0.05, 0.01, 0.02, 0.9)], [0, 1],
-                           from: CGPoint(x: 0, y: sz.height * 0.72), to: CGPoint(x: 0, y: sz.height))
+            // One soft, off-centre specular highlight.
+            ctx.saveGState()
+            ctx.translateBy(x: sz.width * 0.38, y: sz.height * 0.5)
+            ctx.scaleBy(x: 1, y: 1.7)
+            Painter.radial(ctx, [RGBA(1, 0.9, 0.93, 0.34), RGBA(1, 0.9, 0.93, 0)], [0, 1], center: .zero, radius: 46)
+            ctx.restoreGState()
+            // The top-edge rim light along the upper-left edge.
+            var shift = CGAffineTransform(translationX: 4, y: -4)
+            if let rim = path.copy(using: &shift) {
+                Painter.stroke(ctx, rim, ScenePaint.lighter(t, 0.5), width: 7, 0.32)
+            }
+            // A short crease near the root only, fading toward the tip.
+            for k in 0..<6 {
+                let y0 = sz.height - CGFloat(k) * 14
+                let seg = CGMutablePath()
+                seg.move(to: CGPoint(x: sz.width / 2, y: y0))
+                seg.addLine(to: CGPoint(x: sz.width / 2 - 1, y: y0 - 14))
+                Painter.stroke(ctx, seg, ScenePaint.darker(t, 0.45), width: 6 - CGFloat(k) * 0.6,
+                               0.55 * (1 - Double(k) / 6))
+            }
+            // The throat: the root recedes into the dark at the fold.
+            Painter.linear(ctx, [RGBA(0.05, 0.01, 0.02, 0), RGBA(0.05, 0.01, 0.02, 0.92)], [0, 1],
+                           from: CGPoint(x: 0, y: sz.height * 0.66), to: CGPoint(x: 0, y: sz.height))
             ctx.restoreGState()
         }
     }
@@ -322,34 +699,54 @@ extension SceneTextures {
     /// The tongue's curl (Waking): rolled-up edges and a lifted tip, over `tongue` (same size).
     static var tongueCurl: SKTexture {
         let s = tongueSize
-        return make("tongue-curl", width: s.width, height: s.height) { ctx, sz in
+        return make("tongue-curl-r2", width: s.width, height: s.height) { ctx, sz in
             let t = ChestArt.palette.tongue
+            let w = sz.width, h = sz.height
             let left = CGMutablePath()
-            left.move(to: CGPoint(x: sz.width * 0.08, y: sz.height * 0.9))
-            left.addCurve(to: CGPoint(x: sz.width * 0.42, y: 22), control1: CGPoint(x: sz.width * 0.03, y: sz.height * 0.5),
-                          control2: CGPoint(x: sz.width * 0.2, y: 18))
-            var mirror = CGAffineTransform(translationX: sz.width, y: 0).scaledBy(x: -1, y: 1)
+            left.move(to: CGPoint(x: w * 0.13, y: h * 0.9))
+            left.addCurve(to: CGPoint(x: w * 0.36, y: h * 0.2), control1: CGPoint(x: w * 0.07, y: h * 0.54),
+                          control2: CGPoint(x: w * 0.22, y: h * 0.28))
+            var mirror = CGAffineTransform(translationX: w, y: 0).scaledBy(x: -1, y: 1)
             let right = left.copy(using: &mirror) ?? left
             for side in [left as CGPath, right] {
-                Painter.stroke(ctx, side, ScenePaint.darker(t, 0.55), width: 30, 0.55)
-                Painter.stroke(ctx, side, ScenePaint.lighter(t, 0.22), width: 20, 1)
-                Painter.stroke(ctx, side, ScenePaint.lighter(t, 0.5), width: 5, 0.8)
+                Painter.stroke(ctx, side, ScenePaint.darker(t, 0.55), width: 26, 0.55)
+                Painter.stroke(ctx, side, ScenePaint.lighter(t, 0.22), width: 17, 1)
+                Painter.stroke(ctx, side, ScenePaint.lighter(t, 0.5), width: 4, 0.8)
             }
             // The tip lifts: its pale underside shows, with a shadow beneath.
-            Painter.fill(ctx, Painter.oval(CGRect(x: sz.width / 2 - 70, y: 2, width: 140, height: 30)),
+            Painter.fill(ctx, Painter.oval(CGRect(x: w / 2 - 62, y: 4, width: 124, height: 26)),
                          RGBA(0.05, 0.01, 0.02), 0.5)
-            let tip = Painter.oval(CGRect(x: sz.width / 2 - 62, y: 14, width: 124, height: 46))
+            let tip = Painter.oval(CGRect(x: w / 2 - 52, y: 14, width: 104, height: 40))
             Painter.stroke(ctx, tip, ScenePaint.darker(t, 0.6), width: 6, 0.9)
             Painter.gradient(ctx, tip, [ScenePaint.lighter(t, 0.45), ScenePaint.lighter(t, 0.1)], [0, 1],
-                             from: CGPoint(x: 0, y: 60), to: CGPoint(x: 0, y: 14))
+                             from: CGPoint(x: 0, y: 54), to: CGPoint(x: 0, y: 14))
         }
     }
 
-    // MARK: The satchel (bag strip)
+    // MARK: The satchel (bag strip) and the pouch
+
+    /// The pouch's front (drawn over the bagged loot so it sits IN the pouch), canvas `ChestLayout.pouchRect`.
+    static func pouchFrontPath() -> CGPath {
+        let r = ChestLayout.pouchRect
+        let m = ChestLayout.pouchMouth
+        let p = CGMutablePath()
+        // The mouth's front lip (the lower arc of the mouth), then the sack's body down to its rounded bottom.
+        p.move(to: CGPoint(x: m.x - 52, y: m.y + 4))
+        p.addCurve(to: CGPoint(x: m.x + 52, y: m.y + 4), control1: CGPoint(x: m.x - 30, y: m.y - 14),
+                   control2: CGPoint(x: m.x + 30, y: m.y - 14))
+        p.addCurve(to: CGPoint(x: r.maxX - 6, y: r.minY + 34), control1: CGPoint(x: m.x + 66, y: m.y - 6),
+                   control2: CGPoint(x: r.maxX, y: r.minY + 62))
+        p.addCurve(to: CGPoint(x: r.minX + 6, y: r.minY + 34), control1: CGPoint(x: r.maxX - 12, y: r.minY - 6),
+                   control2: CGPoint(x: r.minX + 12, y: r.minY - 6))
+        p.addCurve(to: CGPoint(x: m.x - 52, y: m.y + 4), control1: CGPoint(x: r.minX, y: r.minY + 62),
+                   control2: CGPoint(x: m.x - 66, y: m.y - 6))
+        p.closeSubpath()
+        return p
+    }
 
     static var satchel: SKTexture {
         let r = ChestLayout.bagStrip
-        return make("satchel", width: r.width, height: r.height + 2) { ctx, s in
+        return make("satchel-r2", width: r.width, height: r.height + 2) { ctx, s in
             let body = Painter.roundRect(CGRect(x: 4, y: 2, width: s.width - 8, height: s.height - 8), 18)
             Painter.chunky(ctx, body, ScenePaint.leather, outline: 2.5, light: 0.12, shade: 0.35,
                            from: CGPoint(x: 0, y: s.height), to: CGPoint(x: 0, y: 0))
@@ -365,30 +762,73 @@ extension SceneTextures {
             Painter.stroke(ctx, Painter.roundRect(CGRect(x: 12, y: 9, width: s.width - 24, height: s.height - 22), 12),
                            RGBA(hex: 0xE8C48A), width: 2, 0.7)
             ctx.restoreGState()
-            // The mouth along the top, with the leather lip.
-            let mouth = Painter.roundRect(CGRect(x: 262, y: s.height - 26, width: 146, height: 16), 8)
-            Painter.fill(ctx, mouth, RGBA(hex: 0x1E0F07), 0.95)
-            // The HUD panels: tooled darker leather.
+            // The HUD plates: tooled darker leather.
             for p in [ChestLayout.bagValueRect, ChestLayout.counterRect] {
                 let panel = Painter.roundRect(p, 14)
-                Painter.fill(ctx, panel, ScenePaint.leatherDark, 0.9)
+                Painter.fill(ctx, panel, ScenePaint.leatherDark, 0.92)
                 Painter.stroke(ctx, panel, ScenePaint.outline, width: 2.5, 0.8)
                 ctx.saveGState()
                 ctx.setLineDash(phase: 0, lengths: [5, 5])
                 Painter.stroke(ctx, Painter.roundRect(p.insetBy(dx: 6, dy: 6), 10), RGBA(hex: 0xC89A5E), width: 1.6, 0.6)
                 ctx.restoreGState()
             }
-            // Straps and buckles between the panels.
-            for x in [CGFloat(284), 386] {
-                let strapR = CGRect(x: x - 13, y: 0, width: 26, height: s.height)
-                Painter.chunky(ctx, Painter.rect(strapR), ScenePaint.leatherDark, outline: 1.2, light: 0.15, shade: 0.2,
-                               from: CGPoint(x: strapR.minX, y: 0), to: CGPoint(x: strapR.maxX, y: 0))
-                let buckle = Painter.roundRect(CGRect(x: x - 17, y: 38, width: 34, height: 26), 5)
-                Painter.stroke(ctx, buckle, ScenePaint.outline, width: 7, 0.9)
-                Painter.stroke(ctx, buckle, ScenePaint.brass, width: 4, 1)
-                Painter.stroke(ctx, Painter.rect(CGRect(x: x - 1, y: 40, width: 2, height: 22)), ScenePaint.brassLight,
-                               width: 2, 0.9)
+            // The pouch's open mouth (behind the bagged loot): a dark hollow with its back rim.
+            let m = ChestLayout.pouchMouth
+            let mouth = Painter.oval(CGRect(x: m.x - 54, y: m.y - 16, width: 108, height: 36))
+            Painter.stroke(ctx, mouth, ScenePaint.outline, width: 5, 0.95)
+            Painter.fill(ctx, mouth, ScenePaint.leather)
+            let hollow = Painter.oval(CGRect(x: m.x - 46, y: m.y - 12, width: 92, height: 28))
+            Painter.gradient(ctx, hollow, [RGBA(hex: 0x0E0603), RGBA(hex: 0x2A160B)], [0, 1],
+                             from: CGPoint(x: 0, y: m.y + 16), to: CGPoint(x: 0, y: m.y - 12))
+            // The drawstring's gathered back.
+            for k in 0..<7 {
+                let x = m.x - 40 + CGFloat(k) * 13.3
+                Painter.stroke(ctx, Painter.rect(CGRect(x: x, y: m.y + 12, width: 0.01, height: 7)),
+                               ScenePaint.leatherDark, width: 2, 0.8)
             }
+            // Buckled straps at the plates' inner ends.
+            for x in [CGFloat(258), 412] {
+                let strapR = CGRect(x: x - 5, y: 10, width: 10, height: s.height - 22)
+                Painter.chunky(ctx, Painter.rect(strapR), ScenePaint.leatherDark, outline: 1, light: 0.15, shade: 0.2,
+                               from: CGPoint(x: strapR.minX, y: 0), to: CGPoint(x: strapR.maxX, y: 0))
+            }
+        }
+    }
+
+    /// The pouch's front, over the bagged loot (pouchRect-sized texture).
+    static var pouchFront: SKTexture {
+        let r = ChestLayout.pouchRect
+        return make("pouch-front", width: r.width, height: r.height) { ctx, _ in
+            ctx.translateBy(x: -r.minX, y: -r.minY)
+            let p = pouchFrontPath()
+            Painter.chunky(ctx, p, ScenePaint.lighter(ScenePaint.leather, 0.08), outline: 2.6, light: 0.3, shade: 0.4,
+                           from: CGPoint(x: r.minX, y: r.maxY), to: CGPoint(x: r.maxX, y: r.minY))
+            ctx.saveGState()
+            ctx.addPath(p)
+            ctx.clip()
+            Painter.grain(ctx, r, alongX: true, ScenePaint.leatherDark, seed: 88, count: 3)
+            // The lip's rolled edge and the drawstring.
+            let m = ChestLayout.pouchMouth
+            let lip = CGMutablePath()
+            lip.move(to: CGPoint(x: m.x - 52, y: m.y + 2))
+            lip.addCurve(to: CGPoint(x: m.x + 52, y: m.y + 2), control1: CGPoint(x: m.x - 30, y: m.y - 16),
+                         control2: CGPoint(x: m.x + 30, y: m.y - 16))
+            Painter.stroke(ctx, lip, ScenePaint.lighter(ScenePaint.leather, 0.35), width: 7, 0.9)
+            ctx.saveGState()
+            ctx.setLineDash(phase: 0, lengths: [5, 5])
+            var down = CGAffineTransform(translationX: 0, y: -12)
+            if let st = lip.copy(using: &down) { Painter.stroke(ctx, st, RGBA(hex: 0xE8C48A), width: 1.8, 0.7) }
+            ctx.restoreGState()
+            ctx.restoreGState()
+            // A brass grommet and the drawstring's knot.
+            Painter.rivet(ctx, CGPoint(x: m.x, y: m.y - 22), 6, ScenePaint.brass)
+            let knot = CGMutablePath()
+            knot.move(to: CGPoint(x: m.x, y: m.y - 22))
+            knot.addQuadCurve(to: CGPoint(x: m.x - 16, y: m.y - 52), control: CGPoint(x: m.x - 18, y: m.y - 30))
+            knot.move(to: CGPoint(x: m.x, y: m.y - 22))
+            knot.addQuadCurve(to: CGPoint(x: m.x + 14, y: m.y - 54), control: CGPoint(x: m.x + 20, y: m.y - 34))
+            Painter.stroke(ctx, knot, ScenePaint.outline, width: 5, 0.8)
+            Painter.stroke(ctx, knot, RGBA(hex: 0xD9B07A), width: 2.6, 1)
         }
     }
 
@@ -422,207 +862,129 @@ extension SceneTextures {
         }
     }
 
-    // MARK: The lid's underside (the mimic's upper jaw and face)
+    // MARK: The mouth: lip and fangs
 
-    static func lid(_ tier: ChestTier) -> SKTexture {
-        let s = ChestLayout.lidSize
-        return make("lid-\(tier.rawValue)", width: s.width, height: s.height) { ctx, sz in
-            drawLid(ctx, sz, TierStyle.of(tier))
-        }
-    }
-
-    private static func drawLid(_ ctx: CGContext, _ s: CGSize, _ st: TierStyle) {
-        let border: CGFloat = 34
-        let mouthTop = ChestLayout.gumY + 4
-        let inner = CGRect(x: border, y: mouthTop, width: s.width - 2 * border, height: s.height - mouthTop - border)
-        let shade = ScenePaint.darker(st.wood, 0.18)
-        Painter.fill(ctx, rect: CGRect(origin: .zero, size: s), st.woodDark)
-        // Planks (horizontal boards, in the lid's shade).
-        var y = inner.minY
-        var i = 0
-        while y < inner.maxY {
-            let h = min(60, inner.maxY - y)
-            let r = CGRect(x: inner.minX, y: y, width: inner.width, height: h)
-            let c = i % 2 == 0 ? shade : ScenePaint.darker(st.wood, 0.26)
-            Painter.gradient(ctx, Painter.rect(r), [ScenePaint.lighter(c, 0.06), c], [0, 1],
-                             from: CGPoint(x: 0, y: r.maxY), to: CGPoint(x: 0, y: r.minY))
-            Painter.grain(ctx, r, alongX: true, st.woodDark, seed: UInt64(100 + i), count: 3)
-            Painter.stroke(ctx, Painter.rect(CGRect(x: r.minX, y: r.minY, width: r.width, height: 0.01)), st.woodDark,
-                           width: 3, 0.9)
-            y += 60
-            i += 1
-        }
-        // The frame: left, right and far borders.
-        for r in [CGRect(x: 0, y: mouthTop, width: border, height: s.height - mouthTop),
-                  CGRect(x: s.width - border, y: mouthTop, width: border, height: s.height - mouthTop),
-                  CGRect(x: 0, y: s.height - border, width: s.width, height: border)] {
-            Painter.gradient(ctx, Painter.rect(r), [st.wood, ScenePaint.darker(st.wood, 0.2)], [0, 1],
-                             from: CGPoint(x: r.minX, y: r.maxY), to: CGPoint(x: r.maxX, y: r.minY))
-            Painter.grain(ctx, r, alongX: r.width > r.height, st.woodDark, seed: UInt64(r.minX + r.minY), count: 2)
-        }
-        Painter.stroke(ctx, Painter.rect(inner), ScenePaint.outline, width: 4, 0.85)
-        // The mouth: the dark throat behind the teeth.
-        let mouth = CGRect(x: 0, y: 0, width: s.width, height: mouthTop)
-        Painter.linear(ctx, [ScenePaint.throat, RGBA(hex: 0x4A1022)], [0, 1], from: CGPoint(x: 0, y: 0),
-                       to: CGPoint(x: 0, y: mouth.maxY))
-        // Bands.
-        if st.bands {
-            for x in [CGFloat(140), 530] {
-                strap(ctx, CGRect(x: x - 15, y: mouthTop, width: 30, height: s.height - mouthTop), st)
-            }
-        }
-        // Corner brackets on the far corners.
-        let metal = st.gilt ? st.band : RGBA(hex: 0x5E6873)
-        for (cx, sx) in [(CGFloat(0), CGFloat(1)), (s.width, -1)] {
-            let a = CGRect(x: sx > 0 ? cx : cx - 84, y: s.height - border, width: 84, height: border)
-            let b = CGRect(x: sx > 0 ? cx : cx - border, y: s.height - 84, width: border, height: 84)
-            for r in [a, b] { Painter.stroke(ctx, Painter.roundRect(r, 4), ScenePaint.outline, width: 3.2, 0.9) }
-            for r in [a, b] {
-                Painter.gradient(ctx, Painter.roundRect(r, 4),
-                                 [ScenePaint.lighter(metal, 0.3), metal, ScenePaint.darker(metal, 0.35)], [0, 0.5, 1],
-                                 from: CGPoint(x: r.minX, y: r.maxY), to: CGPoint(x: r.maxX, y: r.minY))
-            }
-            Painter.rivet(ctx, CGPoint(x: cx + sx * border * 0.5, y: s.height - border * 0.5), 4.5, st.stud)
-        }
-        // Studs along the side borders.
-        var sy = mouthTop + 40
-        while sy < s.height - 100 {
-            Painter.rivet(ctx, CGPoint(x: border * 0.5, y: sy), 4, st.stud)
-            Painter.rivet(ctx, CGPoint(x: s.width - border * 0.5, y: sy), 4, st.stud)
-            sy += 58
-        }
-        // The eye socket: a dark carved recess the eye sits in.
-        let ec = ChestLayout.eyeCenter
-        let er = ChestLayout.eyeRadius
-        let socket = Painter.oval(CGRect(x: ec.x - er * 1.55, y: ec.y - er * 1.15, width: er * 3.1, height: er * 2.5))
-        Painter.stroke(ctx, socket, ScenePaint.outline, width: 16, 0.9)
-        Painter.stroke(ctx, socket, ScenePaint.lighter(st.wood, 0.1), width: 10, 1)
-        ctx.saveGState()
-        ctx.addPath(socket)
-        ctx.clip()
-        Painter.radial(ctx, [RGBA(hex: 0x160A05), RGBA(hex: 0x2A160B), st.woodDark], [0, 0.6, 1],
-                       center: ec, radius: er * 1.6, extend: true)
-        ctx.restoreGState()
-        if st.gilt {
-            Painter.stroke(ctx, Painter.oval(CGRect(x: ec.x - er * 1.55 - 9, y: ec.y - er * 1.15 - 9,
-                                                    width: er * 3.1 + 18, height: er * 2.5 + 18)),
-                           st.band, width: 3.5, 1)
-        }
-        if st.gems {
-            for k in 0..<6 {
-                let a = CGFloat(k) / 6 * 2 * .pi + 0.26
-                let p = CGPoint(x: ec.x + cos(a) * (er * 1.55 + 22), y: ec.y + sin(a) * (er * 1.25 + 20))
-                gemStud(ctx, p, k % 2 == 0 ? RGBA(hex: 0xEC3352) : RGBA(hex: 0x3C7CEE))
-            }
-            // A crest above the eye: the crown.
-            let crown = ChestArt.relicArt(.crown, radius: 22)
-            ctx.saveGState()
-            ctx.translateBy(x: ec.x, y: s.height - border - 34)
-            drawLoot(ctx, crown, (st.band, ScenePaint.brassDark, ScenePaint.brassLight), radius: 22)
-            ctx.restoreGState()
-        }
-        // Soft vignette: the lid's far corners sink into shadow.
-        Painter.radial(ctx, [RGBA(0, 0, 0, 0), RGBA(0, 0, 0, 0), RGBA(0, 0, 0, 0.45)], [0, 0.55, 1],
-                       center: CGPoint(x: s.width / 2, y: s.height * 0.45), radius: s.width * 0.75, extend: true)
-    }
-
-    /// The gum along the lid's fold edge: velvet, scalloped where the teeth root (bottom edge at y 0 of the texture).
-    static var gum: SKTexture {
-        make("gum", width: 670, height: 30) { ctx, s in
+    /// R2: the fleshy upper lip along the lid's fold edge (670 × 46): the fangs tuck up behind it while it sleeps.
+    static var lip: SKTexture {
+        make("lip-r2", width: 670, height: ChestLayout.lipHeight) { ctx, s in
             let p = CGMutablePath()
-            let n = 9
-            let slot = s.width / CGFloat(n)
             p.move(to: CGPoint(x: 0, y: s.height))
-            p.addLine(to: CGPoint(x: 0, y: 8))
+            p.addLine(to: CGPoint(x: 0, y: 10))
+            let n = 8
+            let slot = s.width / CGFloat(n)
             for i in 0..<n {
                 let x0 = CGFloat(i) * slot
-                p.addQuadCurve(to: CGPoint(x: x0 + slot, y: 8), control: CGPoint(x: x0 + slot / 2, y: -6))
+                p.addQuadCurve(to: CGPoint(x: x0 + slot, y: 10), control: CGPoint(x: x0 + slot / 2, y: 2))
             }
             p.addLine(to: CGPoint(x: s.width, y: s.height))
             p.closeSubpath()
             Painter.stroke(ctx, p, ScenePaint.outline, width: 5, 0.9)
-            Painter.gradient(ctx, p, [ScenePaint.lighter(ScenePaint.gum, 0.15), ScenePaint.gum,
-                                      ScenePaint.darker(ScenePaint.gum, 0.35)], [0, 0.4, 1],
+            Painter.gradient(ctx, p, [ChestArt.fleshDark, ChestArt.flesh, ScenePaint.lighter(ChestArt.flesh, 0.15),
+                                      ScenePaint.darker(ChestArt.fleshDark, 0.3)], [0, 0.3, 0.6, 1],
                              from: CGPoint(x: 0, y: 0), to: CGPoint(x: 0, y: s.height))
+            // A wet highlight along the lip.
+            let hl = CGMutablePath()
+            hl.move(to: CGPoint(x: 30, y: 18))
+            hl.addLine(to: CGPoint(x: s.width - 30, y: 18))
+            Painter.stroke(ctx, hl, RGBA(1, 0.85, 0.88), width: 2.5, 0.35)
         }
     }
 
-    /// The upper teeth, roots at the top edge, tips pointing down.
+    /// The upper fangs, roots at the top edge, tips pointing down (670 × 64).
     static var teeth: SKTexture {
-        make("teeth", width: 670, height: 64) { ctx, s in
+        make("fangs-r2", width: 670, height: 64) { ctx, s in
             var t = CGAffineTransform(translationX: 0, y: s.height - 2)
             let row = ChestArt.teethRow(width: s.width, height: ChestLayout.teethLength, count: 9, pointingDown: true)
             let p = row.copy(using: &t) ?? row
-            drawTeeth(ctx, p, rootY: s.height, tipY: 0)
+            drawTeeth(ctx, p, rootY: s.height, tipY: 0, count: 9, width: s.width)
         }
     }
 
-    /// The lower teeth for the bite: roots on a gum at the bottom, tips pointing up.
+    /// The lower fangs for the bite: roots on a gum at the bottom, tips pointing up (670 × 72).
     static var lowerTeeth: SKTexture {
-        make("lower-teeth", width: 670, height: 72) { ctx, s in
+        make("lower-fangs-r2", width: 670, height: 72) { ctx, s in
             let gumR = CGRect(x: 0, y: 0, width: s.width, height: 18)
             var t = CGAffineTransform(translationX: 0, y: 14)
             let row = ChestArt.teethRow(width: s.width, height: 50, count: 8, pointingDown: false)
             let p = row.copy(using: &t) ?? row
-            drawTeeth(ctx, p, rootY: 14, tipY: s.height)
-            Painter.chunky(ctx, Painter.roundRect(gumR, 8), ScenePaint.gum, outline: 2, light: 0.2, shade: 0.3,
+            drawTeeth(ctx, p, rootY: 14, tipY: s.height, count: 8, width: s.width)
+            Painter.chunky(ctx, Painter.roundRect(gumR, 8), ChestArt.flesh, outline: 2, light: 0.2, shade: 0.4,
                            from: CGPoint(x: 0, y: gumR.maxY), to: CGPoint(x: 0, y: 0))
         }
     }
 
-    private static func drawTeeth(_ ctx: CGContext, _ p: CGPath, rootY: CGFloat, tipY: CGFloat) {
+    static func drawTeeth(_ ctx: CGContext, _ p: CGPath, rootY: CGFloat, tipY: CGFloat, count: Int, width: CGFloat) {
         Painter.stroke(ctx, p, ScenePaint.outline, width: 6, 0.95)
         Painter.gradient(ctx, p, [RGBA(hex: 0xD9C7A0), ScenePaint.ivory, RGBA(hex: 0xFFFDF4)], [0, 0.55, 1],
                          from: CGPoint(x: 0, y: rootY), to: CGPoint(x: 0, y: tipY))
         ctx.saveGState()
         ctx.addPath(p)
         ctx.clip()
-        // A gloss stripe down each tooth's left side.
-        let n = 9
+        // A gloss stripe down each fang's left side.
+        let n = max(count, 1)
         for i in 0..<n {
-            let x = (CGFloat(i) + 0.32) * 670 / CGFloat(n)
-            Painter.fill(ctx, Painter.oval(CGRect(x: x - 5, y: min(rootY, tipY) + 10, width: 10,
-                                                  height: abs(rootY - tipY) - 24)), RGBA(1, 1, 1), 0.45)
+            let x = (CGFloat(i) + 0.34) * width / CGFloat(n)
+            let len = abs(rootY - tipY)
+            let lo = min(rootY, tipY)
+            Painter.fill(ctx, Painter.oval(CGRect(x: x - 3, y: lo + len * 0.3, width: 6, height: len * 0.5)),
+                         RGBA(1, 1, 1), 0.5)
         }
         ctx.restoreGState()
     }
 
     // MARK: Small brass and HUD pieces
 
-    /// The brass name plate (no text: the label sits on it).
+    /// The brass name plate (no text: the name and the trait/tier sub-line sit on it).
     static var plate: SKTexture {
         let s = ChestLayout.plateSize
-        return make("plate", width: s.width, height: s.height) { ctx, sz in
-            let body = Painter.roundRect(CGRect(x: 3, y: 3, width: sz.width - 6, height: sz.height - 6), 12)
+        return make("plate-r2", width: s.width, height: s.height) { ctx, sz in
+            let body = Painter.roundRect(CGRect(x: 3, y: 3, width: sz.width - 6, height: sz.height - 6), 14)
             Painter.chunky(ctx, body, ScenePaint.brass, outline: 2, light: 0.45, shade: 0.35,
                            from: CGPoint(x: 0, y: sz.height), to: CGPoint(x: 0, y: 0))
-            Painter.stroke(ctx, Painter.roundRect(CGRect(x: 10, y: 9, width: sz.width - 20, height: sz.height - 18), 8),
+            Painter.stroke(ctx, Painter.roundRect(CGRect(x: 10, y: 9, width: sz.width - 20, height: sz.height - 18), 9),
                            ScenePaint.brassDark, width: 2, 0.8)
-            Painter.rivet(ctx, CGPoint(x: 20, y: sz.height / 2), 4.5, ScenePaint.brassLight)
-            Painter.rivet(ctx, CGPoint(x: sz.width - 20, y: sz.height / 2), 4.5, ScenePaint.brassLight)
+            // The engraved rule between the name and the sub-line.
+            Painter.stroke(ctx, Painter.rect(CGRect(x: 60, y: sz.height * 0.44, width: sz.width - 120, height: 0.01)),
+                           ScenePaint.brassDark, width: 1.4, 0.5)
+            Painter.rivet(ctx, CGPoint(x: 22, y: sz.height / 2), 5, ScenePaint.brassLight)
+            Painter.rivet(ctx, CGPoint(x: sz.width - 22, y: sz.height / 2), 5, ScenePaint.brassLight)
         }
     }
 
-    /// The snore-o-meter's plate: a brass frame, a dark well, a sleepy face and the stage notches.
+    /// One half of the brass brow plate over the eye (the LEFT half: its inner end at the texture's right edge).
+    static var browHalf: SKTexture {
+        let s = ChestLayout.browHalf
+        return make("brow-half", width: s.width + 6, height: s.height + 6) { ctx, sz in
+            let p = CGMutablePath()
+            let h = sz.height
+            p.move(to: CGPoint(x: sz.width - 2, y: h - 3))
+            p.addLine(to: CGPoint(x: 14, y: h - 7))
+            p.addQuadCurve(to: CGPoint(x: 14, y: 9), control: CGPoint(x: 2, y: h / 2))
+            p.addLine(to: CGPoint(x: sz.width - 2, y: 3))
+            p.closeSubpath()
+            Painter.chunky(ctx, p, ScenePaint.brass, outline: 2, light: 0.5, shade: 0.45,
+                           from: CGPoint(x: 0, y: h), to: CGPoint(x: 0, y: 0))
+            Painter.stroke(ctx, Painter.rect(CGRect(x: 22, y: h / 2, width: sz.width - 30, height: 0.01)),
+                           ScenePaint.brassDark, width: 1.6, 0.6)
+            Painter.rivet(ctx, CGPoint(x: 18, y: h / 2), 4, ScenePaint.brassLight)
+            Painter.rivet(ctx, CGPoint(x: sz.width * 0.55, y: h / 2), 3, ScenePaint.brassLight)
+        }
+    }
+
+    /// The noise meter's plate: brass, a recess for "NOISE", the dark segment well, stage notches, and the teeth at
+    /// the full end (where it bites).
     static var meterPlate: SKTexture {
         let m = ChestLayout.meterRect
-        return make("meter-plate", width: m.width, height: m.height) { ctx, s in
+        return make("meter-plate-r2", width: m.width, height: m.height) { ctx, s in
             let body = Painter.roundRect(CGRect(origin: .zero, size: s).insetBy(dx: 1.5, dy: 1.5), s.height / 2)
             Painter.chunky(ctx, body, ScenePaint.brass, outline: 1.5, light: 0.4, shade: 0.4,
                            from: CGPoint(x: 0, y: s.height), to: CGPoint(x: 0, y: 0))
+            // The label's recess.
+            let lc = CGPoint(x: ChestLayout.meterLabelCenter.x - m.minX, y: ChestLayout.meterLabelCenter.y - m.minY)
+            Painter.fill(ctx, Painter.roundRect(CGRect(x: lc.x - 38, y: 5, width: 76, height: s.height - 10), 8),
+                         ScenePaint.brassLight, 0.55)
             let well = ChestLayout.meterWell.offsetBy(dx: -m.minX, dy: -m.minY)
             Painter.fill(ctx, Painter.roundRect(well.insetBy(dx: -2, dy: -2), 6), RGBA(hex: 0x120A06), 1)
-            // The sleepy face.
-            let fc = CGPoint(x: 16, y: s.height / 2)
-            Painter.fill(ctx, Painter.circle(fc, 11), ChestArt.palette.candle)
-            Painter.stroke(ctx, Painter.circle(fc, 11), ScenePaint.outline, width: 2, 0.9)
-            for dx in [CGFloat(-4.5), 4.5] {
-                let lidLine = CGMutablePath()
-                lidLine.move(to: CGPoint(x: fc.x + dx - 3, y: fc.y + 2))
-                lidLine.addQuadCurve(to: CGPoint(x: fc.x + dx + 3, y: fc.y + 2), control: CGPoint(x: fc.x + dx, y: fc.y - 1.5))
-                Painter.stroke(ctx, lidLine, ScenePaint.outline, width: 1.8, 1)
-            }
-            Painter.fill(ctx, Painter.oval(CGRect(x: fc.x - 2, y: fc.y - 6, width: 4, height: 3)), ScenePaint.outline, 0.9)
             // Stage notches at 0.35 and 0.70.
             for f in [CGFloat(0.35), 0.70] {
                 let x = well.minX + well.width * f
@@ -631,10 +993,27 @@ extension SceneTextures {
                 Painter.fill(ctx, Painter.polygon([CGPoint(x: x - 4, y: 0), CGPoint(x: x + 4, y: 0),
                                                    CGPoint(x: x, y: well.minY + 1)]), ScenePaint.outline, 0.9)
             }
+            // The teeth: a little red mouth with fangs top and bottom.
+            let tc = CGPoint(x: ChestLayout.meterTeethCenter.x - m.minX, y: ChestLayout.meterTeethCenter.y - m.minY)
+            let mouth = Painter.roundRect(CGRect(x: tc.x - 20, y: tc.y - 11, width: 40, height: 22), 9)
+            Painter.stroke(ctx, mouth, ScenePaint.outline, width: 3, 0.95)
+            Painter.fill(ctx, mouth, RGBA(hex: 0x7A0E1C))
+            var up = CGAffineTransform(translationX: tc.x - 17, y: tc.y + 10)
+            let topRow = ChestArt.teethRow(width: 34, height: 9, count: 4, pointingDown: true)
+            if let t1 = topRow.copy(using: &up) {
+                Painter.stroke(ctx, t1, ScenePaint.outline, width: 1.6, 0.9)
+                Painter.fill(ctx, t1, ScenePaint.ivory)
+            }
+            var dn = CGAffineTransform(translationX: tc.x - 15, y: tc.y - 10)
+            let botRow = ChestArt.teethRow(width: 30, height: 7, count: 4, pointingDown: false)
+            if let t2 = botRow.copy(using: &dn) {
+                Painter.stroke(ctx, t2, ScenePaint.outline, width: 1.6, 0.9)
+                Painter.fill(ctx, t2, ScenePaint.ivory)
+            }
         }
     }
 
-    /// The torch gauge's track on the left rim (a dark slot with a brass edge).
+    /// The candle's track on the left rim (a dark slot with a brass edge).
     static var torchTrack: SKTexture {
         let r = ChestLayout.torchRect
         return make("torch-track", width: r.width, height: r.height) { ctx, s in
@@ -698,7 +1077,7 @@ extension SceneTextures {
         }
     }
 
-    /// The brass clasp on the satchel (the shut-hold ring goes round it), with a little sack on it.
+    /// The brass clasp on the IN BAG plate (the shut-hold ring goes round it), with a little sack on it.
     static var clasp: SKTexture {
         make("clasp", width: 68, height: 68) { ctx, s in
             let c = CGPoint(x: s.width / 2, y: s.height / 2)
@@ -706,7 +1085,6 @@ extension SceneTextures {
             Painter.chunky(ctx, disk, ScenePaint.brass, outline: 2, light: 0.45, shade: 0.4,
                            from: CGPoint(x: c.x - 29, y: c.y + 29), to: CGPoint(x: c.x + 29, y: c.y - 29))
             Painter.stroke(ctx, Painter.circle(c, 23), ScenePaint.brassDark, width: 2, 0.8)
-            // The sack.
             let sack = CGMutablePath()
             sack.move(to: CGPoint(x: c.x - 7, y: c.y + 8))
             sack.addCurve(to: CGPoint(x: c.x, y: c.y - 15), control1: CGPoint(x: c.x - 22, y: c.y - 2),
@@ -724,19 +1102,66 @@ extension SceneTextures {
         }
     }
 
-    /// A gold coin stack (the counter's icon).
+    /// The BANKED icon: a little stack of the gold coins (same disc as the loot).
     static var coinStack: SKTexture {
-        make("coin-stack", width: 48, height: 48) { ctx, s in
-            let gold = ChestArt.palette.gold
-            for (i, y) in [CGFloat(10), 18, 26].enumerated() {
-                let r = CGRect(x: 6 + CGFloat(i % 2) * 2, y: y, width: 34, height: 14)
+        make("coin-stack-r2", width: 52, height: 52) { ctx, s in
+            let fill = ChestArt.lootColors(.copper)
+            for (i, y) in [CGFloat(8), 16, 24].enumerated() {
+                let r = CGRect(x: 7 + CGFloat(i % 2) * 2, y: y, width: 36, height: 15)
+                // The coin's edge, then its face.
+                let edge = Painter.roundRect(CGRect(x: r.minX, y: r.minY - 3, width: r.width, height: r.height), 7)
+                Painter.stroke(ctx, edge, ScenePaint.outline, width: 3, 0.9)
+                Painter.fill(ctx, edge, fill.rim)
                 let p = Painter.oval(r)
-                Painter.chunky(ctx, p, gold, outline: 1.5, light: 0.4, shade: 0.35,
+                Painter.chunky(ctx, p, fill.fill, outline: 1.5, light: 0.4, shade: 0.3,
                                from: CGPoint(x: r.minX, y: r.maxY), to: CGPoint(x: r.maxX, y: r.minY))
-                Painter.stroke(ctx, Painter.oval(r.insetBy(dx: 7, dy: 3)), ScenePaint.brassDark, width: 1.4, 0.8)
+                Painter.stroke(ctx, Painter.oval(r.insetBy(dx: 6, dy: 2.5)), fill.rim, width: 1.4, 0.8)
             }
-            Painter.fill(ctx, Painter.oval(CGRect(x: 14, y: 34, width: 9, height: 3)), RGBA(1, 1, 1), 0.8)
+            Painter.fill(ctx, Painter.oval(CGRect(x: 15, y: 33, width: 10, height: 3)), RGBA(1, 1, 1), 0.85)
             _ = s
+        }
+    }
+
+    /// The Hush Chain medallion (a brass disc with two linked rings embossed; the multiplier sits on it).
+    static var chainMedallion: SKTexture {
+        make("chain-medallion", width: 64, height: 64) { ctx, s in
+            let c = CGPoint(x: s.width / 2, y: s.height / 2)
+            let d = Painter.circle(c, 28)
+            Painter.chunky(ctx, d, ScenePaint.brass, outline: 2.2, light: 0.5, shade: 0.45,
+                           from: CGPoint(x: c.x - 28, y: c.y + 28), to: CGPoint(x: c.x + 28, y: c.y - 28))
+            Painter.fill(ctx, Painter.circle(c, 21), RGBA(hex: 0x2A1A0C), 0.92)
+            for dx in [CGFloat(-7), 7] {
+                Painter.stroke(ctx, Painter.oval(CGRect(x: c.x + dx - 10, y: c.y - 6, width: 20, height: 12)),
+                               ScenePaint.brassLight, width: 2, 0.28)
+            }
+            Painter.stroke(ctx, Painter.circle(c, 21), ScenePaint.brassDark, width: 2, 0.9)
+        }
+    }
+
+    /// A jagged crack across the medallion (the chain breaking).
+    static var chainCrack: SKTexture {
+        make("chain-crack", width: 64, height: 64) { ctx, s in
+            let p = CGMutablePath()
+            p.move(to: CGPoint(x: 10, y: 50))
+            for q in [CGPoint(x: 22, y: 38), CGPoint(x: 28, y: 42), CGPoint(x: 34, y: 28), CGPoint(x: 40, y: 32),
+                      CGPoint(x: 54, y: 12)] {
+                p.addLine(to: q)
+            }
+            p.move(to: CGPoint(x: 34, y: 28))
+            p.addLine(to: CGPoint(x: 30, y: 14))
+            Painter.stroke(ctx, p, ScenePaint.outline, width: 4.5, 1)
+            Painter.stroke(ctx, p, RGBA(1, 0.95, 0.85), width: 1.5, 0.9)
+            _ = s
+        }
+    }
+
+    /// A dark rounded backing for the candle countdown.
+    static var countdownPill: SKTexture {
+        let r = ChestLayout.countdownRect
+        return make("countdown-pill", width: r.width, height: r.height) { ctx, s in
+            let p = Painter.roundRect(CGRect(origin: .zero, size: s).insetBy(dx: 2, dy: 2), s.height / 2 - 2)
+            Painter.fill(ctx, p, RGBA(hex: 0x120805), 0.82)
+            Painter.stroke(ctx, p, ScenePaint.brassDark, width: 2.5, 0.95)
         }
     }
 
@@ -774,6 +1199,18 @@ extension SceneTextures {
         }
     }
 
+    /// An up-chevron on the slider track (a hint while the lid is shut and the bag is empty).
+    static var chevron: SKTexture {
+        make("chevron", width: 40, height: 26) { ctx, s in
+            let p = CGMutablePath()
+            p.move(to: CGPoint(x: 6, y: 6))
+            p.addLine(to: CGPoint(x: s.width / 2, y: s.height - 6))
+            p.addLine(to: CGPoint(x: s.width - 6, y: 6))
+            Painter.stroke(ctx, p, ScenePaint.outline, width: 9, 0.8)
+            Painter.stroke(ctx, p, ChestArt.palette.candle, width: 5, 1)
+        }
+    }
+
     // MARK: The eye
 
     /// The iris (gold-amber, fibres, dark rim), sized to `ChestLayout.eyeRadius × 0.6`.
@@ -793,6 +1230,8 @@ extension SceneTextures {
             Painter.stroke(ctx, Painter.circle(c, r - 1.5), ScenePaint.outline, width: 3.5, 0.9)
         }
     }
+
+    static var irisSide: CGFloat { ceil(ChestLayout.eyeRadius * 0.6) * 2 + 4 }
 
     /// The pupil: a cat-like vertical slit (scale x to narrow it).
     static var pupil: SKTexture {

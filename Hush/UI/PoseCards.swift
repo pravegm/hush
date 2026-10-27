@@ -1,12 +1,25 @@
+import SpriteKit
 import SwiftUI
 
-/// A little drawing of the Duo, the pose cards' and the lesson's diagram.
-/// - `.tabletop(angle:)`: seen from the side, like a little laptop: the floor flat, the lid raised at `angle`° (gold).
-/// - `.halves(lift:)`: seen from above, open flat in book pose: the half to lift glows gold, with "Lift this half".
+/// The Scene's front-view mimic (`MimicPortraitScene`) in SwiftUI: Home, the cover card and Results (R2, juror P0-1:
+/// one art style). Transparent, so it sits on the dungeon backdrop.
+struct MimicPortraitView: View {
+    let scene: MimicPortraitScene
+    var paused = false
+    var fps = 60
+
+    var body: some View {
+        SpriteView(scene: scene, isPaused: paused, preferredFramesPerSecond: fps, options: [.allowsTransparency])
+            .aspectRatio(PortraitScenes.aspect, contentMode: .fit)
+            .accessibilityHidden(true)
+    }
+}
+
+/// A little drawing of the Duo seen from the side, like a little laptop: the floor flat, the lid raised at `angle`°
+/// (gold). The closing card's diagram.
 struct DuoDiagram: View {
     enum Style: Equatable {
         case tabletop(angle: Double)
-        case halves(lift: ScreenSide)
     }
 
     let style: Style
@@ -24,11 +37,6 @@ struct DuoDiagram: View {
                 withAnimation(.easeInOut(duration: 1.4).repeatForever(autoreverses: true)) { rock = true }
             }
             .accessibilityLabel("The Duo stood like a little laptop, lid raised")
-        case let .halves(lift):
-            GeometryReader { geo in
-                halves(size: geo.size, lift: lift)
-            }
-            .accessibilityLabel(lift == .left ? "Lift the left half" : "Lift the right half")
         }
     }
 
@@ -44,19 +52,16 @@ struct DuoDiagram: View {
         let dy = CGFloat(sin(a)) * floorLen
         let lidEnd = CGPoint(x: hinge.x - dx, y: hinge.y - dy)
         return ZStack {
-            // The table.
             Path { p in
                 p.move(to: CGPoint(x: 0, y: h - 1))
                 p.addLine(to: CGPoint(x: w, y: h - 1))
             }
             .stroke(HushTheme.haze.opacity(0.6), style: StrokeStyle(lineWidth: 2, lineCap: .round, dash: [4, 6]))
-            // The floor half, flat.
             Path { p in
                 p.move(to: hinge)
                 p.addLine(to: CGPoint(x: hinge.x + floorLen, y: hinge.y))
             }
             .stroke(HushTheme.mist, style: StrokeStyle(lineWidth: thickness, lineCap: .round))
-            // The lid half, raised.
             Path { p in
                 p.move(to: hinge)
                 p.addLine(to: lidEnd)
@@ -68,130 +73,233 @@ struct DuoDiagram: View {
                 .position(hinge)
         }
     }
+}
 
-    private func halves(size: CGSize, lift: ScreenSide) -> some View {
-        let gap: CGFloat = 6
-        let halfW = (size.width - gap) / 2
-        let r = RoundedRectangle(cornerRadius: min(halfW, size.height) * 0.12, style: .continuous)
-        return HStack(spacing: gap) {
-            half(r, lifted: lift == .left, width: halfW, height: size.height)
-            half(r, lifted: lift == .right, width: halfW, height: size.height)
-        }
+/// Book pose (landscape on a Duo), R2 (UX P0-5, REVIEW-1-duo P0-1 / P2-12): "Turn it round. Lift the glowing half."
+/// Brim's two-page layout: the WHOLE half to lift glows gold, the words, the animated diagram and "I've stood it up"
+/// sit on the other page, nothing within 24 pt of the fold. In a narrow window, one stacked column. Drawn in the
+/// interface's own orientation (never turned round). A phone never shows it.
+struct StandUpCard: View {
+    let insets: EdgeInsets
+    let liftSide: ScreenSide
+    let reduceMotion: Bool
+    let onStoodUp: () -> Void
+
+    /// The fold of a Duo in book pose runs down the middle (a 40 pt band). Content keeps ≥ 24 pt clear of it.
+    static let creaseHalf: CGFloat = 20
+    static let creaseClear: CGFloat = 24
+    static let pageMargin: CGFloat = 28
+
+    static let title = "Turn it round. Lift the glowing half."
+    static let bodyText = "Keep the other half flat, nearest you. That's the floor."
+
+    /// Pure (tested): a Duo inner display in book pose, where the card splits into one column per page.
+    static func splitsOnFold(_ size: CGSize) -> Bool {
+        size.width > size.height && OrientationLock.looksLikeDuo(size)
     }
 
-    private func half(_ r: RoundedRectangle, lifted: Bool, width: CGFloat, height: CGFloat) -> some View {
+    var body: some View {
         ZStack {
-            r.fill(lifted ? HushTheme.gold.opacity(0.22) : HushTheme.surfaceRaised)
-            r.stroke(lifted ? HushTheme.gold : HushTheme.haze.opacity(0.6), lineWidth: lifted ? 4 : 2)
-            VStack(spacing: 6) {
-                Image(systemName: lifted ? "arrow.up" : "square.grid.2x2.fill")
-                    .font(.system(size: min(width, height) * 0.22, weight: .black, design: .rounded))
-                Text(lifted ? "Lift this half" : "Floor")
-                    .font(.system(size: max(min(width, height) * 0.1, 12), weight: .heavy, design: .rounded))
-                    .multilineTextAlignment(.center)
+            HushTheme.backdrop
+            GeometryReader { geo in
+                if Self.splitsOnFold(geo.size) {
+                    bookPages(geo.size)
+                } else {
+                    stacked(geo.size)
+                }
             }
-            .foregroundStyle(lifted ? HushTheme.goldLight : HushTheme.mist)
-            .padding(8)
+        }
+        .ignoresSafeArea()
+    }
+
+    private func bookPages(_ size: CGSize) -> some View {
+        let page = max(size.width / 2 - Self.creaseHalf - Self.creaseClear, 0)
+        let liftPage = ZStack {
+            RoundedRectangle(cornerRadius: 30, style: .continuous)
+                .fill(LinearGradient(colors: [HushTheme.gold.opacity(0.32), HushTheme.goldDeep.opacity(0.18)],
+                                     startPoint: .top, endPoint: .bottom))
+                .overlay(RoundedRectangle(cornerRadius: 30, style: .continuous)
+                    .stroke(HushTheme.gold, lineWidth: 5))
+            VStack(spacing: 14) {
+                Image(systemName: "arrow.up")
+                    .font(.system(size: 64, weight: .black, design: .rounded))
+                Text("Lift this half")
+                    .font(.system(size: 36, weight: .heavy, design: .rounded))
+                Text("It's the chest's lid.")
+                    .font(HushType.body(false))
+                    .foregroundStyle(HushTheme.parchment)
+            }
+            .foregroundStyle(HushTheme.goldLight)
+            .multilineTextAlignment(.center)
+            .padding(20)
+        }
+        .padding(.top, insets.top + 16)
+        .padding(.bottom, insets.bottom + 16)
+        .frame(width: page)
+        .accessibilityElement(children: .combine)
+        let floorPage = ScrollView(showsIndicators: false) {
+            copy(diagram: min(page - 2 * Self.pageMargin, 220))
+                .padding(.horizontal, Self.pageMargin)
+                .padding(.vertical, 24)
+                .frame(width: page)
+                .frame(minHeight: max(size.height - insets.top - insets.bottom, 0))
+        }
+        .frame(width: page)
+        .padding(.top, insets.top)
+        .padding(.bottom, insets.bottom)
+        let gap = Color.clear.frame(width: 2 * (Self.creaseHalf + Self.creaseClear))
+        return HStack(spacing: 0) {
+            if liftSide == .left {
+                liftPage
+                gap
+                floorPage
+            } else {
+                floorPage
+                gap
+                liftPage
+            }
+        }
+        .padding(.leading, liftSide == .left ? insets.leading : 0)
+        .padding(.trailing, liftSide == .right ? insets.trailing : 0)
+        .frame(width: size.width, height: size.height)
+    }
+
+    private func stacked(_ size: CGSize) -> some View {
+        ScrollView(showsIndicators: false) {
+            copy(diagram: min(size.width - 80, 220))
+                .padding(.horizontal, 24)
+                .padding(.vertical, 24)
+                .frame(maxWidth: 460)
+                .frame(width: size.width)
+                .frame(minHeight: max(size.height - insets.top - insets.bottom, 0))
+        }
+        .padding(.top, insets.top)
+        .padding(.bottom, insets.bottom)
+    }
+
+    private func copy(diagram: CGFloat) -> some View {
+        VStack(alignment: .leading, spacing: 16) {
+            TurnAndLiftDrawing(liftSide: liftSide, reduceMotion: reduceMotion)
+                .frame(width: max(diagram, 120), height: max(diagram, 120))
+                .frame(maxWidth: .infinity)
+            HushOverline(text: "Hush", color: HushTheme.gold)
+            Text(Self.title)
+                .font(HushType.title(false))
+                .foregroundStyle(HushTheme.parchment)
+                .fixedSize(horizontal: false, vertical: true)
+            Text(Self.bodyText)
+                .font(HushType.body(false))
+                .foregroundStyle(HushTheme.mist)
+                .fixedSize(horizontal: false, vertical: true)
+            HushButton(kind: .primary, height: HushTheme.minTap, confirm: true, action: onStoodUp) {
+                Label("I've stood it up", systemImage: "checkmark")
+            }
+            .accessibilityHint("Turns the screen upright for the chest")
+        }
+    }
+}
+
+/// The Duo seen from above (R2, UX P0-5): it turns from book pose (fold up and down, the glowing half on `liftSide`)
+/// a quarter turn so the fold runs side to side, then the glowing half lifts while the other stays flat, nearest you.
+/// On a loop; one still (turned, lifted) under Reduce Motion and in demo captures.
+struct TurnAndLiftDrawing: View {
+    let liftSide: ScreenSide
+    let reduceMotion: Bool
+
+    private var still: Bool { reduceMotion || DemoMode.current != nil }
+
+    var body: some View {
+        TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: still)) { context in
+            let t = still ? 3.0 : context.date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: 4.6)
+            let turn = Self.ease(min(max((t - 0.4) / 0.9, 0), 1))
+            let liftIn = Self.ease(min(max((t - 1.8) / 0.8, 0), 1))
+            let liftOut = Self.ease(min(max((t - 3.6) / 0.6, 0), 1))
+            let lift = still ? 1 : liftIn * (1 - liftOut)
+            // Before the turn the glowing (top) half points at `liftSide`.
+            let start: Double = liftSide == .left ? -90 : 90
+            GeometryReader { geo in
+                let side = min(geo.size.width, geo.size.height)
+                let w = side * 0.5
+                let h = side * 0.36
+                ZStack {
+                    Ellipse()
+                        .fill(Color.black.opacity(0.25))
+                        .frame(width: side * 0.9, height: side * 0.9)
+                    VStack(spacing: 0) {
+                        half(lid: true, width: w, height: h)
+                            .rotation3DEffect(.degrees(55 * lift), axis: (x: 1, y: 0, z: 0), anchor: .bottom,
+                                              perspective: 0.5)
+                            .zIndex(1)
+                        Rectangle()
+                            .fill(HushTheme.goldDeep)
+                            .frame(width: w, height: 3)
+                        half(lid: false, width: w, height: h)
+                    }
+                    .rotationEffect(.degrees(start * (1 - turn)))
+                }
+                .frame(width: geo.size.width, height: geo.size.height)
+            }
+        }
+        .accessibilityLabel("Turn the Duo a quarter turn, then lift the glowing half")
+    }
+
+    private static func ease(_ x: Double) -> Double { 1 - pow(1 - x, 3) }
+
+    private func half(lid: Bool, width: CGFloat, height: CGFloat) -> some View {
+        let r = RoundedRectangle(cornerRadius: 10, style: .continuous)
+        return ZStack {
+            r.fill(lid ? HushTheme.gold.opacity(0.85) : HushTheme.surfaceRaised)
+            r.stroke(lid ? HushTheme.goldLight : HushTheme.haze, lineWidth: 2)
+            Image(systemName: lid ? "arrow.up" : "shippingbox.fill")
+                .font(.system(size: height * 0.32, weight: .black))
+                .foregroundStyle(lid ? HushTheme.ink : HushTheme.mist)
         }
         .frame(width: width, height: height)
     }
 }
 
-/// Book pose (landscape on a Duo): "Stand it up like a little laptop", with the half to lift marked. Drawn in the
-/// interface's own orientation (never turned round).
-struct StandUpCard: View {
-    let insets: EdgeInsets
-    let liftSide: ScreenSide
-    let reduceMotion: Bool
-
-    var body: some View {
-        ZStack {
-            HushTheme.backdrop
-            HStack(spacing: 36) {
-                DuoDiagram(style: .halves(lift: liftSide), reduceMotion: reduceMotion)
-                    .frame(width: 300, height: 200)
-                VStack(alignment: .leading, spacing: 14) {
-                    HushOverline(text: "Hush", color: HushTheme.gold)
-                    Text("Stand it up like a little laptop")
-                        .font(HushType.title(false))
-                        .foregroundStyle(HushTheme.parchment)
-                        .fixedSize(horizontal: false, vertical: true)
-                    Text("The glowing half is the chest's lid. Lift it, and keep the other half flat.")
-                        .font(HushType.body(false))
-                        .foregroundStyle(HushTheme.mist)
-                        .fixedSize(horizontal: false, vertical: true)
-                    DuoDiagram(style: .tabletop(angle: 115), reduceMotion: reduceMotion)
-                        .frame(width: 140, height: 80)
-                }
-                .frame(maxWidth: 360, alignment: .leading)
-            }
-            .padding(.leading, insets.leading + 24)
-            .padding(.trailing, insets.trailing + 24)
-        }
-        .ignoresSafeArea()
-        .accessibilityElement(children: .combine)
-    }
-}
-
-/// Shut, on the cover display: the sleeping mimic and "Open to carry on".
+/// Shut, on the cover display: the sleeping mimic (the Scene's portrait, asleep) and "Open to carry on".
 struct CoverCard: View {
     let midRun: Bool
+    let portrait: MimicPortraitScene
     let reduceMotion: Bool
-    @State private var breathe = false
+
+    /// Pure; tested.
+    static func title(midRun: Bool) -> String { midRun ? "Open to carry on" : "Open me… gently" }
+    static func detail(midRun: Bool) -> String {
+        midRun ? "Open me gently, then hold still. Your candle waits." : "There's gold in here. And something else."
+    }
 
     var body: some View {
         ZStack {
             HushTheme.backdrop
-            VStack(spacing: 18) {
-                SleepingMimic(breathe: breathe)
-                    .frame(width: 180, height: 120)
-                Text(midRun ? "Open to carry on" : "Open me… gently")
-                    .font(HushType.title(true))
-                    .foregroundStyle(HushTheme.parchment)
-                    .multilineTextAlignment(.center)
-                Text(midRun ? "The mimic is fast asleep. So is your torch." : "There's gold in here. And something else.")
-                    .font(HushType.body(true))
-                    .foregroundStyle(HushTheme.mist)
-                    .multilineTextAlignment(.center)
-                    .padding(.horizontal, 24)
+            ScrollView(showsIndicators: false) {
+                VStack(spacing: 16) {
+                    MimicPortraitView(scene: portrait, fps: 30)
+                        .frame(width: 220)
+                    Text(Self.title(midRun: midRun))
+                        .font(HushType.title(true))
+                        .foregroundStyle(HushTheme.parchment)
+                        .multilineTextAlignment(.center)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Text(Self.detail(midRun: midRun))
+                        .font(HushType.body(true))
+                        .foregroundStyle(HushTheme.mist)
+                        .multilineTextAlignment(.center)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .padding(.horizontal, 24)
+                .padding(.vertical, 40)
+                .frame(maxWidth: .infinity)
             }
+            .scrollBounceBehavior(.basedOnSize)
         }
         .ignoresSafeArea()
         .onAppear {
-            guard !reduceMotion else { return }
-            withAnimation(.easeInOut(duration: 2.2).repeatForever(autoreverses: true)) { breathe = true }
+            portrait.openness = 0
+            portrait.wake = 0
+            portrait.reduceMotion = reduceMotion
         }
         .accessibilityElement(children: .combine)
-    }
-}
-
-/// The mimic asleep: a closed eye on the lid's wood, a little "z".
-struct SleepingMimic: View {
-    var breathe: Bool
-
-    var body: some View {
-        GeometryReader { geo in
-            let w = geo.size.width
-            let h = geo.size.height
-            ZStack {
-                RoundedRectangle(cornerRadius: h * 0.22, style: .continuous)
-                    .fill(LinearGradient(colors: [Color(hushHex: 0x8A5A32), Color(hushHex: 0x5C3A1F)],
-                                         startPoint: .top, endPoint: .bottom))
-                    .overlay(RoundedRectangle(cornerRadius: h * 0.22, style: .continuous)
-                        .stroke(Color(hushHex: 0x3A3F42), lineWidth: 6))
-                Path { p in
-                    p.move(to: CGPoint(x: w * 0.3, y: h * 0.5))
-                    p.addQuadCurve(to: CGPoint(x: w * 0.7, y: h * 0.5), control: CGPoint(x: w * 0.5, y: h * 0.68))
-                }
-                .stroke(HushTheme.parchment, style: StrokeStyle(lineWidth: 6, lineCap: .round))
-                Text("z")
-                    .font(.system(size: h * 0.3, weight: .black, design: .rounded))
-                    .foregroundStyle(HushTheme.goldLight)
-                    .position(x: w * 0.82, y: breathe ? h * 0.12 : h * 0.24)
-                    .opacity(breathe ? 1 : 0.5)
-            }
-            .scaleEffect(breathe ? 1.03 : 1)
-        }
-        .accessibilityHidden(true)
     }
 }

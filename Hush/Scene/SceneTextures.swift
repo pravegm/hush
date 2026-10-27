@@ -337,54 +337,35 @@ enum SceneTextures {
 
     // MARK: Loot
 
-    static func lootKey(_ kind: LootKind) -> String {
-        switch kind {
-        case .copper: return "copper"
-        case .silver: return "silver"
-        case .gem(let c): return "gem-\(c.rawValue)"
-        case .relic(let id): return "relic-\(id.rawValue)"
-        case .oil: return "oil"
-        }
-    }
+    static func lootKey(_ kind: LootKind) -> String { ChestArt.lootKeyName(kind) }
 
-    /// The item's art at `radius` (the sprite's size in points is `lootSide(radius)` square).
-    static func loot(_ kind: LootKind, radius: CGFloat) -> SKTexture {
+    /// The item's art at `radius` (the sprite's size in points is `lootSide(radius)` square). The pixels come from
+    /// `ChestArt.lootImage`, the same image SwiftUI uses (one art source). `value` picks the coin stack.
+    static func loot(_ kind: LootKind, radius: CGFloat, value: Int = 0) -> SKTexture {
         let r = max(radius.rounded(), 4)
-        let side = lootSide(r)
-        return make("loot-\(lootKey(kind))-\(Int(r))", width: side, height: side, scale: 3) { ctx, s in
-            ctx.translateBy(x: s.width / 2, y: s.height / 2)
-            drawLoot(ctx, ChestArt.lootArt(kind, radius: r), ChestArt.lootColors(kind), radius: r)
+        let n = ChestArt.coinCount(kind, value: value)
+        let key = "loot-\(lootKey(kind))-\(Int(r))-\(n)"
+        if let t = cache[key] { return t }
+        guard let img = ChestArt.lootImage(kind, value: value, radius: r, scale: 3) else {
+            let side = lootSide(r)
+            return make(key, width: side, height: side, scale: 3) { ctx, s in
+                ctx.translateBy(x: s.width / 2, y: s.height / 2)
+                ChestArt.drawArt(ctx, ChestArt.lootArt(kind, radius: r, value: value), ChestArt.lootColors(kind),
+                                 radius: r)
+            }
         }
+        let t = SKTexture(cgImage: img)
+        t.filteringMode = .linear
+        cache[key] = t
+        return t
     }
 
-    static func lootSide(_ radius: CGFloat) -> CGFloat {
-        let r = max(radius.rounded(), 4)
-        return ceil(2 * r + 2 * (max(r * 0.16, 1.5) + 4))
-    }
+    static func lootSide(_ radius: CGFloat) -> CGFloat { ChestArt.artSide(radius: radius) }
 
-    /// Draws a `LootArt` centred at the context's origin (y up).
+    /// Draws a `LootArt` centred at the context's origin (y up) (the shared renderer).
     static func drawLoot(_ ctx: CGContext, _ art: LootArt, _ col: (fill: RGBA, rim: RGBA, glint: RGBA),
                          radius r: CGFloat) {
-        ctx.setLineJoin(.round)
-        ctx.setLineCap(.round)
-        // The outline: every part stroked before any is filled, so only the union's edge shows.
-        for p in art.parts {
-            Painter.stroke(ctx, p, ScenePaint.outline, width: art.outlineWidth * 2, 0.92)
-        }
-        for p in art.parts {
-            Painter.gradient(ctx, p, [ScenePaint.lighter(col.fill, 0.35), col.fill, ScenePaint.darker(col.fill, 0.3)],
-                             [0, 0.5, 1], from: CGPoint(x: -r * 0.6, y: r * 0.85), to: CGPoint(x: r * 0.6, y: -r * 0.9))
-        }
-        Painter.stroke(ctx, art.detail, col.rim, width: art.detailWidth, 0.9)
-        Painter.fill(ctx, art.shine, col.glint, 0.85)
-        if !art.holes.isEmpty {
-            ctx.saveGState()
-            ctx.setBlendMode(.clear)
-            ctx.addPath(art.holes)
-            ctx.fillPath()
-            ctx.restoreGState()
-            Painter.stroke(ctx, art.holes, ScenePaint.outline, width: art.detailWidth * 1.2, 0.9)
-        }
+        ChestArt.drawArt(ctx, art, col, radius: r)
     }
 
     /// A soft dark ellipse for an item's contact shadow (white: tint it).
@@ -408,19 +389,35 @@ final class SceneLabel {
     let size: CGFloat
     private(set) var text: String = ""
     private var color: UIColor
-    private let outline: UIColor?
-    /// When > 0 the label is scaled down to fit (never below `minimumSize`).
+    private var outline: UIColor?
+    /// The smallest size this label may be drawn or scaled to (18 pt for play text; 14 pt for small-caps labels).
+    let floorSize: CGFloat
+    /// The outline thickness (% of the font size, negative = stroke and fill).
+    private let strokeWidth: Double
+    /// Letter spacing in points (small-caps labels are tracked out).
+    private let kern: CGFloat
+    /// When > 0 the label is scaled down to fit (never below `floorSize`).
     var maxWidth: CGFloat = 0
 
     init(size: CGFloat, color: UIColor, outline: UIColor? = ScenePaint.ui(ScenePaint.outline),
-         align: SKLabelHorizontalAlignmentMode = .center) {
-        self.size = max(size, SceneLabel.minimumSize)
+         align: SKLabelHorizontalAlignmentMode = .center, minimumSize: CGFloat = SceneLabel.minimumSize,
+         strokeWidth: Double = -5, kern: CGFloat = 0) {
+        floorSize = max(minimumSize, 12)
+        self.size = max(size, floorSize)
         self.color = color
         self.outline = outline
+        self.strokeWidth = strokeWidth
+        self.kern = kern
         node = SKLabelNode()
         node.horizontalAlignmentMode = align
         node.verticalAlignmentMode = .center
         node.numberOfLines = 1
+    }
+
+    func setOutline(_ c: UIColor?) {
+        guard c != outline else { return }
+        outline = c
+        rebuild()
     }
 
     static func font(_ size: CGFloat) -> UIFont {
@@ -445,12 +442,14 @@ final class SceneLabel {
         var attrs: [NSAttributedString.Key: Any] = [.font: SceneLabel.font(size), .foregroundColor: color]
         if let o = outline {
             attrs[.strokeColor] = o
-            attrs[.strokeWidth] = -5.0
+            attrs[.strokeWidth] = strokeWidth
         }
+        if kern != 0 { attrs[.kern] = kern }
         node.attributedText = NSAttributedString(string: text, attributes: attrs)
         if maxWidth > 0 {
+            node.setScale(1)
             let wdt = node.frame.width
-            let k = wdt > maxWidth ? max(maxWidth / wdt, SceneLabel.minimumSize / size) : 1
+            let k = wdt > maxWidth ? max(maxWidth / wdt, floorSize / size) : 1
             node.setScale(k)
         }
     }

@@ -14,7 +14,8 @@ import UIKit
 //               default casual) and recorded into the demo progress, so best, rank and relics are all true.
 //     codex / settings / daily   those pages.
 //     lesson    the First Chest lesson (at `lessonStep=`, default 1).
-//     pose      force the "Stand it up like a little laptop" card (over `mode` if given, else Home).
+//     pose      force the book-pose card "Turn it round. Lift the glowing half." (over `mode` if given, else Home).
+//               Only on a Duo-shaped screen or with `fold=1`: a phone never shows it (R2).
 //     cover     force the cover-display card (the sleeping mimic, "Open to carry on").
 //     icon      render AppIconArt to Documents/AppIcon-1024.png (`HUSH-T icon ok 1024x1024`, `HUSH-ICON <path>`)
 //               and show it full screen. `HUSH_ICON=1` in the environment does the same without `-hushDemo`.
@@ -22,12 +23,14 @@ import UIKit
 // - `seed=<n>`                    the run seed (default 7 for run/attract, so frames are stable; daily = today's).
 // - `pilot=novice|casual|expert|perfect`   ThiefPilot drives the lid and the touches (fed in as real touches).
 //                                 Without it `screen=run` takes the real hinge (Duo CI) or the slider.
-// - `progress=fresh|mid|late`     seeded in-memory progress (fresh: nothing; mid: rank 4, 9 relics, best 2,400;
-//                                 late: rank 10, 22 relics, best 9,800). Demo runs never write UserDefaults.
+// - `progress=fresh|mid|late`     seeded in-memory progress (fresh: nothing; mid: 9 relics, best 5,200; late: 22
+//                                 relics, best 9,800; ranks and achievements follow from them, DemoPresets). Demo runs
+//                                 never write UserDefaults.
 // - `freezeOn=ready|reveal|stirring|waking|bite|bank|relic|torchLow|torchOut|results`
 //                                 stop stepping the session (the scene keeps drawing) at the first such moment, and
 //                                 print `HUSH-T freeze <tag>`. Moments that are events (bite, bank, relic, torchLow,
-//                                 torchOut) hold 0.3 s after the event so their FX are on screen.
+//                                 torchOut) hold 0.3 s after the event so their FX are on screen (bank: 1.25 s, so the
+//                                 counter has rolled to the new total).
 // - `freezeAfter=<s>`             freeze after s seconds of play (`HUSH-T freeze after`); with `freezeOn`, the
 //                                 moment only counts once s seconds have passed.
 // - `lid=<0…1>`                   hold the lid at this openness (no pilot, no hinge; shut for the first 0.25 s so the
@@ -40,14 +43,19 @@ import UIKit
 // - `orient=portrait|landscape`   ask iOS for that interface orientation at launch (re-asked every 2 s; the Duo
 //                                 simulator boots in book pose). `HUSH-T orient <o> ok|failed|lost`.
 // - `screen=badges`               render every achievement badge to Documents/badges/<gc id>.png
-//                                 (`HUSH-T badges done <n>`), then Home.
+//                                 (`HUSH-T badges done <n>`), then show the Badges page (R2).
 // Extra keys
 // - `skipTo=<s>`                  `screen=run`: play the first s seconds headless (pilot, default expert) first, so
 //                                 late moments (`freezeOn=torchLow`) don't take real minutes. `HUSH-T skipped <s>`.
+// - `noiseUntil=pause`            (R2) with `noise=`: hold it only until the first pause of any reason, then
+//                                 `HUSH-T noise released <n>` and let the session own it (duo.sh REOPEN-NO-BITE).
+// - `golden=1`                    (R2) run/attract: the first seed (from `seed=`) whose chest #3 is a golden mimic;
+//                                 its arrival logs `HUSH-T event chestArrived … golden=1`.
 //
 // Log lines: `HUSH-T demo '<args>' starts`, `HUSH-T canvas <w>x<h> fold=<0|1> turned=<0|1>`,
 // `HUSH-T input hinge|slider|pilot|fixed`, `HUSH-T lid …` (10 Hz in play), `HUSH-T event <name> …`,
-// `HUSH-T paused closing|menu|background|pose`, `HUSH-T resumed`, `HUSH-T freeze <tag>`, `HUSH-T frame 120`,
+// `HUSH-T paused closing|menu|background|pose`, `HUSH-T resumed angle <θ|->`, `HUSH-T phase active|inactive|background`,
+// `HUSH-T freeze <tag>`, `HUSH-T frame 120`, `HUSH-T gold mismatch …` (never expected),
 // `HUSH-T screen <route>`, `HUSH-T run gold=<g> chests=<n> bites=<b> seconds=<s>`, `HUSH-T icon ok|failed`.
 // (`HUSH-H <t> <angle>` hinge samples come from Feel's HingeReader.)
 
@@ -72,6 +80,26 @@ struct DemoMode: Equatable {
 
     static let defaultSeed: UInt64 = 7
     static let freezeEventDelay: Double = 0.3
+    /// R2 (tester 1, frame 14 "+179 but the total reads 151"): a bank frame waits for the counter's roll (0.3 s delay
+    /// + 0.9 s) so the number on screen is the sum of the banks.
+    static let bankFreezeDelay: Double = 1.25
+
+    /// `golden=1`: the first seed at or after `start` whose first possible golden chest (#3, Core's
+    /// `Tuning.goldenFromIndex`) is golden. Core keeps the golden stream apart, so this changes nothing else. Pure;
+    /// tested.
+    static func goldenSeed(from start: UInt64) -> UInt64 {
+        var s = max(start, 1)
+        for _ in 0..<5_000 {
+            if ChestFactory.isGolden(seed: s, index: Tuning.goldenFromIndex) { return s }
+            s &+= 1
+        }
+        return start
+    }
+
+    /// How long an event moment holds before the freeze. Pure; tested.
+    static func freezeDelay(_ tag: Freeze) -> Double {
+        tag == .bank ? bankFreezeDelay : freezeEventDelay
+    }
 
     var raw: String
     var screen: Screen?
@@ -90,6 +118,10 @@ struct DemoMode: Equatable {
     var sound = true
     var skipTo: Double?
     var orient: Orient?
+    /// `noiseUntil=pause`: hold `noise=` only until the first pause, then let it go (`HUSH-T noise released <n>`).
+    var noiseUntilPause = false
+    /// `golden=1`: the run's seed is the first one (from `seed=`, default 7) whose chest #3 is a golden mimic.
+    var golden = false
 
     init(raw: String) { self.raw = raw }
 
@@ -149,6 +181,8 @@ struct DemoMode: Equatable {
             case "skipTo":
                 if let s = number(value) { config.skipTo = max(s, 0) }
             case "orient": config.orient = Orient(rawValue: value.lowercased())
+            case "noiseUntil": config.noiseUntilPause = value.lowercased() == "pause"
+            case "golden": config.golden = flag(value)
             default: break
             }
         }
@@ -175,51 +209,72 @@ struct DemoMode: Equatable {
 
 // MARK: - Seeded progress (`progress=`)
 
+/// R2 (UX P1-14, tester 2/3): every number a seeded profile shows agrees with every other one. The best haul, the
+/// lifetime gold (so the rank), the relic count and the achievements all come from one small made-up history, and the
+/// achievements are Core's own rules applied to that history (never "the first n"). `mid` has a best above a casual
+/// run (its Results frame shows "… short of your best"); `late` has one an expert run can beat ("New best!").
 enum DemoPresets {
-    static func progress(_ preset: DemoMode.Preset?, today: Int) -> ProgressData {
-        var data = ProgressData()
-        switch preset ?? .fresh {
-        case .fresh:
-            return data
-        case .mid:
-            fill(&data, rank: 4, relics: 9, best: 2_400, runs: 26, today: today, dailies: [1_840, 1_310])
-        case .late:
-            fill(&data, rank: 10, relics: 22, best: 9_800, runs: 148, today: today,
-                 dailies: [7_420, 6_150, 8_030, 5_900])
-        }
-        return data
+    struct Profile: Equatable {
+        var runs: Int
+        /// Gold per run on average (lifetime = runs × this, never below the best haul).
+        var averageRun: Int
+        var best: Int
+        var relics: Int
+        var mostChests: Int
+        var mostHushed: Int
+        var bestChain: Int
+        var highestTier: ChestTier
+        var dailies: [Int]
     }
 
-    private static func fill(_ data: inout ProgressData, rank: Int, relics: Int, best: Int, runs: Int, today: Int,
-                             dailies: [Int]) {
-        let top = ThiefRanks.count - 1
-        let r = min(max(rank, 0), top)
-        let lo = ThiefRanks.threshold(r)
-        let hi = r < top ? ThiefRanks.threshold(r + 1) : lo + 1_000
-        // A third of the way into the rank, so the Home bar is visibly part-filled.
-        data.lifetimeGold = lo + max((hi - lo) / 3, 1)
-        data.bestRun = best
-        data.runs = runs
-        data.chestsOpened = runs * 6
-        data.chestsBanked = runs * 5
-        data.hushed = runs * 2
-        data.bites = runs
-        data.itemsBagged = runs * 22
-        data.bestChest = best / 3
-        data.mostChestsInRun = min(4 + rank / 2, 9)
-        data.mostHushedInRun = min(1 + rank / 3, 6)
-        let found = Array(RelicCatalog.all.prefix(relics).map(\.id))
+    static let mid = Profile(runs: 9, averageRun: 1_150, best: 5_200, relics: 9, mostChests: 9, mostHushed: 3,
+                             bestChain: 3, highestTier: .gilded, dailies: [3_840, 3_110])
+    static let late = Profile(runs: 60, averageRun: 2_350, best: 9_800, relics: 22, mostChests: 14, mostHushed: 6,
+                              bestChain: 5, highestTier: .royal, dailies: [8_420, 7_150, 9_030, 6_900])
+
+    static func progress(_ preset: DemoMode.Preset?, today: Int) -> ProgressData {
+        switch preset ?? .fresh {
+        case .fresh: return ProgressData()
+        case .mid: return make(mid, today: today)
+        case .late: return make(late, today: today)
+        }
+    }
+
+    /// Pure; tested (best ≤ lifetime, Home's rank = the rank of the lifetime, Codex count = relics, achievements
+    /// earned by the history's best run).
+    static func make(_ p: Profile, today: Int) -> ProgressData {
+        var data = ProgressData()
+        data.runs = p.runs
+        data.lifetimeGold = max(p.runs * p.averageRun, p.best + (p.runs - 1) * 300)
+        data.bestRun = p.best
+        data.chestsOpened = p.runs * 7
+        data.chestsBanked = p.runs * 6
+        data.hushed = p.runs * 2
+        data.bites = p.runs
+        data.itemsBagged = p.runs * 24
+        data.bestChest = p.best / 4
+        data.mostChestsInRun = p.mostChests
+        data.mostHushedInRun = p.mostHushed
+        let found = Array(RelicCatalog.all.prefix(p.relics).map(\.id))
         data.foundRelics = Set(found)
         data.relicOrder = found
-        data.achievements = Set(Achievements.all.prefix(min(rank, Achievements.all.count)).map(\.id))
         data.lessonDone = true
-        for (i, gold) in dailies.enumerated() {
+        for (i, gold) in p.dailies.enumerated() {
             let day = today - 1 - i
             data.daily[day] = DailyRecord(gold: gold, finished: true, practiceBest: gold / 2)
             data.dailyAttempted.insert(day)
             data.bestDaily = max(data.bestDaily, gold)
         }
         data.lastDailyDay = today - 1
+        // The history's best run, as Core's achievement rules see it.
+        let bestRun = RunResult(mode: .run, seed: 1, gold: p.best, seconds: 120, chestsOpened: p.mostChests + 1,
+                                chestsBanked: p.mostChests, hushed: p.mostHushed, bites: 0,
+                                relics: Array(found.prefix(1)), bestChestValue: p.best / 4, itemsBagged: p.mostChests * 4,
+                                highestTier: p.highestTier, lostToBites: 0, bestChain: p.bestChain, goldenBanked: 1)
+        let earned = Achievements.earned(after: bestRun, lifetimeGold: data.lifetimeGold, relicsFound: p.relics,
+                                         alreadyEarned: [])
+        data.achievements = Set(earned.map(\.id))
+        return data
     }
 }
 
@@ -249,7 +304,7 @@ enum IconExport {
         let url = directory.appendingPathComponent(fileName)
         do {
             try data.write(to: url)
-            AppTrace.t("HUSH-T icon ok \(cgImage.width)x\(cgImage.height)")
+            AppTrace.t("HUSH-T icon ok \(cgImage.width)x\(cgImage.height) rgb=\(OpaquePNG.colorType(data) == 2 ? 1 : 0)")
             AppTrace.t("HUSH-ICON \(url.path)")
         } catch {
             AppTrace.t("HUSH-T icon failed: \(error.localizedDescription)")
@@ -264,7 +319,7 @@ enum IconExport {
             let small = UIGraphicsImageRenderer(size: CGSize(width: s, height: s), format: format).image { _ in
                 UIImage(cgImage: cgImage).draw(in: CGRect(x: 0, y: 0, width: s, height: s))
             }
-            if let png = small.pngData(),
+            if let smallCG = small.cgImage, let png = OpaquePNG.encode(smallCG),
                (try? png.write(to: directory.appendingPathComponent("AppIcon-\(size).png"))) != nil {
                 written.append("\(size)")
             }
@@ -272,7 +327,8 @@ enum IconExport {
         AppTrace.t("HUSH-T icon sizes \(written.joined(separator: ","))")
     }
 
-    /// Redraws into an opaque 1× context so the PNG carries no alpha channel (App Store requirement).
+    /// Redraws into an opaque 1× context and writes an RGB PNG with NO alpha channel (ITMS-90717: `pngData()` keeps an
+    /// alpha channel even for an opaque renderer, so the bytes come from `OpaquePNG`).
     static func opaquePNG(_ cgImage: CGImage, side: CGFloat) -> Data? {
         let format = UIGraphicsImageRendererFormat()
         format.scale = 1
@@ -280,7 +336,8 @@ enum IconExport {
         let image = UIGraphicsImageRenderer(size: CGSize(width: side, height: side), format: format).image { _ in
             UIImage(cgImage: cgImage).draw(in: CGRect(x: 0, y: 0, width: side, height: side))
         }
-        return image.pngData()
+        guard let flat = image.cgImage else { return nil }
+        return OpaquePNG.encode(flat)
     }
 }
 

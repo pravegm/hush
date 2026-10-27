@@ -4,8 +4,9 @@ import Foundation
 // MARK: - Every game number in one place (GAME-DESIGN §3–§6)
 //
 // Nothing in Core (or elsewhere) hard-codes a rule number: it reads it from here. tools/balance-sim.js mirrors the
-// values that matter for balance (keep the two in sync). Round 1 kept every GAME-DESIGN starting value: the sim hit
-// all the ROUND-1 balance targets with them (design/notes/core-R1.md has the table).
+// values that matter for balance (keep the two in sync). Round 1 kept every GAME-DESIGN starting value. Round 2 takes
+// REVIEW-1-feel §5 (changes 1–10 and features A, B, D) plus the Duo relic depth (REVIEW-1-duo P1-9); the R2 table is in
+// design/notes/core-R2.md.
 
 enum Tuning {
 
@@ -21,8 +22,9 @@ enum Tuning {
     static let shutZoneAngle: Double = 110
     /// θ > this shows "That's wide enough" (no penalty; keeps players off flat).
     static let tooWideAngle: Double = 172
-    /// θ below this for `closingDwell` s pauses the game ("Lift the lid a little").
-    static let closingAngle: Double = 85
+    /// θ below this for `closingDwell` s pauses the game ("Lift the lid a little"). R2: 85 → 70 (REVIEW-1-duo: 85° sat
+    /// within the hinge's ±5° of the natural 90° rest).
+    static let closingAngle: Double = 70
     /// How long θ must stay below `closingAngle` before the pause (s).
     static let closingDwell: Double = 0.4
     /// The slider's shut zone (openness ≤ this), the slider's version of θ ≤ `shutZoneAngle`.
@@ -32,20 +34,24 @@ enum Tuning {
 
     // MARK: Noise from the lid (GAME-DESIGN §5)
 
-    /// Below this lid speed (°/s) the hinge is silent. The creak starts here.
-    static let quietSpeed: Double = 8
+    /// Below this lid speed (°/s) the hinge is silent. The creak starts here. R2: 8 → 12 (out of the hinge's jitter band).
+    static let quietSpeed: Double = 12
+    /// R2: while the lid is CLOSING (openness falling since the last step) it is silent below this instead, so the
+    /// cash-out is the quickest careful move.
+    static let closeQuietSpeed: Double = 18
     /// Above this lid speed (°/s) the hint says "Slower…" (and the lesson's mimic grumbles).
     static let loudSpeed: Double = 30
-    /// lidRate = lidRateLinear·(ω−8) + lidRateQuadratic·(ω−8)² per second, for ω > quietSpeed.
-    /// 20°/s → 0.12/s, 40°/s → 0.55/s, a 120°/s slam for 0.4 s → +2.0 (a bite).
-    static let lidRateLinear: Double = 0.006
-    static let lidRateQuadratic: Double = 0.00035
+    /// lidRate = lidRateLinear·(ω−q) + lidRateQuadratic·(ω−q)² per second, for ω > q (q = quietSpeed, or
+    /// closeQuietSpeed while closing). Opening: 20°/s → 0.09/s, 40°/s → 0.55/s, a 45°/s open bites, a 120°/s slam for
+    /// 0.4 s → +2.2.
+    static let lidRateLinear: Double = 0.008
+    static let lidRateQuadratic: Double = 0.0004
 
     // MARK: Noise from the loot (GAME-DESIGN §5)
 
-    /// Dragging slower than this (pt/s) is silent.
-    static let dragQuietSpeed: Double = 250
-    /// dragRate = dragRatePerPoint·(v − 250) per second: 1000 pt/s → 0.45/s.
+    /// Dragging slower than this (pt/s) is silent. R2: 250 → 350.
+    static let dragQuietSpeed: Double = 350
+    /// dragRate = dragRatePerPoint·(v − 350) per second: 1000 pt/s → 0.39/s.
     static let dragRatePerPoint: Double = 0.0006
     /// One-off noise when an item is picked up.
     static let pickNoise: Double = 0.02
@@ -67,8 +73,8 @@ enum Tuning {
 
     // MARK: Decay, restlessness, stages (GAME-DESIGN §5)
 
-    /// Noise only decays after this long (s) with no source above `quietRateThreshold`.
-    static let decayGrace: Double = 0.4
+    /// Noise only decays after this long (s) with no source above `quietRateThreshold`. R2: 0.4 → 0.3.
+    static let decayGrace: Double = 0.3
     /// A total source rate (per second, after the multipliers) at or below this counts as quiet.
     static let quietRateThreshold: Double = 0.01
     /// Restlessness: decay × max(restlessFloor, 1 − restlessPerSecond · t in this chest).
@@ -110,11 +116,11 @@ enum Tuning {
     static let ironMultiplier: Double = 1.5
     static let gildedMultiplier: Double = 2
     static let royalMultiplier: Double = 3
-    /// Noise decay per second while quiet.
-    static let woodenDecay: Double = 0.14
-    static let ironDecay: Double = 0.12
-    static let gildedDecay: Double = 0.10
-    static let royalDecay: Double = 0.085
+    /// Noise decay per second while quiet. R2: 0.14 / 0.12 / 0.10 / 0.085 → 0.16 / 0.14 / 0.12 / 0.10.
+    static let woodenDecay: Double = 0.16
+    static let ironDecay: Double = 0.14
+    static let gildedDecay: Double = 0.12
+    static let royalDecay: Double = 0.10
     static let woodenItems: ClosedRange<Int> = 5...6
     static let ironItems: ClosedRange<Int> = 6...7
     static let gildedItems: ClosedRange<Int> = 7...8
@@ -131,9 +137,13 @@ enum Tuning {
     static let gemDepth: ClosedRange<Double> = 0.45...0.80
     static let gemCount: ClosedRange<Int> = 1...2
     static let relicValue: ClosedRange<Int> = 250...450
-    static let relicDepth: ClosedRange<Double> = 0.84...0.92
-    /// Chance an Iron-bound-or-better chest holds a relic.
-    static let relicChance: Double = 0.35
+    /// R2: 0.84–0.92 → 0.80–0.88 (REVIEW-1-duo P1-9): grabbable by θ ≈ 156–161°, clear of a possible flat detent.
+    static let relicDepth: ClosedRange<Double> = 0.80...0.88
+    /// Chance an Iron-bound-or-better chest holds a relic. R2: 0.35 → 0.25 (with the glimmer the Codex lasts a week).
+    static let relicChance: Double = 0.25
+    /// R2 relic glimmer (`HeistHint.relicDeeper`, the scene's twinkle): a relic still in the chest glimmers while the
+    /// openness is within this of its glint line (depth + revealLight·lightRamp) but below it.
+    static let relicGlimmerRange: Double = 0.25
     static let oilDepth: ClosedRange<Double> = 0.25...0.55
     /// Chance a chest holds torch oil ("about 1 per 3 chests").
     static let oilChance: Double = 0.33
@@ -171,7 +181,7 @@ enum Tuning {
     static let lightRamp: Double = 0.10
     /// `itemRevealed` fires once light reaches this (a glint at openness ≥ depth + 0.04).
     static let revealLight: Double = 0.4
-    /// Grabbable at light ≥ this (openness ≥ depth + 0.06, so a 0.92-deep relic needs openness 0.98 ≈ 164°).
+    /// Grabbable at light ≥ this (openness ≥ depth + 0.06, so an 0.88-deep relic needs openness 0.94 ≈ 161°).
     static let grabLight: Double = 0.6
     /// `.looting` starts once the lid has been in the shut zone and openness passes this.
     static let lootingStartOpenness: Double = 0.02
@@ -183,10 +193,31 @@ enum Tuning {
     // MARK: Torch, bank, bite, moments (GAME-DESIGN §4)
 
     static let torchSeconds: Double = 100
-    static let oilSeconds: Double = 8
-    static let biteTorchPenalty: Double = 15
-    /// `torchLow` fires once when this many seconds are left.
+    /// R2: 8 → 6 (experts bank more chests now; keeps their runs at about 2:25).
+    static let oilSeconds: Double = 6
+    /// R2: 15 → 10 (stops one mistake costing loot, time and tier escalation three times over).
+    static let biteTorchPenalty: Double = 10
+    /// `torchLow` fires once when this many seconds are left; `HeistHint.candleLow` shows from here with loot in the bag.
     static let torchLowSeconds: Double = 15
+
+    // MARK: R2 features (REVIEW-1-feel §5)
+
+    /// A. Hush Chain: each consecutive Hushed bank adds 1; it pays ×(1 + chainStep·min(chain, chainMax)), so ×1.1 …
+    /// ×1.5. A stir or a bite breaks it.
+    static let chainStep: Double = 0.10
+    static let chainMax: Int = 5
+    /// B. Golden mimic: this chance per chest from index `goldenFromIndex` (chest #3), rolled from its own stream
+    /// (chestSeed ^ goldenSeedSalt) so every other draw, and the Daily, are unchanged. Loot ×2 (on top of the tier),
+    /// noise ×1.25.
+    static let goldenChance: Double = 0.06
+    static let goldenFromIndex: Int = 2
+    static let goldenValueMultiplier: Double = 2
+    static let goldenNoiseMultiplier: Double = 1.25
+    static let goldenSeedSalt: UInt64 = 0x601DE7
+    /// D. Bag jingle: while loot is in the bag, noise can't decay below jinglePerItem × items × the chest's noise
+    /// multiplier, capped at jingleMax (under Stirring, so a full bag never stirs the mimic by itself).
+    static let jinglePerItem: Double = 0.035
+    static let jingleMax: Double = 0.30
     /// Hold the lid in the shut zone this long (s) with loot in the bag to bank.
     static let shutHoldSeconds: Double = 0.35
     static let bankMomentSeconds: Double = 1.4
@@ -202,9 +233,9 @@ enum Tuning {
 
     // MARK: Lesson (GAME-DESIGN §8)
 
-    /// Pose step: 95° ≤ θ ≤ 125° held for 0.5 s.
-    static let lessonPoseMinAngle: Double = 95
-    static let lessonPoseMaxAngle: Double = 125
+    /// Pose step: 90° ≤ θ ≤ 112° held for 0.5 s (R2, REVIEW-1-duo P1-6).
+    static let lessonPoseMinAngle: Double = 90
+    static let lessonPoseMaxAngle: Double = 112
     static let lessonPoseHold: Double = 0.5
     /// The scripted stir level (`nudgeNoise(to:)`) and how long to hold still.
     static let lessonStirNoise: Double = 0.55

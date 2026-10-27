@@ -11,30 +11,30 @@
 01-home-fresh|screen=home;progress=fresh|6|Home, first launch: "Hush" title, live chest on the slider, Play / Daily Dungeon / Codex / Settings|HUSH-T canvas
 02-home-mid|screen=home;progress=mid|6|Home, returning: thief rank 4, best haul 2,400, daily status|HUSH-T canvas
 # First Chest lesson (GAME-DESIGN §8), phone texts (slider). lid= holds the lid so each step is a still frame.
-03-lesson-1-pose|screen=lesson;lessonStep=1;lid=0|6|Lesson 1: "Slide the lid up… slowly" (the phone version of the pose step)|HUSH-T canvas
-04-lesson-2-open|screen=lesson;lessonStep=2;lid=0.3|6|Lesson 2: "Open the lid… slowly", the first coins glinting|HUSH-T canvas
+03-lesson-1-pose|screen=lesson;lessonStep=1;lid=0|6|Lesson 1 (phone): the lever always drawn, "Slide the lever up… slowly" pointing at it|HUSH-T canvas
+04-lesson-2-open|screen=lesson;lessonStep=2;lid=0.3|6|Lesson 2: "Open the lid… slowly. Watch the noise.", the first coins glinting; the band never covers the NOISE meter|HUSH-T canvas
 05-lesson-3-grab|screen=lesson;lessonStep=3;lid=0.6|6|Lesson 3: "Drag the coin into your bag", coin lit|HUSH-T canvas
 06-lesson-4-freeze|screen=lesson;lessonStep=4;lid=0.6;noise=0.55|6|Lesson 4: "It's stirring. Freeze!", meter amber, tongue twitching|HUSH-T canvas
 07-lesson-5-bank|screen=lesson;lessonStep=5;lid=0.15|6|Lesson 5: "Ease the lid shut to keep it", coin in the bag|HUSH-T canvas
-08-lesson-6-card|screen=lesson;lessonStep=6|6|Lesson 6 card: "Your torch burns down. Loot all you can — gently."|HUSH-T canvas
+08-lesson-6-card|screen=lesson;lessonStep=6|6|Lesson final card (R2): 3 icon rows "Candle out = run over", "Too loud? It bites your bag", "Shut the lid to bank it", then "Got it"; fits a 393-pt phone|HUSH-T canvas
 # A run, driven by a ThiefPilot (seed 7), frozen at its moments. skipTo=<s> plays the first s seconds headless (relics
 # only come from chest 3, the Iron-bound tier, on; torchLow is ~85 s in), so late moments don't cost real minutes.
 09-run-ready|screen=run;mode=run;seed=7;pilot=casual;freezeOn=ready|10|A chest has slid in, shut: "Open the lid… slowly"|HUSH-T input pilot
 10-run-reveal|screen=run;mode=run;seed=7;pilot=casual;freezeOn=reveal|25|Lid three-quarters open, warm light from the back, 3+ items lit with glints, mimic asleep|HUSH-T freeze reveal
 11-stirring|screen=run;mode=run;seed=7;pilot=novice;freezeOn=stirring|45|Stirring: meter amber, tongue twitching, eye flickering on the lid|HUSH-T freeze stirring
 12-waking|screen=run;mode=run;seed=7;pilot=novice;freezeOn=waking|60|Waking: meter red, "Freeze!", tongue curling, teeth showing|HUSH-T freeze waking
-13-bite|screen=run;mode=run;seed=7;pilot=novice;freezeOn=bite|60|CHOMP: teeth slam across the fold, red flash, loot flying into the mouth|HUSH-T event bitten
+13-bite|screen=run;mode=run;seed=7;pilot=novice;freezeOn=bite|60|CHOMP: teeth slam across the fold, red flash, loot flying into the mouth; "Too loud!" and "−N" over the pouch, "−10s" off the candle, no "Freeze!" left (R2)|HUSH-T event bitten
 14-bank|screen=run;mode=run;seed=7;pilot=casual;freezeOn=bank|60|Banked: lid-shadow sweep, loot flying into the gold counter|HUSH-T event banked
 15-relic|screen=run;mode=run;seed=7;pilot=expert;skipTo=25;freezeOn=relic|120|Relic found: golden ray and its name on the floor|HUSH-T event relicFound
-16-torch-low|screen=run;mode=run;seed=7;pilot=casual;skipTo=75;freezeOn=torchLow|60|Torch low: the last 15 s, torch gauge flickering|HUSH-T event torchLow
+16-torch-low|screen=run;mode=run;seed=7;pilot=casual;skipTo=75;freezeOn=torchLow|60|Candle low: the last 15 s, the flame gutters, a big "0:12" countdown by the candle, hint "Candle's low. Bank it!"|HUSH-T event torchLow
 # Static stage frames (no pilot): a fallback if a pilot never reaches the stage
 17-stage-stirring-static|screen=run;mode=attract;seed=7;lid=0.7;noise=0.5|6|Held at noise 0.5: the Stirring look on a still frame|HUSH-T canvas
 18-stage-waking-static|screen=run;mode=attract;seed=7;lid=0.7;noise=0.85|6|Held at noise 0.85: the Waking look on a still frame|HUSH-T canvas
 # Results, Codex, Settings, pose, Daily, cover
-19-results-fresh|screen=results;seed=7;progress=fresh;pilot=novice|8|Results, first run: gold banked, chests, Hushed, bites, a story line, Again / Home|HUSH-T canvas
-20-results-mid|screen=results;seed=7;progress=mid;pilot=casual|8|Results, mid progress: rank bar, relics found|HUSH-T canvas
+19-results-fresh|screen=results;seed=7;progress=fresh;pilot=novice|8|Results, first run: MimicPortraitScene, gold banked, the chest-by-chest strip (tier, value, 💤/teeth/gold), "Hushed: banked while it slept", Again / Home, no dead gap|HUSH-T canvas
+20-results-mid|screen=results;seed=7;progress=mid;pilot=casual|8|Results, mid progress: chest strip, "N short of your best" or "New best!", rank bar, achievements earned|HUSH-T canvas
 21-results-late|screen=results;seed=7;progress=late;pilot=expert|8|Results, late progress: rank 10, new best|HUSH-T canvas
-22-codex-mid|screen=codex;progress=mid|6|Codex: 9 of 24 relics drawn with name and blurb, the rest "???" silhouettes|HUSH-T canvas
+22-codex-mid|screen=codex;progress=mid|6|Codex: 9 of 24 relics (24 different shapes) on velvet tiles, the rest "???" silhouettes; Home says 9/24 too|HUSH-T canvas
 23-codex-late|screen=codex;progress=late|6|Codex: 22 of 24 relics|HUSH-T canvas
 24-settings|screen=settings|5|Settings: Sound, Haptics, Respect silent switch, Reduce motion, Replay First Chest, About, Credits|HUSH-T canvas
 25-pose|screen=pose|5|Pose card "Stand it up like a little laptop", lid marked "Lift this half" (portrait here: the phone sim cannot rotate; the real landscape card is the Duo's duo-ui-pose-book)|HUSH-T canvas
@@ -47,5 +47,17 @@
 32-reveal-fold-unturned|screen=run;mode=run;seed=7;pilot=casual;fold=1;turn=0;freezeOn=reveal|25|Duo play with "Turn the chest round" off|fold=1 turned=0
 33-waking-fold|screen=run;mode=run;seed=7;pilot=novice;fold=1;freezeOn=waking|60|Duo play at Waking: the floor tells (meter, tongue) are on the sharp half|HUSH-T freeze waking
 34-lesson-1-fold|screen=lesson;lessonStep=1;fold=1;lid=0|6|Duo lesson 1: "Stand your Duo like a little laptop. Lift this half."|fold=1
+# R2 (design/ROUND-2.md, CI engineer 1 + 4).
+#  - 35: turned round on a PHONE (no fold): the scene's own π turn (ChestScene.turned), no SwiftUI rotation of the
+#    SpriteView; the IN BAG / BANKED plates keep their sides.
+#  - 36 needs the App's `golden=1` demo key (design/NEEDS.md, CI R2). Unknown keys are ignored, so until it lands this
+#    is a normal chest and the expect misses.
+#  - 37: pilot=perfect never stirs the mimic, so every bank is Hushed; freezeAfter=24 lets the first two banks pass
+#    (about 8–10 s a chest), so the frozen bank is the 3rd or later and the chain badge reads ×1.2 or more.
+35-reveal-phone-turned|screen=run;mode=run;seed=7;pilot=casual;turn=1;freezeOn=reveal|25|Phone, turned round (turn=1, no fold): the whole world rotated by π inside the scene, IN BAG / BANKED and NOISE readable, no letterbox bars|fold=0 turned=1
+36-golden-mimic|screen=run;mode=run;seed=7;pilot=casual;golden=1;freezeOn=reveal|25|Golden mimic: gilded chest, gold-leaf lid, sparkle, nameplate "GOLDEN · gold ×2 · …", coins flashing ×2|event chestArrived .*golden=1
+37-chain-badge|screen=run;mode=run;seed=7;pilot=perfect;freezeAfter=24;freezeOn=bank|90|Hush Chain: a Hushed bank, the chain badge popping by the BANKED plate ("Hush Chain ×1.2" or more); BANKED equals the sum of the banks|HUSH-T event chainUp
+38-results-chest-strip|screen=results;seed=7;progress=mid;pilot=perfect|8|Results after a clean run: the chest strip all 💤 (Hushed), best chain, "Hushed: banked while it slept", "New best!" or "N short of your best"|HUSH-T canvas
+39-lesson-final-fold|screen=lesson;lessonStep=6;fold=1|6|Duo lesson final card: the 3 icon rows and "Got it", clear of the fold|fold=1
 # Game Center badges (asc.yml collects ci-screens/badges/*.png and greps logs/*badges*.txt for "HUSH-T badges").
-40-badges|screen=badges|10|The 12 achievement badges rendered to Documents/badges (copied to badges/)|HUSH-T badges
+40-badges|screen=badges|10|A real badge grid screen (R2), and the 12 achievement badges rendered to Documents/badges (copied to badges/)|HUSH-T badges

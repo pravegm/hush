@@ -4,14 +4,15 @@ name: Duo
 # which has no Duo) and drives the hinge with the community `hinge` CLI (artemnovichkov/hinge, Device Hub's private
 # HID event posted inside the simulator). The app asks for portrait itself (demo key orient=portrait, Brim's proven
 # route: there is no CLI rotate and `simctl io … screenConfig` crash-loops SpringBoard), giving the tabletop canvas.
-# Script: ci/duo.sh. Hinge checks (design/ROUND-1.md): SLOW-OPEN, SLAM, STILL, CLOSE-PAUSE (+ PORTRAIT), printed as
+# Script: ci/duo.sh. Hinge checks (design/ROUND-1.md, ROUND-2.md): SLOW-OPEN, STILL, SLAM (shot on the bite),
+# UPRIGHT-NO-PAUSE, CLOSE-PAUSE (70°), REOPEN-NO-BITE (+ PORTRAIT), printed as
 # "<CHECK> PASS|FAIL (…)" in logs/run.txt and as a table in the job summary. Frames: closed 105, half 135, wide 160,
 # cover shut, reopened, and UI frames incl. the book-pose card. Manual only (expensive: ~40–70 macOS minutes).
 on:
   workflow_dispatch:
     inputs:
       passes:
-        description: "Passes: hinge (the 4 checks), frames (105/135/160/cover), ui (home, lesson, results, codex, settings, book-pose card, cover)"
+        description: "Passes: hinge (the 6 checks), frames (105/135/160/cover), ui (home, lesson, results, codex, settings, book-pose card, cover)"
         type: string
         default: "hinge frames ui"
       orient:

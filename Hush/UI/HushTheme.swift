@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 /// The look (GAME-DESIGN §10): a candlelit dungeon, warm golds against deep teal-black. SF Pro Rounded throughout:
 /// Black for the wordmark and the big numbers, Heavy for titles, Bold for buttons, Semibold for body. Every screen takes
@@ -73,16 +74,47 @@ enum HushTheme {
 }
 
 /// The type scale. `compact` = a short canvas (an iPhone SE-sized screen).
+///
+/// R2 (UX P2-15, ROUND-2 App 10): menu, Results, Codex and Settings type follows Dynamic Type (`UIFontMetrics`),
+/// capped at 1.3× so the halves still fit; those screens scroll or wrap instead of clipping. The big display numbers,
+/// the wordmark and the in-run hint stay fixed (the chest's own scale sets those).
 enum HushType {
+    /// The largest Dynamic Type growth the layouts take.
+    static let maxGrowth: CGFloat = 1.3
+
+    /// `size` for the reader's text size (never below 0.9× nor above `maxGrowth` × the design size). Pure given the
+    /// category; tested.
+    static func scaled(_ size: CGFloat, _ style: UIFont.TextStyle, category: UIContentSizeCategory? = nil) -> CGFloat {
+        let metrics = UIFontMetrics(forTextStyle: style)
+        let grown: CGFloat
+        if let category {
+            grown = metrics.scaledValue(for: size,
+                                        compatibleWith: UITraitCollection(preferredContentSizeCategory: category))
+        } else {
+            grown = metrics.scaledValue(for: size)
+        }
+        return min(max(grown, size * 0.9), size * maxGrowth)
+    }
+
     static func wordmark(_ c: Bool) -> Font { .system(size: c ? 60 : 84, weight: .black, design: .rounded) }
     static func hero(_ c: Bool) -> Font { .system(size: c ? 56 : 76, weight: .black, design: .rounded).monospacedDigit() }
-    static func title(_ c: Bool) -> Font { .system(size: c ? 26 : 32, weight: .heavy, design: .rounded) }
-    static func headline(_ c: Bool) -> Font { .system(size: c ? 19 : 22, weight: .bold, design: .rounded) }
+    static func title(_ c: Bool) -> Font { .system(size: scaled(c ? 26 : 32, .title1), weight: .heavy, design: .rounded) }
+    static func headline(_ c: Bool) -> Font {
+        .system(size: scaled(c ? 19 : 22, .headline), weight: .bold, design: .rounded)
+    }
     static func hint(_ c: Bool) -> Font { .system(size: c ? 22 : 26, weight: .heavy, design: .rounded) }
-    static func button(_ c: Bool) -> Font { .system(size: c ? 19 : 21, weight: .bold, design: .rounded) }
-    static func body(_ c: Bool) -> Font { .system(size: c ? 15 : 17, weight: .semibold, design: .rounded) }
-    static func caption(_ c: Bool) -> Font { .system(size: c ? 13 : 14, weight: .medium, design: .rounded) }
-    static func overline(_ c: Bool) -> Font { .system(size: c ? 11 : 13, weight: .bold, design: .rounded) }
+    /// The in-run hint at the chest's scale (QA-1 P2-11: a phone's hint band is about 30 pt tall).
+    static func hint(scale: CGFloat) -> Font { .system(size: 26 * scale, weight: .heavy, design: .rounded) }
+    static func button(_ c: Bool) -> Font { .system(size: scaled(c ? 19 : 21, .body), weight: .bold, design: .rounded) }
+    static func body(_ c: Bool) -> Font {
+        .system(size: scaled(c ? 15 : 17, .body), weight: .semibold, design: .rounded)
+    }
+    static func caption(_ c: Bool) -> Font {
+        .system(size: scaled(c ? 13 : 14, .footnote), weight: .medium, design: .rounded)
+    }
+    static func overline(_ c: Bool) -> Font {
+        .system(size: scaled(c ? 11 : 13, .caption1), weight: .bold, design: .rounded)
+    }
     static func number(_ size: CGFloat) -> Font { .system(size: size, weight: .heavy, design: .rounded).monospacedDigit() }
 }
 
@@ -270,23 +302,64 @@ struct HushPill: View {
     }
 }
 
-/// A thin progress bar (the rank bar).
+/// A thin progress bar (the rank bar). R2 (UX P1-14): the track is always visible (a lighter groove with a hairline)
+/// and an empty bar still shows a 4 % sliver, so a fresh thief sees where the bar is.
 struct HushProgressBar: View {
     let value: Double
     var height: CGFloat = 10
+    static let minimumShown: Double = 0.04
+
+    /// The fill drawn for `value` (never below the sliver). Pure; tested.
+    static func shown(_ value: Double) -> Double {
+        min(max(value.isFinite ? value : 0, minimumShown), 1)
+    }
 
     var body: some View {
         GeometryReader { geo in
-            let v = CGFloat(min(max(value.isFinite ? value : 0, 0), 1))
+            let v = CGFloat(Self.shown(value))
             ZStack(alignment: .leading) {
-                Capsule().fill(HushTheme.night.opacity(0.8))
+                Capsule().fill(HushTheme.parchment.opacity(0.12))
+                    .overlay(Capsule().stroke(HushTheme.parchment.opacity(0.18), lineWidth: 1))
                 Capsule()
                     .fill(LinearGradient(colors: [HushTheme.goldDeep, HushTheme.gold], startPoint: .leading,
                                          endPoint: .trailing))
-                    .frame(width: max(geo.size.width * v, v > 0 ? height : 0))
+                    .frame(width: max(geo.size.width * v, height))
             }
         }
         .frame(height: height)
+    }
+}
+
+/// R2 (juror P1-10): the pause button as a round brass stud, like the chest's hinges, never a flat SwiftUI circle.
+struct BrassCoinButton: View {
+    let systemName: String
+    let label: String
+    var visual: CGFloat = 50
+    let action: () -> Void
+
+    var body: some View {
+        Button {
+            FeedbackDirector.shared.uiTap()
+            action()
+        } label: {
+            ZStack {
+                Circle().fill(Color(hush: ChestArt.outline)).frame(width: visual + 5, height: visual + 5)
+                Circle()
+                    .fill(RadialGradient(colors: [HushTheme.goldLight, HushTheme.gold, HushTheme.goldDeep],
+                                         center: UnitPoint(x: 0.35, y: 0.3), startRadius: 1, endRadius: visual * 0.7))
+                    .frame(width: visual, height: visual)
+                Circle().stroke(HushTheme.goldDeep.opacity(0.9), lineWidth: 2)
+                    .frame(width: visual * 0.74, height: visual * 0.74)
+                Image(systemName: systemName)
+                    .font(.system(size: visual * 0.34, weight: .black, design: .rounded))
+                    .foregroundStyle(HushTheme.ink)
+            }
+            .shadow(color: Color.black.opacity(0.45), radius: 5, y: 3)
+            .frame(width: max(visual, HushTheme.minTap), height: max(visual, HushTheme.minTap))
+            .contentShape(Circle())
+        }
+        .buttonStyle(HushPressStyle())
+        .accessibilityLabel(label)
     }
 }
 

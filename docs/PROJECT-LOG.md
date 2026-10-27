@@ -22,3 +22,12 @@
   - There is a "Turn the chest round" setting.
 - **Repo:** `pravegm/hush`, created **private**, because the guard blocks creating public repos. Actions need it
   public.
+
+### 27 Oct, midday: round 1 build and the first internal review
+| Time | What happened |
+|---|---|
+| ~10:31 | **Round 1 pushed.** It compiled first time on CI. 144 of 145 tests passed; the one failure was a UTC-zone-name test, fixed. CI 40490298403 green. The Swift balance matches the Node sim exactly. |
+| ~10:41 | **Duo sim run 40490356351:** PORTRAIT, SLOW-OPEN, STILL, SLAM and CLOSE-PAUSE all PASS. The floor draws turned round onto the sharp half. |
+| — | **Founder:** "do extensive internal testing with all your agents and get this app to a level where this is at a standard of launch" before setting up TestFlight. |
+| — | **R1 review:** Apple juror 6.0, UX 6.5, Duo specialist 6.0. Three fresh testers: understood 6 / 7 / 8, premium 5–7, would pay 5–6. The game-feel designer found there was no real gamble yet and proposed tuning plus four features. QA-1: 1 P0 (the placeholder icon), 3 P1s. |
+| — | **R2 dispatched** (`design/ROUND-2.md`): art unification, HUD labels, no bars on phones, turning round inside the scene, the two Duo blockers (Release orientation, bite on reopen), the R2 balance, Hush Chain, golden mimic, relic glimmer, bag jingle, and every QA-1 item. |

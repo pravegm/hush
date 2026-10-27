@@ -4,15 +4,34 @@ import Foundation
 
 enum Noise {
 
-    /// Noise added per second by the lid moving at `speed` °/s (GAME-DESIGN §5 table, before the mimic multiplier).
-    /// 0 at or below `Tuning.quietSpeed`; 20°/s → 0.12/s; 40°/s → 0.55/s.
-    static func lidRate(speed: Double) -> Double {
-        guard speed.isFinite, speed > Tuning.quietSpeed else { return 0 }
-        let x: Double = speed - Tuning.quietSpeed
+    /// Noise added per second by the lid moving at `speed` °/s (before the mimic multiplier). 0 at or below the quiet
+    /// line (`Tuning.quietSpeed` 12, or `Tuning.closeQuietSpeed` 18 while `closing`); opening 20°/s → 0.09/s,
+    /// 40°/s → 0.55/s.
+    static func lidRate(speed: Double, closing: Bool = false) -> Double {
+        let quiet: Double = quietSpeed(closing: closing)
+        guard speed.isFinite, speed > quiet else { return 0 }
+        let x: Double = speed - quiet
         return Tuning.lidRateLinear * x + Tuning.lidRateQuadratic * x * x
     }
 
-    /// Noise added per second by dragging an item at `speed` pt/s. 1000 pt/s → 0.45/s.
+    /// The lid's silent line (°/s): `Tuning.closeQuietSpeed` while the lid is closing, else `Tuning.quietSpeed`.
+    static func quietSpeed(closing: Bool) -> Double {
+        return closing ? Tuning.closeQuietSpeed : Tuning.quietSpeed
+    }
+
+    /// R2 bag jingle: the level noise can't decay below with `items` in the bag (`multiplier` = the chest's noise
+    /// multiplier). 0.035 per item × multiplier, capped at 0.30.
+    static func jingleFloor(items: Int, multiplier: Double) -> Double {
+        guard items > 0, multiplier.isFinite else { return 0 }
+        return min(Tuning.jingleMax, Tuning.jinglePerItem * Double(items) * multiplier)
+    }
+
+    /// R2 Hush Chain: what a Hushed bank pays with a chain of `chain` (counting that bank): 1 + 0.1·min(chain, 5).
+    static func chainMultiplier(_ chain: Int) -> Double {
+        return 1 + Tuning.chainStep * Double(min(max(chain, 0), Tuning.chainMax))
+    }
+
+    /// Noise added per second by dragging an item at `speed` pt/s. 1000 pt/s → 0.39/s.
     static func dragRate(speed: Double) -> Double {
         guard speed.isFinite, speed > Tuning.dragQuietSpeed else { return 0 }
         return Tuning.dragRatePerPoint * (speed - Tuning.dragQuietSpeed)

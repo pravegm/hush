@@ -10,6 +10,7 @@ on:
     paths:
       - "Hush/**"
       - "HushTests/**"
+      - "HushUITests/**"
       - "project.yml"
       - "ci/**"
       - ".github/workflows/ci.yml"
@@ -92,6 +93,14 @@ jobs:
           fi
           if strings "$APP/Hush" "$APP"/*.debug.dylib 2>/dev/null | grep -qx "freezeAfter"; then echo "freezeAfter is visible to strings in Debug."; else echo "freezeAfter is not visible to strings (Swift small string): expected."; fi
 
+      - name: App icon check (warning only)
+        # The same guard testflight.yml enforces (placeholder hash, 1024 x 1024, >= 40 colours, alpha), early.
+        if: always()
+        continue-on-error: true
+        env:
+          WARN_ONLY: "1"
+        run: bash ci/icon-check.sh
+
       - name: Capture screenshots
         if: success()
         timeout-minutes: 100
@@ -146,6 +155,48 @@ jobs:
             echo "App icon: **not rendered** (no \`HUSH-ICON\` line; see ci-screens/logs/icon.txt)." >> "$GITHUB_STEP_SUMMARY"
           fi
 
+      - name: Turned drag (UI test, non-fatal)
+        # R2 (REVIEW-1-duo P1-3): HushUITests/TurnedDragUITests.swift drags a real synthesized finger from where a lit
+        # item is drawn to where the pouch is drawn, on the turned Duo layout (fold=1, turn=1), and reads the pouch's
+        # in-bag count (accessibility `hud.bag`). Its own scheme, so the gate above never runs it. It SKIPS until the App
+        # exposes `hud.bag` and `debug.loot` (design/NEEDS.md). Non-fatal for now: a FAIL here is a warning.
+        # If the runner app won't load unsigned (CODE_SIGNING_ALLOWED=NO), it retries once with an ad-hoc signature.
+        if: success()
+        continue-on-error: true
+        timeout-minutes: 25
+        run: |
+          set +e
+          UDID=$(awk -F= '$1=="udid" {print $2}' ci-screens/device.txt 2>/dev/null)
+          if [ -n "$UDID" ]; then DEST="id=$UDID"; else DEST="platform=iOS Simulator,name=$DEVICE"; fi
+          run_ui() {
+            xcodebuild test -project Hush.xcodeproj -scheme HushUITests -destination "$DEST" \
+              -derivedDataPath build -resultBundlePath "uitest-$1.xcresult" "${@:2}" > "uitest-$1.log" 2>&1
+            grep -E "error:|Test [Cc]ase .*(passed|failed|skipped)|XCTSkip|Executed|\*\* TEST" "uitest-$1.log" | tail -30
+          }
+          run_ui unsigned CODE_SIGNING_ALLOWED=NO
+          LOG=uitest-unsigned.log
+          if ! grep -qE "Test [Cc]ase .*(passed|failed|skipped)" uitest-unsigned.log; then
+            echo "::warning::UI test did not run unsigned; retrying with an ad-hoc signature"
+            run_ui adhoc CODE_SIGN_IDENTITY=- CODE_SIGNING_REQUIRED=NO
+            LOG=uitest-adhoc.log
+          fi
+          cp "$LOG" uitest.log
+          if grep -qE "Test [Cc]ase .*testTurnedDragBagsALitItem.* passed" "$LOG"; then
+            verdict="**PASS**: a real drag through the turned SpriteView bagged the item."
+          elif grep -qE "Test [Cc]ase .*testTurnedDragBagsALitItem.* skipped" "$LOG"; then
+            verdict="SKIPPED: $(grep -m1 -oE "No \`[a-z.]+\` accessibility element[^:]*" "$LOG" || echo 'see uitest.log')."
+            echo "::warning::Turned-drag UI test skipped (App accessibility hooks missing, design/NEEDS.md)"
+          elif grep -qE "Test [Cc]ase .*testTurnedDragBagsALitItem.* failed" "$LOG"; then
+            verdict="**FAIL**: $(grep -m1 -oE "Turned drag from[^(]*" "$LOG" || echo 'see uitest.log')"
+            echo "::warning::Turned-drag UI test FAILED: the turned touch mapping may be mirrored (REVIEW-1-duo P1-3)"
+          else
+            verdict="did not run (see uitest.log)."
+            echo "::warning::Turned-drag UI test did not run"
+          fi
+          echo "### Turned drag (HushUITests)" >> "$GITHUB_STEP_SUMMARY"
+          echo "$verdict Screenshots are attachments in \`uitest-*.xcresult\` (logs artifact)." >> "$GITHUB_STEP_SUMMARY"
+          exit 0
+
       - name: Upload logs
         if: always()
         uses: actions/upload-artifact@v4
@@ -154,6 +205,9 @@ jobs:
           path: |
             build.log
             errors.txt
+            uitest.log
+            uitest-*.log
+            uitest-*.xcresult
           if-no-files-found: ignore
 
       - name: Upload screenshots

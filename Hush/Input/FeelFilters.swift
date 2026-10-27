@@ -311,17 +311,34 @@ struct FeelSpeedEstimator {
         speed = FeelMath.positive(speed, cap: Self.maxSpeed)
         return speed
     }
+
+    /// The speed at `time` judged without advancing anything (°/s, ≥ 0): the larger of the per-sample and display
+    /// estimates, decaying like `speed(at:)` once samples stop. Never below what a frame would read, so "held still"
+    /// judged from it is conservative. Works with no frames at all (the game paused).
+    func peekSpeed(at time: Double) -> Double {
+        guard let last = lastSampleTime, time.isFinite else { return 0 }
+        let level = max(speed, sampleSpeed)
+        let age = time - last
+        guard age > Self.hold else { return FeelMath.positive(level, cap: Self.maxSpeed) }
+        return FeelMath.positive(level * exp(-(age - Self.hold) / Self.decayTau), cap: Self.maxSpeed)
+    }
 }
 
-/// The "lid is closing" gate (GAME-DESIGN §3): closed when the angle stays under `Tuning.closingAngle` (85°) for
-/// `Tuning.closingDwell` (0.4 s); it opens again above `closingAngle + reopenMargin` (88°), so ±1° jitter at 85° can't
+/// The "lid is closing" gate (GAME-DESIGN §3): closed when the angle stays under `closingAngle` (70°) for
+/// `Tuning.closingDwell` (0.4 s); it opens again above `closingAngle + reopenMargin` (78°), so ±1° jitter at 70° can't
 /// flicker the pause card. Pure, with explicit times; `isClosing(at:)` lets the dwell mature with time alone.
+///
+/// R2 (REVIEW-1-duo P1-4): the line is **70°** (R1's 85° sat inside the natural upright 90° rest, within the Duo's ±5°
+/// accuracy) and it unlatches above **78°**. Unlatching is not resuming: the run resumes only on
+/// `HingeLidSource.canResume` (≥ 95°, held still).
 struct FeelClosingGate {
-    static let reopenMargin = 3.0
+    /// θ under this for `dwell` s pauses the game (`Tuning.closingAngle`, 70° from R2).
+    static var closingAngle: Double { Tuning.closingAngle }
+    static let reopenMargin = 8.0
 
-    static var closeBelow: Double { Tuning.closingAngle }
+    static var closeBelow: Double { closingAngle }
     static var dwell: Double { Tuning.closingDwell }
-    static var reopenAbove: Double { Tuning.closingAngle + reopenMargin }
+    static var reopenAbove: Double { closingAngle + reopenMargin }
 
     /// Latched closed (until above `reopenAbove`).
     private(set) var latched = false

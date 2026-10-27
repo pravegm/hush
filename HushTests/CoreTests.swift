@@ -3,7 +3,8 @@ import Foundation
 import Testing
 @testable import Hush
 
-// MARK: - Core rules (Round 1)
+// MARK: - Core rules (Round 1, updated for Round 2: R2 tuning, Hush Chain, golden mimic, relic glimmer, bag jingle,
+// rest / resumeGrace / partialResult, biteCost, chestLog, candleLow / relicDeeper hints)
 
 struct CoreTests {
 
@@ -81,6 +82,31 @@ struct CoreTests {
         return ev
     }
 
+    /// Bags the shallowest item of the current (looting) chest, then eases the lid shut until it banks.
+    /// Returns the bag value just before the bank and every event.
+    private func bankOne(_ s: HeistSession) -> (Int, [HeistEvent]) {
+        guard let k = shallowest(s.snapshot) else { return (0, []) }
+        var ev: [HeistEvent] = bagItem(s, k)
+        let v: Int = s.snapshot.bagValue
+        ev.append(contentsOf: run(s, seconds: 0.5, dt: 1.0 / 120.0, lid: lidAt(0.06)))
+        return (v, ev)
+    }
+
+    /// After a bank or a bite: waits out the moment; the next chest arrives with the lid shut and starts looting.
+    private func nextChestLooting(_ s: HeistSession) {
+        run(s, seconds: 2.0, lid: lidAt(0.06))
+    }
+
+    private func bankedValue(_ events: [HeistEvent]) -> Int? {
+        for e in events {
+            if case .banked(let value, _, _) = e { return value }
+        }
+        return nil
+    }
+
+    private func isChainBroken(_ e: HeistEvent) -> Bool { if case .chainBroken = e { return true }; return false }
+    private func isChainUp(_ e: HeistEvent) -> Bool { if case .chainUp = e { return true }; return false }
+
     private func firstSeed(where match: (ChestSpec) -> Bool) -> UInt64? {
         var seed: UInt64 = 1
         while seed < 3000 {
@@ -125,23 +151,71 @@ struct CoreTests {
 
     // MARK: Noise
 
-    @Test func lidRateMatchesTheDesignExamples() {
+    @Test func lidRateMatchesTheR2Curve() {
+        // R2 (REVIEW-1-feel #1): quiet up to 12 °/s, 0.008·x + 0.0004·x².
         #expect(Noise.lidRate(speed: 0) == 0)
-        #expect(Noise.lidRate(speed: 8) == 0)
-        #expect(Noise.lidRate(speed: 6) == 0)
-        #expect(abs(Noise.lidRate(speed: 20) - 0.12) < 0.005)
-        #expect(abs(Noise.lidRate(speed: 40) - 0.55) < 0.005)
+        #expect(Noise.lidRate(speed: 10) == 0)
+        #expect(Noise.lidRate(speed: 12) == 0)
+        #expect(Noise.lidRate(speed: 12.5) > 0)
+        #expect(abs(Noise.lidRate(speed: 20) - 0.0896) < 1e-9)
+        #expect(abs(Noise.lidRate(speed: 40) - 0.5476) < 1e-9)
+        // A 45 °/s full open (65° in 1.44 s) bites a Snorer; 40 °/s doesn't.
+        #expect(Noise.lidRate(speed: 45) * (Tuning.lidTravel / 45) >= 1)
+        #expect(Noise.lidRate(speed: 40) * (Tuning.lidTravel / 40) < 1)
         let slam: Double = Noise.lidRate(speed: 120) * 0.4
-        #expect(slam >= 2.0 && slam < 2.1)
+        #expect(slam >= 2.2 && slam < 2.25)
         #expect(Noise.lidRate(speed: 30) > Noise.lidRate(speed: 20))
         #expect(Noise.lidRate(speed: Double.nan) == 0)
+        #expect(Noise.lidRate(speed: Double.nan, closing: true) == 0)
     }
 
-    @Test func dragRateMatchesTheDesignExample() {
+    @Test func closingIsQuieterThanOpening() {
+        // R2 (REVIEW-1-feel #2): closing is silent below 18 °/s.
+        #expect(Noise.quietSpeed(closing: false) == Tuning.quietSpeed)
+        #expect(Noise.quietSpeed(closing: true) == Tuning.closeQuietSpeed)
+        #expect(Noise.lidRate(speed: 16) > 0)
+        #expect(Noise.lidRate(speed: 16, closing: true) == 0)
+        #expect(Noise.lidRate(speed: 18, closing: true) == 0)
+        #expect(Noise.lidRate(speed: 25, closing: true) > 0)
+        #expect(Noise.lidRate(speed: 25, closing: true) < Noise.lidRate(speed: 25))
+        // In a session the direction comes from the openness: opening at 16 °/s is heard, closing at 16 °/s isn't.
+        let (a, _) = lootingSession(seed: 161)
+        var o: Double = 0.06
+        for _ in 0..<60 {
+            o += 16.0 / Tuning.lidTravel / 60.0
+            _ = a.step(dt: 1.0 / 60.0, lid: lidAt(o, speed: 16))
+        }
+        #expect(a.snapshot.noise > 0.02)
+        let (b, _) = lootingSession(seed: 161)
+        _ = b.step(dt: 1.0 / 120.0, lid: lidAt(0.9))
+        var p: Double = 0.9
+        for _ in 0..<60 {
+            p -= 16.0 / Tuning.lidTravel / 60.0
+            _ = b.step(dt: 1.0 / 60.0, lid: lidAt(p, speed: 16))
+        }
+        #expect(b.snapshot.noise == 0)
+    }
+
+    @Test func dragRateMatchesTheR2Line() {
         #expect(Noise.dragRate(speed: 0) == 0)
-        #expect(Noise.dragRate(speed: 250) == 0)
-        #expect(abs(Noise.dragRate(speed: 1000) - 0.45) < 1e-9)
+        #expect(Noise.dragRate(speed: 350) == 0)
+        #expect(abs(Noise.dragRate(speed: 1000) - 0.39) < 1e-9)
         #expect(Noise.dragRate(speed: 500) > 0)
+    }
+
+    @Test func jingleFloorAndChainMultiplier() {
+        #expect(Noise.jingleFloor(items: 0, multiplier: 1) == 0)
+        #expect(abs(Noise.jingleFloor(items: 2, multiplier: 1) - 0.07) < 1e-12)
+        #expect(abs(Noise.jingleFloor(items: 3, multiplier: 0.7) - 0.0735) < 1e-12)
+        // Capped under Stirring: a full bag never stirs the mimic by itself.
+        #expect(Noise.jingleFloor(items: 9, multiplier: 1.35 * 1.25) == Tuning.jingleMax)
+        #expect(Tuning.jingleMax < Tuning.stirringNoise)
+        #expect(Noise.chainMultiplier(0) == 1)
+        #expect(abs(Noise.chainMultiplier(1) - 1.1) < 1e-12)
+        #expect(abs(Noise.chainMultiplier(3) - 1.3) < 1e-12)
+        #expect(abs(Noise.chainMultiplier(5) - 1.5) < 1e-12)
+        #expect(Noise.chainMultiplier(9) == Noise.chainMultiplier(5))
+        #expect(Noise.chainMultiplier(-2) == 1)
     }
 
     @Test func stagesHaveHysteresis() {
@@ -209,10 +283,14 @@ struct CoreTests {
         }
         let gotIDs: Set<RelicID> = Set(all.map { (r: Relic) -> RelicID in r.id })
         #expect(gotIDs == ids)
+        // R2: 24 shapes, one relic each, and no two relics share a tint.
+        #expect(RelicShape.allCases.count == 24)
         for shape in RelicShape.allCases {
             let n: Int = all.filter { (r: Relic) -> Bool in r.shape == shape }.count
-            #expect(n == 2, "\(shape.rawValue) used \(n) times")
+            #expect(n == 1, "\(shape.rawValue) used \(n) times")
         }
+        let tintCount: Int = Set(all.map { (r: Relic) -> RGBA in r.tint }).count
+        #expect(tintCount == 24)
         for r in all {
             #expect(!r.name.isEmpty && !r.blurb.isEmpty)
         }
@@ -232,6 +310,14 @@ struct CoreTests {
         }
         #expect(MimicNames.names(for: .snorer).contains("Snoring Sam"))
         #expect(MimicNames.names(for: .lightSleeper).contains("Twitchy Tess"))
+        // R2: golden mimics have gold names whatever their personality.
+        let gold: [String] = MimicNames.goldenNames
+        #expect(gold.count >= 8 && Set(gold).count == gold.count)
+        #expect(gold.contains("Midas Mo"))
+        for kind in MimicKind.allCases {
+            #expect(gold.contains(MimicNames.name(for: kind, seed: 77, golden: true)))
+            #expect(MimicNames.name(for: kind, seed: 77) == MimicNames.name(for: kind, seed: 77, golden: false))
+        }
     }
 
     // MARK: ChestFactory
@@ -246,7 +332,28 @@ struct CoreTests {
         #expect(ChestFactory.tier(forIndex: 6) == .royal)
         #expect(ChestFactory.tier(forIndex: 40) == .royal)
         #expect(ChestFactory.multiplier(for: .royal) == 3)
-        #expect(ChestFactory.decay(for: .wooden) == 0.14)
+        // R2 decays.
+        #expect(ChestFactory.decay(for: .wooden) == 0.16)
+        #expect(ChestFactory.decay(for: .iron) == 0.14)
+        #expect(ChestFactory.decay(for: .gilded) == 0.12)
+        #expect(ChestFactory.decay(for: .royal) == 0.10)
+    }
+
+    @Test func r2TuningNumbers() {
+        #expect(Tuning.quietSpeed == 12 && Tuning.closeQuietSpeed == 18)
+        #expect(Tuning.lidRateLinear == 0.008 && Tuning.lidRateQuadratic == 0.0004)
+        #expect(Tuning.decayGrace == 0.3)
+        #expect(Tuning.dragQuietSpeed == 350)
+        #expect(Tuning.biteTorchPenalty == 10 && Tuning.oilSeconds == 6)
+        #expect(Tuning.relicChance == 0.25)
+        // REVIEW-1-duo P1-9: relics need at most about 161°, well short of "too wide".
+        #expect(Tuning.relicDepth.lowerBound == 0.80 && Tuning.relicDepth.upperBound == 0.88)
+        let deepestGrab: Double = Lid.angle(openness: Tuning.relicDepth.upperBound + Tuning.grabLight * Tuning.lightRamp)
+        #expect(deepestGrab < 161.5 && deepestGrab < Tuning.tooWideAngle)
+        #expect(Tuning.chainStep == 0.10 && Tuning.chainMax == 5)
+        #expect(Tuning.goldenChance == 0.06 && Tuning.goldenFromIndex == 2)
+        #expect(Tuning.jinglePerItem == 0.035 && Tuning.jingleMax == 0.30)
+        #expect(Tuning.closingAngle == 70)
     }
 
     @Test func chestsAreDeterministic() {
@@ -276,7 +383,8 @@ struct CoreTests {
             while index <= 8 {
                 let c: ChestSpec = ChestFactory.chest(seed: seed, index: index, found: [])
                 #expect(c.tier == ChestFactory.tier(forIndex: index))
-                #expect(c.multiplier == ChestFactory.multiplier(for: c.tier))
+                let goldenMult: Double = c.golden ? Tuning.goldenValueMultiplier : 1
+                #expect(c.multiplier == ChestFactory.multiplier(for: c.tier) * goldenMult)
                 #expect(c.decay == ChestFactory.decay(for: c.tier))
                 #expect(!c.mimicName.isEmpty)
                 let range: ClosedRange<Int> = ChestFactory.itemCount(for: c.tier)
@@ -334,9 +442,9 @@ struct CoreTests {
         #expect(badCount == 0)
         #expect(badValue == 0)
         #expect(woodenRelics == 0)
-        // About 35 % of Iron-bound-or-better chests hold a relic.
+        // About 25 % of Iron-bound-or-better chests hold a relic (R2).
         let share: Double = Double(relicChests) / Double(max(ironPlus, 1))
-        #expect(share > 0.2 && share < 0.5, "relic share \(share)")
+        #expect(share > 0.15 && share < 0.36, "relic share \(share)")
         // Deeper items sit further back (smaller y) on average.
         #expect(deepN > 0 && shallowN > 0)
         #expect(deepY / max(deepN, 1) < shallowY / max(shallowN, 1))
@@ -565,7 +673,8 @@ struct CoreTests {
         let (s, _) = lootingSession(seed: 51)
         s.nudgeNoise(to: 0.3)
         let still: LidInput = lidAt(0.3)
-        _ = s.step(dt: 0.3, lid: still)
+        // R2 grace 0.3 s: still nothing after 0.2 s.
+        _ = s.step(dt: 0.2, lid: still)
         #expect(abs(s.snapshot.noise - 0.3) < 1e-9)
         _ = s.step(dt: 0.5, lid: still)
         #expect(s.snapshot.noise < 0.3)
@@ -598,8 +707,11 @@ struct CoreTests {
         #expect(count(early, isBanked) == 0)
         #expect(s.snapshot.shutHold > 0.4 && s.snapshot.shutHold < 1)
         let later: [HeistEvent] = run(s, seconds: 0.2, dt: 1.0 / 120.0, lid: lidAt(0.06))
-        #expect(later.contains(HeistEvent.banked(value: v, items: 1, hushed: true)))
-        #expect(s.snapshot.banked == v)
+        // Hushed: the first link of the Hush Chain pays ×1.1.
+        let paid: Int = Int((Double(v) * Noise.chainMultiplier(1)).rounded())
+        #expect(later.contains(HeistEvent.banked(value: paid, items: 1, hushed: true)))
+        #expect(later.contains(HeistEvent.chainUp(count: 1, multiplier: Noise.chainMultiplier(1))))
+        #expect(s.snapshot.banked == paid)
         #expect(s.snapshot.chestsBanked == 1)
         #expect(s.snapshot.hushed == 1)
         // The torch doesn't burn in the bank moment; the next chest comes after 1.4 s.
@@ -645,6 +757,14 @@ struct CoreTests {
             t += 1.0 / 60.0
         }
         #expect(ev.contains(HeistEvent.bitten(lostValue: inHand)))
+        // R2: the cost comes right after the bite.
+        if let bi = ev.firstIndex(of: HeistEvent.bitten(lostValue: inHand)), bi + 1 < ev.count,
+           case .biteCost(let lostValue, let seconds) = ev[bi + 1] {
+            #expect(lostValue == inHand)
+            #expect(abs(seconds - Tuning.biteTorchPenalty) < 1e-9)
+        } else {
+            Issue.record("no biteCost after bitten: \(ev)")
+        }
         let toBiting: Bool = ev.contains { (e: HeistEvent) -> Bool in
             if case .stageChanged(_, let to) = e { return to == .biting }
             return false
@@ -726,6 +846,8 @@ struct CoreTests {
         }
         #expect(r.gold == 0)
         #expect(r.chestsOpened == 1)
+        // The chest the candle went out on is logged with nothing banked.
+        #expect(r.chestLog == [ChestOutcome(tier: .wooden, golden: false, value: 0, hushed: false, bitten: false)])
         #expect(r.seed == 81)
         #expect(r.seconds > 100 && r.seconds < 104)
         #expect(s.step(dt: 1.0 / 60.0, lid: lidAt(0.5)).isEmpty)
@@ -954,6 +1076,11 @@ struct CoreTests {
             r += 1
         }
         #expect(Set(ThiefRanks.titles).count == 12)
+        // R2 thresholds (about one rank per run in a first session).
+        #expect(ThiefRanks.thresholds == [0, 1_000, 3_000, 7_000, 14_000, 25_000, 42_000, 66_000, 100_000, 150_000,
+                                          220_000, 320_000])
+        #expect(ThiefRanks.rank(forLifetimeGold: 1_635) == 1)
+        #expect(ThiefRanks.rank(forLifetimeGold: 1_635 + 2_500 + 3_945) == 3)
     }
 
     @Test func achievements() {
@@ -962,32 +1089,367 @@ struct CoreTests {
         #expect(achIDs == 12)
         let prefixed: Bool = Achievements.all.allSatisfy { (a: AchievementDef) -> Bool in a.id.hasPrefix("hush.ach.") }
         #expect(prefixed)
+        // The R2 swaps keep their Game Center ids (and Achievements.all order, which the badges use).
+        #expect(Achievements.midasTouch.id == "hush.ach.royal" && Achievements.midasTouch.title == "Midas Touch")
+        #expect(Achievements.hushChain.id == "hush.ach.hushhush" && Achievements.hushChain.title == "Hush Chain")
+        #expect(Achievements.all[4] == Achievements.midasTouch && Achievements.all[8] == Achievements.hushChain)
+        // A Royal chest and 3 Hushed chests no longer earn anything by themselves; 2,400 gold isn't a Heavy Bag now.
         let run = RunResult(mode: .run, seed: 1, gold: 2_400, seconds: 120, chestsOpened: 6, chestsBanked: 5,
-                            hushed: 1, bites: 0, relics: [RelicID("relic01")], bestChestValue: 800, itemsBagged: 30,
-                            highestTier: .gilded, lostToBites: 0)
+                            hushed: 3, bites: 0, relics: [RelicID("relic01")], bestChestValue: 800, itemsBagged: 30,
+                            highestTier: .royal, lostToBites: 0, bestChain: 4, goldenBanked: 0)
         let got: [AchievementDef] = Achievements.earned(after: run, lifetimeGold: 2_400, relicsFound: 1,
                                                         alreadyEarned: [])
         let ids: Set<String> = Set(got.map { (a: AchievementDef) -> String in a.id })
-        #expect(ids.contains(Achievements.firstHaul.id))
-        #expect(ids.contains(Achievements.notAPeep.id))
-        #expect(ids.contains(Achievements.firstRelic.id))
-        #expect(ids.contains(Achievements.fiveChests.id))
-        #expect(ids.contains(Achievements.heavyBag.id))
-        #expect(ids.contains(Achievements.untouchable.id))
-        #expect(!ids.contains(Achievements.royal.id))
-        #expect(!ids.contains(Achievements.hoard.id))
-        #expect(!ids.contains(Achievements.curator.id))
-        #expect(!ids.contains(Achievements.fortune.id))
+        let expected: Set<String> = [Achievements.firstHaul.id, Achievements.notAPeep.id, Achievements.firstRelic.id,
+                                     Achievements.fiveChests.id, Achievements.untouchable.id]
+        #expect(ids == expected)
         let again: [AchievementDef] = Achievements.earned(after: run, lifetimeGold: 2_400, relicsFound: 1,
                                                           alreadyEarned: ids)
         #expect(again.isEmpty)
-        var attract: RunResult = run
+        // R2 thresholds and the new two.
+        var big: RunResult = run
+        big.gold = 8_000
+        big.goldenBanked = 1
+        big.bestChain = Tuning.chainMax
+        let bigIDs: Set<String> = Set(Achievements.earned(after: big, lifetimeGold: 8_000, relicsFound: 1,
+                                                          alreadyEarned: ids).map { (a: AchievementDef) -> String in a.id })
+        let expectedBig: Set<String> = [Achievements.heavyBag.id, Achievements.hoard.id, Achievements.midasTouch.id,
+                                        Achievements.hushChain.id]
+        #expect(bigIDs == expectedBig)
+        var justUnder: RunResult = run
+        justUnder.gold = 2_999
+        let underIDs: Set<String> = Set(Achievements.earned(after: justUnder, lifetimeGold: 49_999, relicsFound: 11,
+                                                            alreadyEarned: ids).map { (a: AchievementDef) -> String in a.id })
+        #expect(underIDs.isEmpty)
+        var attract: RunResult = big
         attract.mode = .attract
         #expect(Achievements.earned(after: attract, lifetimeGold: 99_999, relicsFound: 24, alreadyEarned: []).isEmpty)
-        let late: [AchievementDef] = Achievements.earned(after: run, lifetimeGold: 30_000, relicsFound: 24,
+        let late: [AchievementDef] = Achievements.earned(after: run, lifetimeGold: 50_000, relicsFound: 24,
                                                          alreadyEarned: ids)
         let lateIDs: Set<String> = Set(late.map { (a: AchievementDef) -> String in a.id })
         let expectedLate: Set<String> = [Achievements.curator.id, Achievements.fullCodex.id, Achievements.fortune.id]
         #expect(lateIDs == expectedLate)
+    }
+
+    // MARK: R2 rules
+
+    @Test func hushChainPaysAndBreaksTheMomentTheMimicStirs() {
+        let (s, _) = lootingSession(seed: 131)
+        #expect(s.snapshot.chain == 0)
+        #expect(abs(s.snapshot.chainMultiplier - Noise.chainMultiplier(1)) < 1e-12)
+        // Two Hushed banks: ×1.1, then ×1.2.
+        let (v1, ev1) = bankOne(s)
+        #expect(ev1.contains(HeistEvent.banked(value: Int((Double(v1) * Noise.chainMultiplier(1)).rounded()), items: 1,
+                                               hushed: true)))
+        #expect(ev1.contains(HeistEvent.chainUp(count: 1, multiplier: Noise.chainMultiplier(1))))
+        // chainUp comes right after banked.
+        if let bi = ev1.firstIndex(where: isBanked), bi + 1 < ev1.count {
+            #expect(isChainUp(ev1[bi + 1]))
+        } else {
+            Issue.record("no bank: \(ev1)")
+        }
+        #expect(s.snapshot.chain == 1)
+        nextChestLooting(s)
+        #expect(abs(s.snapshot.chainMultiplier - Noise.chainMultiplier(2)) < 1e-12)
+        let (v2, ev2) = bankOne(s)
+        #expect(ev2.contains(HeistEvent.banked(value: Int((Double(v2) * Noise.chainMultiplier(2)).rounded()), items: 1,
+                                               hushed: true)))
+        #expect(ev2.contains(HeistEvent.chainUp(count: 2, multiplier: Noise.chainMultiplier(2))))
+        #expect(s.snapshot.chain == 2)
+        nextChestLooting(s)
+        // A stir breaks it at once (the event comes with the next step), and this chest pays ×1.
+        s.nudgeNoise(to: 0.4)
+        #expect(s.snapshot.chain == 0)
+        #expect(s.snapshot.chainMultiplier == 1)
+        let ev3: [HeistEvent] = s.step(dt: 1.0 / 120.0, lid: lidAt(0.06))
+        #expect(ev3.contains(HeistEvent.chainBroken(count: 2)))
+        let (v3, ev4) = bankOne(s)
+        #expect(ev4.contains(HeistEvent.banked(value: v3, items: 1, hushed: false)))
+        #expect(count(ev4, isChainUp) == 0)
+        #expect(count(ev4, isChainBroken) == 0)
+        let r: RunResult = s.partialResult()
+        #expect(r.bestChain == 2)
+        #expect(r.hushed == 2)
+        #expect(r.chestsBanked == 3)
+        // A chain of 1 breaks silently.
+        nextChestLooting(s)
+        _ = bankOne(s)
+        nextChestLooting(s)
+        #expect(s.snapshot.chain == 1)
+        s.nudgeNoise(to: 0.4)
+        let ev5: [HeistEvent] = s.step(dt: 1.0 / 120.0, lid: lidAt(0.06))
+        #expect(count(ev5, isChainBroken) == 0)
+        #expect(s.snapshot.chain == 0)
+    }
+
+    @Test func aBiteBreaksTheChainAndIsLogged() {
+        let (s, _) = lootingSession(seed: 141)
+        _ = bankOne(s)
+        nextChestLooting(s)
+        _ = bankOne(s)
+        nextChestLooting(s)
+        #expect(s.snapshot.chain == 2)
+        guard let k = shallowest(s.snapshot), let chest = s.snapshot.chest else {
+            Issue.record("empty chest")
+            return
+        }
+        _ = bagItem(s, k)
+        let inHand: Int = s.snapshot.bagValue
+        var ev: [HeistEvent] = []
+        var t: Double = 0
+        while t < 1.0 && count(ev, isBitten) == 0 {
+            ev.append(contentsOf: s.step(dt: 1.0 / 60.0, lid: lidAt(0.5, speed: 150)))
+            t += 1.0 / 60.0
+        }
+        #expect(ev.contains(HeistEvent.bitten(lostValue: inHand)))
+        #expect(ev.contains(HeistEvent.chainBroken(count: 2)))
+        #expect(s.snapshot.chain == 0)
+        let r: RunResult = s.partialResult()
+        #expect(r.chestLog.count == 3)
+        #expect(r.chestLog.last == ChestOutcome(tier: chest.tier, golden: chest.golden, value: 0, hushed: false,
+                                                bitten: true))
+        #expect(r.bestChain == 2)
+        #expect(r.lostToBites == inHand)
+    }
+
+    @Test func bagJingleFloorsTheDecay() {
+        let (s, _) = lootingSession(seed: 151)
+        guard let chest = s.snapshot.chest else {
+            Issue.record("no chest")
+            return
+        }
+        let dealt: [LootState] = s.snapshot.loot
+        let order: [Int] = dealt.indices.sorted { (a: Int, b: Int) -> Bool in dealt[a].item.depth < dealt[b].item.depth }
+        guard order.count >= 2 else {
+            Issue.record("too few items")
+            return
+        }
+        #expect(s.snapshot.noiseFloor == 0)
+        _ = bagItem(s, order[0], touchID: 1)
+        _ = bagItem(s, order[1], touchID: 2)
+        let open: LidInput = lidAt(0.5)
+        _ = s.step(dt: 1.0 / 120.0, lid: open)
+        let floor: Double = Noise.jingleFloor(items: 2, multiplier: Noise.multiplier(for: chest.mimic))
+        #expect(floor > 0)
+        #expect(abs(s.snapshot.noiseFloor - floor) < 1e-12)
+        // Decay stops at the floor …
+        s.nudgeNoise(to: 0.25)
+        _ = run(s, seconds: 6, lid: open)
+        #expect(abs(s.snapshot.noise - floor) < 1e-9, "noise \(s.snapshot.noise) floor \(floor)")
+        #expect(s.snapshot.stage == .asleep)
+        // … and never pushes the noise up to it.
+        s.nudgeNoise(to: floor / 2)
+        _ = run(s, seconds: 1, lid: open)
+        #expect(abs(s.snapshot.noise - floor / 2) < 1e-9)
+        // Outside play the snapshot reports no floor.
+        _ = run(s, seconds: 0.5, dt: 1.0 / 120.0, lid: lidAt(0.06))
+        if case .banked = s.snapshot.phase {
+            #expect(s.snapshot.noiseFloor == 0)
+        } else {
+            Issue.record("not banked: \(s.snapshot.phase)")
+        }
+    }
+
+    @Test func goldenMimicsAreRareLateAndRich() {
+        var golden: Int = 0
+        var late: Int = 0
+        var early: Int = 0
+        var bad: Int = 0
+        var goldenSpec: ChestSpec? = nil
+        var seed: UInt64 = 1
+        while seed <= 300 {
+            var index: Int = 0
+            while index <= 9 {
+                let c: ChestSpec = ChestFactory.chest(seed: seed, index: index, found: [])
+                if c.golden != ChestFactory.isGolden(seed: seed, index: index) { bad += 1 }
+                if index >= Tuning.goldenFromIndex { late += 1 }
+                if c.golden {
+                    golden += 1
+                    if index < Tuning.goldenFromIndex { early += 1 }
+                    if c.multiplier != ChestFactory.multiplier(for: c.tier) * Tuning.goldenValueMultiplier { bad += 1 }
+                    if !MimicNames.goldenNames.contains(c.mimicName) { bad += 1 }
+                    if goldenSpec == nil { goldenSpec = c }
+                } else if c.multiplier != ChestFactory.multiplier(for: c.tier) {
+                    bad += 1
+                }
+                index += 1
+            }
+            seed += 1
+        }
+        #expect(bad == 0)
+        #expect(early == 0)
+        let rate: Double = Double(golden) / Double(max(late, 1))
+        #expect(rate > 0.035 && rate < 0.09, "golden rate \(rate)")
+        // Its noise is ×1.25 and its loot ×2.
+        guard let spec = goldenSpec else {
+            Issue.record("no golden chest")
+            return
+        }
+        let (s, _) = lootingSession(seed: 5, options: SessionOptions(fixedChest: spec))
+        #expect(s.snapshot.chest?.golden == true)
+        guard let k = shallowest(s.snapshot) else { return }
+        let item: LootItem = s.snapshot.loot[k].item
+        _ = s.step(dt: 1.0 / 120.0, lid: lidAt(min(1, item.depth + 0.08)))
+        _ = s.touchBegan(id: 1, at: s.snapshot.loot[k].position, time: 0)
+        let expected: Double = Tuning.pickNoise * Noise.multiplier(for: spec.mimic) * Tuning.goldenNoiseMultiplier
+        #expect(abs(s.snapshot.noise - expected) < 1e-9)
+        let ev: [HeistEvent] = s.touchEnded(id: 1, at: CGPoint(x: 300, y: 400), time: 0.5)
+        let v: Int = Int((Double(item.value) * spec.multiplier).rounded())
+        #expect(ev.first == HeistEvent.itemBagged(id: item.id, kind: item.kind, value: v))
+        _ = run(s, seconds: 0.5, dt: 1.0 / 120.0, lid: lidAt(0.06))
+        #expect(s.partialResult().goldenBanked == 1)
+        #expect(s.partialResult().chestLog.first?.golden == true)
+    }
+
+    @Test func relicGlimmerHintsAtADeepRelic() {
+        #expect(HeistSession.relicGlimmers(depth: 0.84, openness: 0.70))
+        #expect(HeistSession.relicGlimmers(depth: 0.84, openness: 0.64))
+        #expect(!HeistSession.relicGlimmers(depth: 0.84, openness: 0.60))
+        #expect(!HeistSession.relicGlimmers(depth: 0.84, openness: 0.89))
+        #expect(!HeistSession.relicGlimmers(depth: Double.nan, openness: 0.7))
+        let relic = LootItem(id: 0, kind: .relic(RelicID("relic03")), value: 300, depth: 0.84,
+                             position: CGPoint(x: 335, y: 80), radius: Tuning.relicRadius, rotation: 0)
+        let spec = ChestSpec(index: 0, tier: .iron, mimic: .snorer, mimicName: "Snoring Sam",
+                             multiplier: Tuning.ironMultiplier, decay: Tuning.ironDecay, items: [relic])
+        let (s, _) = lootingSession(options: SessionOptions(fixedChest: spec))
+        _ = s.step(dt: 1.0 / 120.0, lid: lidAt(0.5))
+        #expect(s.snapshot.hint == HeistHint.openSlowly)
+        _ = s.step(dt: 1.0 / 120.0, lid: lidAt(0.7))
+        #expect(s.snapshot.hint == HeistHint.relicDeeper)
+        _ = s.step(dt: 1.0 / 120.0, lid: lidAt(0.96))
+        #expect(s.snapshot.hint == HeistHint.dragToBag)
+        // A relic deeper than R2's 0.88 isn't dealt any more.
+        var deepest: Double = 0
+        var seed: UInt64 = 1
+        while seed <= 80 {
+            var index: Int = 2
+            while index <= 8 {
+                for it in ChestFactory.chest(seed: seed, index: index, found: []).items {
+                    if case .relic = it.kind { deepest = max(deepest, it.depth) }
+                }
+                index += 1
+            }
+            seed += 1
+        }
+        #expect(deepest > 0.8 && deepest <= 0.88)
+    }
+
+    @Test func candleLowHintWithLootInTheBag() {
+        let (s, _) = lootingSession(seed: 191)
+        guard let k = shallowest(s.snapshot) else { return }
+        _ = bagItem(s, k)
+        let open: LidInput = lidAt(0.5)
+        run(s, seconds: s.snapshot.torchRemaining - Tuning.torchLowSeconds - 1, dt: 1.0 / 30.0, lid: open)
+        #expect(s.snapshot.hint == HeistHint.shutToBank)
+        run(s, seconds: 2, dt: 1.0 / 30.0, lid: open)
+        #expect(s.snapshot.torchRemaining <= Tuning.torchLowSeconds)
+        #expect(s.snapshot.hint == HeistHint.candleLow)
+        // Slower and Freeze still come first.
+        _ = s.step(dt: 1.0 / 120.0, lid: lidAt(0.5, speed: 40))
+        #expect(s.snapshot.hint == HeistHint.slower)
+        // An empty bag: no candleLow.
+        let (e, _) = lootingSession(seed: 191)
+        run(e, seconds: 87, dt: 1.0 / 30.0, lid: open)
+        #expect(e.snapshot.torchRemaining <= Tuning.torchLowSeconds)
+        #expect(e.snapshot.hint != HeistHint.candleLow)
+    }
+
+    @Test func restOnlyLetsTheMimicSettle() {
+        let (s, _) = lootingSession(seed: 171)
+        s.nudgeNoise(to: 0.6)
+        _ = s.step(dt: 1.0 / 120.0, lid: lidAt(0.3, speed: 20))
+        let before: HeistSnapshot = s.snapshot
+        #expect(before.stage == .stirring)
+        #expect(before.lidSpeed == 20)
+        let ev: [HeistEvent] = s.rest(dt: 10)
+        let snap: HeistSnapshot = s.snapshot
+        #expect(ev == [HeistEvent.stageChanged(from: .stirring, to: .asleep)])
+        #expect(snap.noise < 0.05)
+        #expect(snap.stage == .asleep)
+        #expect(snap.torchRemaining == before.torchRemaining)
+        #expect(snap.time == before.time)
+        #expect(snap.lidSpeed == 0)
+        #expect(snap.phase == .looting)
+        #expect(s.rest(dt: -1).isEmpty)
+        #expect(s.rest(dt: Double.nan).isEmpty)
+        // It stops at the bag jingle floor too.
+        guard let k = shallowest(s.snapshot), let chest = s.snapshot.chest else { return }
+        _ = bagItem(s, k)
+        _ = s.step(dt: 1.0 / 120.0, lid: lidAt(0.5))
+        s.nudgeNoise(to: 0.3)
+        s.rest(dt: 8)
+        let floor: Double = Noise.jingleFloor(items: 1, multiplier: Noise.multiplier(for: chest.mimic))
+        #expect(abs(s.snapshot.noise - floor) < 1e-9)
+        // Nothing happens in a moment: the bank moment doesn't advance.
+        _ = run(s, seconds: 0.5, dt: 1.0 / 120.0, lid: lidAt(0.06))
+        let moment: RunPhase = s.snapshot.phase
+        if case .banked = moment {} else { Issue.record("phase \(moment)") }
+        #expect(s.rest(dt: 5).isEmpty)
+        #expect(s.snapshot.phase == moment)
+        // Even a very loud mimic only settles: no bite while resting.
+        let (b, _) = lootingSession(seed: 172)
+        b.nudgeNoise(to: 0.95)
+        let restEvents: [HeistEvent] = b.rest(dt: 3)
+        #expect(count(restEvents, isBitten) == 0)
+        let onlyStages: Bool = restEvents.allSatisfy { (e: HeistEvent) -> Bool in
+            if case .stageChanged = e { return true }
+            return false
+        }
+        #expect(onlyStages)
+        #expect(b.snapshot.bites == 0)
+    }
+
+    @Test func resumeGraceIgnoresTheLidForAMoment() {
+        let (s, _) = lootingSession(seed: 181)
+        s.resumeGrace(seconds: 0.5)
+        _ = s.step(dt: 0.4, lid: lidAt(0.5, speed: 40))
+        #expect(s.snapshot.noise == 0)
+        #expect(s.snapshot.hint != HeistHint.slower)
+        _ = s.step(dt: 0.3, lid: lidAt(0.5, speed: 40))
+        #expect(s.snapshot.noise > 0)
+        #expect(s.snapshot.hint == HeistHint.slower)
+        // Bad values are ignored; a shorter grace doesn't cut a longer one.
+        s.resumeGrace(seconds: Double.nan)
+        s.resumeGrace(seconds: -3)
+        let n0: Double = s.snapshot.noise
+        _ = s.step(dt: 0.1, lid: lidAt(0.5, speed: 40))
+        #expect(s.snapshot.noise > n0)
+        s.resumeGrace(seconds: 1)
+        s.resumeGrace(seconds: 0.1)
+        let n1: Double = s.snapshot.noise
+        _ = s.step(dt: 0.5, lid: lidAt(0.5, speed: 40))
+        #expect(s.snapshot.noise <= n1)
+    }
+
+    @Test func chestLogAndPartialResult() {
+        let (s, _) = lootingSession(seed: 201)
+        let (_, ev) = bankOne(s)
+        guard let paid = bankedValue(ev) else {
+            Issue.record("no bank")
+            return
+        }
+        nextChestLooting(s)
+        #expect(s.result == nil)
+        let p: RunResult = s.partialResult()
+        #expect(p.chestsOpened == 2)
+        #expect(p.chestsBanked == 1)
+        #expect(p.gold == paid)
+        #expect(p.bestChain == 1)
+        #expect(p.chestLog.count == 2)
+        #expect(p.chestLog.first == ChestOutcome(tier: .wooden, golden: false, value: paid, hushed: true, bitten: false))
+        #expect(p.chestLog.last?.value == 0)
+        #expect(p.chestLog.last?.bitten == false)
+        // Play out: the candle goes out on the open chest.
+        run(s, seconds: 110, dt: 1.0 / 30.0, lid: lidAt(0.5))
+        #expect(s.isFinished)
+        guard let r = s.result else {
+            Issue.record("no result")
+            return
+        }
+        #expect(r.chestLog.count == r.chestsOpened)
+        #expect(r.chestLog.last?.value == 0)
+        let logged: Int = r.chestLog.reduce(0) { (a: Int, c: ChestOutcome) -> Int in a + c.value }
+        #expect(logged == r.gold)
+        #expect(s.partialResult() == r)
     }
 }

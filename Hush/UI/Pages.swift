@@ -1,7 +1,8 @@
 import SwiftUI
 
-/// A full page (Codex, Settings, Daily): its title at the top, scrolling content, and its "Done" button at the bottom,
-/// on the floor half (the reachable end on a Duo in tabletop pose).
+/// A full page (Codex, Badges, Settings, Daily): its title, scrolling content and "Done". R2: on a Duo the title sits
+/// on the lid half and the content and Done on the floor half (the sharp, reachable one: Settings' toggles too);
+/// elsewhere one column. The subtitle has gutters and wraps; the scroll fades out above Done instead of being cut by it.
 struct PageScaffold<Content: View>: View {
     let title: String
     var subtitle: String?
@@ -14,52 +15,89 @@ struct PageScaffold<Content: View>: View {
         ZStack {
             HushTheme.backdrop
                 .contentShape(Rectangle())
-            VStack(spacing: 0) {
-                VStack(spacing: 4) {
-                    Text(title)
-                        .font(HushType.title(c))
-                        .foregroundStyle(HushTheme.parchment)
-                    if let subtitle {
-                        Text(subtitle)
-                            .font(HushType.body(c))
-                            .foregroundStyle(HushTheme.mist)
-                            .multilineTextAlignment(.center)
-                    }
+            if info.hasFold {
+                let lid = info.lidHalf
+                let floor = info.floorHalf
+                header(c)
+                    .frame(width: lid.width)
+                    .position(x: lid.midX, y: lid.midY)
+                column(c)
+                    .padding(.top, 8)
+                    .padding(.bottom, 8)
+                    .frame(width: floor.width, height: floor.height)
+                    .position(x: floor.midX, y: floor.midY)
+            } else {
+                VStack(spacing: 0) {
+                    header(c)
+                        .padding(.top, max(info.insets.top, 12) + 8)
+                        .padding(.bottom, 12)
+                    column(c)
+                        .padding(.bottom, max(info.insets.bottom, 12) + 8)
                 }
-                .padding(.top, max(info.insets.top, 12) + 8)
-                .padding(.bottom, 12)
-                ScrollView {
-                    content()
-                        .frame(width: info.columnWidth)
-                        .padding(.bottom, 16)
-                }
-                .scrollIndicators(.hidden)
-                HushButton(kind: .secondary, height: HushTheme.primaryHeight, compact: c, action: onDone) {
-                    Text("Done")
-                }
-                .frame(width: info.columnWidth)
-                .padding(.top, 8)
-                .padding(.bottom, max(info.insets.bottom, 12) + 8)
+                .frame(width: info.size.width, height: info.size.height)
             }
-            .frame(width: info.size.width, height: info.size.height)
         }
         .frame(width: info.size.width, height: info.size.height)
     }
+
+    private func header(_ c: Bool) -> some View {
+        VStack(spacing: 6) {
+            Text(title)
+                .font(HushType.title(c))
+                .foregroundStyle(HushTheme.parchment)
+                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
+            if let subtitle {
+                Text(subtitle)
+                    .font(HushType.body(c))
+                    .foregroundStyle(HushTheme.mist)
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .padding(.horizontal, 24)
+    }
+
+    private func column(_ c: Bool) -> some View {
+        VStack(spacing: 0) {
+            ScrollView {
+                content()
+                    .frame(width: info.columnWidth)
+                    .padding(.top, 4)
+                    .padding(.bottom, 28)
+            }
+            .scrollIndicators(.hidden)
+            .mask(LinearGradient(stops: [.init(color: .black, location: 0), .init(color: .black, location: 0.9),
+                                         .init(color: .black.opacity(0), location: 1)],
+                                 startPoint: .top, endPoint: .bottom))
+            HushButton(kind: .secondary, height: HushTheme.primaryHeight, compact: c, action: onDone) {
+                Text("Done")
+            }
+            .frame(width: info.columnWidth)
+            .padding(.top, 8)
+        }
+    }
 }
 
-/// The Relic Codex: 24 slots. Found relics are drawn with their name (tap for the blurb); unfound ones are dark
-/// silhouettes, "???".
+/// The Relic Codex: 24 slots on velvet (R2: the in-game relic art, `ChestArt`). Found relics show their name (tap for
+/// the blurb); unfound ones a softened silhouette and "???".
 struct CodexView: View {
     @ObservedObject var controller: GameController
     @ObservedObject var store: ProgressStore
     let info: AppCanvas
     @State private var selected: RelicID?
 
+    /// Pure; tested.
+    static func subtitle(found: Int, total: Int) -> String {
+        if found == 0 { return "0 of \(total) found. Relics hide in iron-bound chests and finer." }
+        return "\(found) of \(total) found. Tap a relic to read it."
+    }
+
     var body: some View {
         let found = store.data.foundRelics
-        let columns = Array(repeating: GridItem(.flexible(), spacing: 10), count: info.size.width > 560 ? 4 : 3)
+        let columns = Array(repeating: GridItem(.flexible(), spacing: 10), count: info.columnWidth > 440 ? 4 : 3)
         PageScaffold(title: "Relic Codex",
-                     subtitle: "\(found.count) of \(RelicCatalog.all.count) found. Iron-bound chests and up hide them.",
+                     subtitle: Self.subtitle(found: found.count, total: RelicCatalog.all.count),
                      info: info, onDone: { controller.show(.home) }) {
             VStack(spacing: 14) {
                 if let id = selected, found.contains(id) {
@@ -67,10 +105,13 @@ struct CodexView: View {
                     HStack(spacing: 14) {
                         RelicArt(relic: relic, found: true)
                             .frame(width: 64, height: 64)
+                            .padding(6)
+                            .background(VelvetTile(selected: true))
                         VStack(alignment: .leading, spacing: 4) {
                             Text(relic.name)
                                 .font(HushType.headline(info.isCompact))
                                 .foregroundStyle(HushTheme.goldLight)
+                                .fixedSize(horizontal: false, vertical: true)
                             Text(relic.blurb)
                                 .font(HushType.body(info.isCompact))
                                 .foregroundStyle(HushTheme.parchment)
@@ -89,19 +130,27 @@ struct CodexView: View {
                             selected = has ? relic.id : nil
                         } label: {
                             VStack(spacing: 6) {
-                                RelicArt(relic: relic, found: has)
-                                    .frame(width: 52, height: 52)
+                                ZStack {
+                                    RelicArt(relic: relic, found: has)
+                                        .frame(width: 54, height: 54)
+                                    if !has {
+                                        Text("?")
+                                            .font(.system(size: 22, weight: .black, design: .rounded))
+                                            .foregroundStyle(HushTheme.goldDeep.opacity(0.8))
+                                    }
+                                }
                                 Text(has ? relic.name : "???")
                                     .font(HushType.caption(info.isCompact))
                                     .foregroundStyle(has ? HushTheme.parchment : HushTheme.haze)
                                     .multilineTextAlignment(.center)
-                                    .lineLimit(2)
-                                    .minimumScaleFactor(0.7)
-                                    .frame(height: 34)
+                                    .lineLimit(3)
+                                    .fixedSize(horizontal: false, vertical: true)
                             }
-                            .frame(maxWidth: .infinity, minHeight: 112)
-                            .background(RoundedRectangle(cornerRadius: 16, style: .continuous)
-                                .fill(selected == relic.id ? HushTheme.surfaceRaised : HushTheme.surface))
+                            .padding(.vertical, 10)
+                            .padding(.horizontal, 6)
+                            .frame(maxWidth: .infinity, minHeight: 118)
+                            .background(VelvetTile(selected: selected == relic.id))
+                            .opacity(has ? 1 : 0.8)
                             .contentShape(Rectangle())
                         }
                         .buttonStyle(HushPressStyle())
@@ -110,6 +159,49 @@ struct CodexView: View {
                 }
             }
             .animation(.easeOut(duration: 0.2), value: selected)
+        }
+    }
+}
+
+/// R2 (ROUND-2 App 8): the 12 badges as a page of their own: earned ones in their metal, the rest dark, each with its
+/// name and what earns it.
+struct BadgesView: View {
+    @ObservedObject var controller: GameController
+    @ObservedObject var store: ProgressStore
+    let info: AppCanvas
+
+    var body: some View {
+        let earned = store.data.achievements
+        let columns = Array(repeating: GridItem(.flexible(), spacing: 10), count: info.columnWidth > 440 ? 3 : 2)
+        PageScaffold(title: "Badges",
+                     subtitle: "\(earned.count) of \(Achievements.all.count) earned. Game Center keeps them too.",
+                     info: info, onDone: { controller.show(.home) }) {
+            LazyVGrid(columns: columns, spacing: 10) {
+                ForEach(Array(Achievements.all.enumerated()), id: \.element.id) { item in
+                    let has = earned.contains(item.element.id)
+                    VStack(spacing: 6) {
+                        AchievementBadge(def: item.element, index: item.offset, side: 76, earned: has)
+                            .clipShape(Circle())
+                        Text(item.element.title)
+                            .font(HushType.body(info.isCompact))
+                            .foregroundStyle(has ? HushTheme.goldLight : HushTheme.mist)
+                            .multilineTextAlignment(.center)
+                            .fixedSize(horizontal: false, vertical: true)
+                        Text(item.element.detail)
+                            .font(HushType.caption(info.isCompact))
+                            .foregroundStyle(HushTheme.haze)
+                            .multilineTextAlignment(.center)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    .padding(10)
+                    .frame(maxWidth: .infinity, minHeight: 170, alignment: .top)
+                    .background(RoundedRectangle(cornerRadius: 16, style: .continuous)
+                        .fill(has ? HushTheme.surfaceRaised : HushTheme.surface))
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityLabel("\(item.element.title). \(item.element.detail) "
+                                        + (has ? "Earned." : "Not earned yet."))
+                }
+            }
         }
     }
 }
@@ -125,9 +217,9 @@ struct DailyView: View {
         let record = store.data.dailyRecord(day: today)
         let scored = controller.dailyScoredAvailable
         let c = info.isCompact
-        PageScaffold(title: "Daily Dungeon #\(today)",
-                     subtitle: "Same chests for every thief today.", info: info,
-                     onDone: { controller.show(.home) }) {
+        PageScaffold(title: "Daily Dungeon",
+                     subtitle: "\(AppRules.dailyDate(day: today)) · the same chests for every thief today.",
+                     info: info, onDone: { controller.show(.home) }) {
             VStack(spacing: 16) {
                 VStack(spacing: 10) {
                     Image(systemName: scored ? "sun.max.fill" : "moon.zzz.fill")
@@ -137,9 +229,13 @@ struct DailyView: View {
                         Text("Your scored try is ready")
                             .font(HushType.headline(c))
                             .foregroundStyle(HushTheme.parchment)
+                            .multilineTextAlignment(.center)
+                            .fixedSize(horizontal: false, vertical: true)
                         Text("One try counts. Make it a quiet one.")
                             .font(HushType.body(c))
                             .foregroundStyle(HushTheme.mist)
+                            .multilineTextAlignment(.center)
+                            .fixedSize(horizontal: false, vertical: true)
                     } else {
                         Text("Today's haul")
                             .font(HushType.body(c))
@@ -150,10 +246,17 @@ struct DailyView: View {
                                 .font(HushType.number(44))
                                 .foregroundStyle(HushTheme.goldLight)
                         }
+                        if record?.finished == false {
+                            Text("Left early: the gold you banked counts.")
+                                .font(HushType.caption(c))
+                                .foregroundStyle(HushTheme.haze)
+                                .multilineTextAlignment(.center)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
                         if let p = record?.practiceBest, p > 0 {
                             Text("Practice best \(p.formatted())")
                                 .font(HushType.caption(c))
-                                .foregroundStyle(HushTheme.haze)
+                                .foregroundStyle(HushTheme.mist)
                         }
                         Text("A new dungeon in \(Self.untilTomorrow())")
                             .font(HushType.body(c))
@@ -170,14 +273,16 @@ struct DailyView: View {
                     HushButton(kind: .primary, compact: c, action: { controller.practiseDaily() }) {
                         Label("Practise it", systemImage: "arrow.counterclockwise")
                     }
-                    Text("Practice never counts. Sneak about freely.")
+                    Text("Practice never reaches the leaderboard. Sneak about freely.")
                         .font(HushType.caption(c))
-                        .foregroundStyle(HushTheme.haze)
+                        .foregroundStyle(HushTheme.mist)
+                        .multilineTextAlignment(.center)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
                 if store.data.bestDaily > 0 {
                     Text("Your best Daily: \(store.data.bestDaily.formatted())")
                         .font(HushType.caption(c))
-                        .foregroundStyle(HushTheme.haze)
+                        .foregroundStyle(HushTheme.mist)
                 }
             }
         }
@@ -193,14 +298,19 @@ struct DailyView: View {
     }
 }
 
-/// Settings: Sound, Haptics, Respect silent switch, Turn the chest round (Duo only), Reduce motion, Replay First
-/// Chest, About, Credits.
+/// Settings: Sound, Haptics, Play sound on silent, Turn the chest round (Duo only), Reduce motion, Replay First Chest,
+/// About, Credits.
 struct SettingsView: View {
     @ObservedObject var controller: GameController
     @ObservedObject var settings: SettingsStore
     let info: AppCanvas
     @State private var showsAbout = false
     @State private var showsCredits = false
+
+    /// Pure; tested (UX P2-15 / brief copy).
+    static let turnTitle = "Turn the chest round"
+    static let turnDetail = "Keeps the loot on the half that stays sharp when you fold"
+    static let silentTitle = "Play sound on silent"
 
     var body: some View {
         let c = info.isCompact
@@ -212,54 +322,62 @@ struct SettingsView: View {
                     SettingToggle(title: "Haptics", detail: "Feel every creak.", isOn: $settings.hapticsOn,
                                   compact: c)
                     divider
-                    SettingToggle(title: "Respect silent switch", detail: "Off: you'll hear the creak on silent.",
-                                  isOn: $settings.respectSilentSwitch, compact: c)
+                    SettingToggle(title: Self.silentTitle, detail: "The creak plays with the ringer off.",
+                                  isOn: Binding(get: { !settings.respectSilentSwitch },
+                                                set: { settings.respectSilentSwitch = !$0 }),
+                                  compact: c)
                     if controller.hingeSeen || info.hasFold {
                         divider
-                        SettingToggle(title: "Turn the chest round",
-                                      detail: "Lifts the half that blurs as you fold, so the loot stays sharp.",
-                                      isOn: $settings.turnRound, compact: c)
+                        SettingToggle(title: Self.turnTitle, detail: Self.turnDetail, isOn: $settings.turnRound,
+                                      compact: c)
                     }
                     divider
                     SettingToggle(title: "Reduce motion", detail: "Calmer shakes and sparkles.",
                                   isOn: $settings.reduceMotion, compact: c)
                 }
                 .hushCard(padding: 6, radius: 22)
-                HushButton(kind: .secondary, height: HushTheme.secondaryHeight, compact: c,
-                           action: { controller.replayLesson() }) {
-                    Label("Replay First Chest", systemImage: "graduationcap.fill")
-                }
-                HushButton(kind: .secondary, height: HushTheme.secondaryHeight, compact: c,
-                           action: { showsAbout.toggle() }) {
-                    Label("About", systemImage: "info.circle.fill")
-                }
-                if showsAbout {
-                    Text("Hush: Don't Wake the Mimic \(BuildChannel.versionLine). The game where you have to be gentle. "
-                         + "No ads, no tracking, nothing collected. Ever.")
-                        .font(HushType.body(c))
-                        .foregroundStyle(HushTheme.mist)
-                        .multilineTextAlignment(.center)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .padding(.horizontal, 8)
-                    if BuildChannel.isTestBuild {
-                        Text("Test build · lid: \(controller.hasHinge ? "hinge" : "slider")")
-                            .font(HushType.caption(c))
-                            .foregroundStyle(HushTheme.haze)
+                VStack(spacing: 0) {
+                    SettingRow(icon: "key.fill", title: "Replay First Chest", compact: c) { controller.replayLesson() }
+                    divider
+                    SettingRow(icon: "info.circle.fill", title: "About", compact: c, open: showsAbout) {
+                        showsAbout.toggle()
+                    }
+                    if showsAbout {
+                        VStack(spacing: 6) {
+                            Text("Hush: Don't Wake the Mimic \(BuildChannel.versionLine). The game where you have to "
+                                 + "be gentle. No ads, no tracking, nothing collected. Ever.")
+                                .font(HushType.body(c))
+                                .foregroundStyle(HushTheme.mist)
+                                .multilineTextAlignment(.center)
+                                .fixedSize(horizontal: false, vertical: true)
+                            if BuildChannel.isTestBuild {
+                                Text("Test build · lid: \(controller.hasHinge ? "hinge" : "lever") · "
+                                     + OrientationLock.status())
+                                    .font(HushType.caption(c))
+                                    .foregroundStyle(HushTheme.haze)
+                                    .multilineTextAlignment(.center)
+                                    .fixedSize(horizontal: false, vertical: true)
+                            }
+                        }
+                        .padding(.horizontal, 14)
+                        .padding(.bottom, 10)
+                    }
+                    divider
+                    SettingRow(icon: "heart.fill", title: "Credits", compact: c, open: showsCredits) {
+                        showsCredits.toggle()
+                    }
+                    if showsCredits {
+                        Text("Made by a tiny studio and one very patient mimic. Every sound is synthesised live, "
+                             + "so the creak is really yours.")
+                            .font(HushType.body(c))
+                            .foregroundStyle(HushTheme.mist)
+                            .multilineTextAlignment(.center)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .padding(.horizontal, 14)
+                            .padding(.bottom, 10)
                     }
                 }
-                HushButton(kind: .secondary, height: HushTheme.secondaryHeight, compact: c,
-                           action: { showsCredits.toggle() }) {
-                    Label("Credits", systemImage: "heart.fill")
-                }
-                if showsCredits {
-                    Text("Made by a tiny studio and one very patient mimic. Every sound is synthesised live, "
-                         + "so the creak is really yours.")
-                        .font(HushType.body(c))
-                        .foregroundStyle(HushTheme.mist)
-                        .multilineTextAlignment(.center)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .padding(.horizontal, 8)
-                }
+                .hushCard(padding: 6, radius: 22)
             }
             .animation(.easeOut(duration: 0.2), value: showsAbout)
             .animation(.easeOut(duration: 0.2), value: showsCredits)
@@ -286,16 +404,52 @@ struct SettingToggle: View {
                 Text(title)
                     .font(HushType.body(compact))
                     .foregroundStyle(HushTheme.parchment)
+                    .fixedSize(horizontal: false, vertical: true)
                 if let detail {
                     Text(detail)
                         .font(HushType.caption(compact))
-                        .foregroundStyle(HushTheme.haze)
+                        .foregroundStyle(HushTheme.mist)
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }
         }
         .tint(HushTheme.gold)
         .padding(.horizontal, 14)
+        .padding(.vertical, 6)
         .frame(minHeight: HushTheme.minTap)
+    }
+}
+
+/// A list row in a Settings card (R2, juror: lighter than full-width buttons).
+struct SettingRow: View {
+    let icon: String
+    let title: String
+    let compact: Bool
+    var open: Bool? = nil
+    let action: () -> Void
+
+    var body: some View {
+        Button {
+            FeedbackDirector.shared.uiTap()
+            action()
+        } label: {
+            HStack(spacing: 12) {
+                Image(systemName: icon)
+                    .font(.system(size: 17, weight: .bold))
+                    .foregroundStyle(HushTheme.gold)
+                    .frame(width: 26)
+                Text(title)
+                    .font(HushType.body(compact))
+                    .foregroundStyle(HushTheme.parchment)
+                Spacer(minLength: 8)
+                Image(systemName: open == nil ? "chevron.right" : (open == true ? "chevron.up" : "chevron.down"))
+                    .font(.system(size: 13, weight: .bold))
+                    .foregroundStyle(HushTheme.mist)
+            }
+            .padding(.horizontal, 14)
+            .frame(minHeight: HushTheme.minTap)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(HushPressStyle())
     }
 }

@@ -21,10 +21,18 @@
 # (env ORIENT; ORIENT= sends nothing) and waits for "HUSH-T orient portrait ok" or a portrait `HUSH-T canvas <w>x<h>`
 # line. The PORTRAIT check reports whether it worked, judged on the inner-display PNG (taller than wide). Launches
 # WITHOUT the key stay in book pose, which is how the landscape pose card is shot.
-# STATUS 27 Oct: Hush/App/DemoMode.swift ignores unknown keys and has no `orient` yet (OrientationLock gives a Duo
-# .allButUpsideDown, so the request would be honoured once it is added: copy Brim/App/DemoMode.swift's orient block).
-# (Hush's Info.plist lists no upside-down orientation; "turned round" is drawn by RootView, so the sim needs nothing
-# more for the turned-round frames.)
+# STATUS: `orient=portrait` landed in R1 (duo run 1: PORTRAIT PASS, 2007 x 2853 inner frames).
+# (Hush's Info.plist lists no upside-down orientation; "turned round" is drawn by the scene from R2 (ChestScene.turned),
+# so the sim needs nothing more for the turned-round frames.)
+#
+# R2 (design/ROUND-2.md "CI engineer", REVIEW-1-duo P0-2/P1-4, tester2-duo "the slam frame showed nothing"):
+#  - SLAM launches with `freezeOn=bite` and shoots the inner panel alone the moment `HUSH-T freeze bite` is logged, so
+#    the frame is the bite itself, not the next chest 15 s later.
+#  - CLOSE-PAUSE uses the new 70° closing threshold (sweep to 55°); UPRIGHT-NO-PAUSE holds 78° (an upright lid, ±5°
+#    of 90° reads as low as 84°) and expects no pause.
+#  - REOPEN-NO-BITE: noise 0.6 (demo `noise=0.6;noiseUntil=pause`, design/NEEDS.md CI R2), close to 60°, wait 2 s,
+#    reopen to 120° in 0.4 s. PASS: no `event bitten` within 2 s of the reopen, and `HUSH-T resumed` only after a
+#    logged angle >= 95° (`HUSH-T resumed angle <θ>` when the App prints it, else the last `HUSH-H` sample before it).
 #
 # Env: UDID (required), OUT (duo-screens), PASSES ("hinge frames ui"), ORIENT ("portrait"), STRICT (1 = exit 1 when a
 # check FAILs; default 0: the frames and the PASS/FAIL table are the evidence).
@@ -134,6 +142,22 @@ shoot() {   # shoot <name> <inner|cover>: both panels to raw/, the lit one (or t
   log "shot $name (inner=$ib cover=$cb -> $pick, hinge ${CUR}°) size=$(to 20 sips -g pixelWidth -g pixelHeight "$OUT_ABS/$name.png" 2>/dev/null | awk '/pixel/{printf "%s ", $2}')"
 }
 
+# shoot_now <name>: the inner panel only, at once (no cover capture, no brightness probe): for a moment that must not
+# be missed (the bite). ~3–7 s instead of ~15 s.
+shoot_now() {
+  local name="$1"
+  if [[ -n "$INNER" ]]; then to 30 xcrun simctl io "$UDID" screenshot --display="$INNER" "$OUT_ABS/$name.png" >/dev/null 2>>"$RUNLOG"
+  else to 30 xcrun simctl io "$UDID" screenshot "$OUT_ABS/$name.png" >/dev/null 2>>"$RUNLOG"; fi
+  log "shot $name (inner only, at once, hinge ${CUR}°) size=$(png_wh "$OUT_ABS/$name.png")"
+}
+
+# wait_for <file> <regex> <seconds>: poll (0.2 s) until the log has the line; returns 1 on a timeout.
+wait_for() {
+  local i=0 n=$(( $3 * 5 ))
+  while (( i < n )); do grep -qE "$2" "$1" 2>/dev/null && return 0; sleep 0.2; i=$((i+1)); done
+  return 1
+}
+
 # Log helpers. The app prints one line per event (print + fflush), so line numbers order events in time.
 nlines() { local n; n=$(wc -l < "$1" 2>/dev/null | tr -d ' '); echo "${n:-0}"; }
 count() { local n; n=$(grep -cE "$1" "$2" 2>/dev/null); echo "${n:-0}"; }
@@ -145,6 +169,16 @@ lid_vals() { awk -v k="$1" '/HUSH-T lid / { for (i = 1; i < NF; i++) if ($i == k
 max_of() { awk 'BEGIN { m = "" } $1 ~ /^-?[0-9.]+$/ { if (m == "" || $1 + 0 > m + 0) m = $1 } END { print (m == "" ? "none" : m) }'; }
 min_of() { awk 'BEGIN { m = "" } $1 ~ /^-?[0-9.]+$/ { if (m == "" || $1 + 0 < m + 0) m = $1 } END { print (m == "" ? "none" : m) }'; }
 lt() { [[ "$1" =~ ^-?[0-9.]+$ ]] && awk -v a="$1" -v b="$2" 'BEGIN { exit !(a + 0 < b + 0) }'; }   # lt <a> <b>: a < b
+# angle_before <file> <line>: the last hinge angle logged before line <line> ("HUSH-H <t> <θ>" samples, at most 10 Hz,
+# or the angle field of a "HUSH-T lid …" line), or "none".
+angle_before() {
+  awk -v n="$2" 'NR >= n + 0 { exit }
+    /^HUSH-H / { a = $3 }
+    /HUSH-T lid / { for (i = 1; i < NF; i++) if ($i == "angle" && $(i + 1) ~ /^[0-9.]+$/) a = $(i + 1) }
+    END { print (a == "" ? "none" : a) }' "$1" 2>/dev/null
+}
+# first_line <file> <regex> <after line>: the line number of the first match after <after line>, or "".
+first_line() { awk -v a="$3" -v re="$2" 'NR > a + 0 && $0 ~ re { print NR; exit }' "$1" 2>/dev/null; }
 # canvas_line <file>: the latest "HUSH-T canvas <w>x<h> …" line; is_portrait <line>: h > w.
 canvas_line() { grep -oE "HUSH-T canvas [0-9]+x[0-9]+.*" "$1" 2>/dev/null | tail -1 | tr -d '\r'; }
 is_portrait() {
@@ -234,8 +268,11 @@ if [[ " $PASSES " == *" hinge "* ]]; then
   # 2. SLAM: a real run, sweep 105 → 150 over 6 s, hold 2 s, then slam 150 → 104 in 0.3 s (~150°/s). PASS:
   #    `event bitten` or the stage reaching waking/biting within 2 s of the slam (lines logged since the slam began,
   #    read 2 s after the sweep returns; the hinge tool's start-up lag only makes the window longer, never shorter).
+  #    R2: `freezeOn=bite` stops the session 0.3 s after the bite (DemoMode), and the inner panel is shot the moment
+  #    `HUSH-T freeze bite` appears (shoot_now), so duo-h2-slam-bite shows the CHOMP and the "Too loud! −N" callout,
+  #    not the next chest (tester2-duo: "the slam frame showed nothing"). A later full shot is kept for comparison.
   hinge_set 105
-  launch slam "screen=run;mode=run;seed=7" 1
+  launch slam "screen=run;mode=run;seed=7;freezeOn=bite" 1
   SM="$OUT_ABS/logs/slam.txt"
   hinge_sweep 150 6
   h0=$(nlines "$SM"); sleep 1.5
@@ -244,29 +281,87 @@ if [[ " $PASSES " == *" hinge "* ]]; then
   sleep 0.5
   s0=$(nlines "$SM")
   hinge_sweep 104 0.3
-  sleep 2
+  # The bite usually lands while the sweep call is still returning; catch the freeze line as soon as it is there.
+  if wait_for "$SM" "HUSH-T freeze bite" 3; then shoot_now duo-h2-slam-bite; froze="froze on the bite"
+  else froze="no 'HUSH-T freeze bite' within 3 s"; fi
+  sleep 0.5
   hit=$(after "$SM" "$s0" | grep -m1 -E "HUSH-T (event bitten|event stageChanged .*to=(waking|biting)|lid .* stage (waking|biting))" | tr -d '\r')
+  bit=$(after "$SM" "$s0" | grep -m1 -E "HUSH-T event bitten" | tr -d '\r')
   peak=$(after "$SM" "$s0" | lid_vals speed | max_of)
   pn=$(after "$SM" "$s0" | lid_vals noise | max_of)
-  d="peakSpeed=${peak}°/s maxNoise=$pn first: ${hit:-none}"
+  d="peakSpeed=${peak}°/s maxNoise=$pn first: ${hit:-none}; bite: ${bit:-none}; $froze"
   if [[ -n "$hit" ]]; then result SLAM PASS "$d"; else result SLAM FAIL "$d"; fi
+  [[ -f "$OUT_ABS/duo-h2-slam-bite.png" ]] || shoot_now duo-h2-slam-bite
   shoot duo-h2-after-slam inner
 
-  # 4. CLOSE-PAUSE: from 120, sweep to 60 (< 85° held 0.4 s pauses) → `paused closing`; back to 120 → `resumed`.
+  # 4a. UPRIGHT-NO-PAUSE (REVIEW-1-duo P1-4): the closing pause moved from 85° to 70° so a lid resting upright (90°,
+  #     which the Duo can read as low as ~84°) never pauses. From 120, sweep to 78° and hold 2 s: no `paused closing`.
+  # 4b. CLOSE-PAUSE: then on down to 55° (< 70° held 0.4 s pauses) → `paused closing`; back to 120 → `resumed`.
   hinge_set 120
   launch close-pause "screen=run;mode=attract;seed=7" 1
   CP="$OUT_ABS/logs/close-pause.txt"
   sleep 1
-  hinge_sweep 60 1.5; sleep 1.5
-  p=$(grep -n "HUSH-T paused closing" "$CP" | head -1 | cut -d: -f1)
-  shoot duo-h3-closing-card-60 inner
+  u0=$(nlines "$CP")
+  hinge_sweep 78 1.5; sleep 2
+  u1=$(nlines "$CP")
+  up=$(first_line "$CP" "HUSH-T paused closing" "$u0")
+  d="held 78° for 2 s: $( [[ -n "$up" ]] && echo "paused at line $up (angle $(angle_before "$CP" "$up")°)" || echo "no pause" ); last angle $(angle_before "$CP" $(( u1 + 1 )))°"
+  if [[ -z "$up" ]]; then result UPRIGHT-NO-PAUSE PASS "$d"; else result UPRIGHT-NO-PAUSE FAIL "$d (closing threshold still above 78°?)"; fi
+  hinge_sweep 55 1; sleep 1.5
+  p=$(first_line "$CP" "HUSH-T paused closing" "$u1")
+  [[ -z "$p" && -n "$up" ]] && p="$up"
+  shoot duo-h3-closing-card-55 inner
   hinge_sweep 120 1.5; sleep 2
   r=""
-  [[ -n "$p" ]] && r=$(after "$CP" "$p" | grep -n "HUSH-T resumed" | head -1 | cut -d: -f1)
-  rs="${r:+$r lines later}"
-  d="paused@line ${p:-none}, resumed ${rs:-none}; HUSH-H=$(count 'HUSH-H' "$CP")"
+  [[ -n "$p" ]] && r=$(first_line "$CP" "HUSH-T resumed" "$p")
+  d="paused@line ${p:-none} (angle $( [[ -n "$p" ]] && angle_before "$CP" "$p" || echo -)°), resumed@line ${r:-none} (angle $( [[ -n "$r" ]] && angle_before "$CP" "$r" || echo -)°); HUSH-H=$(count 'HUSH-H' "$CP")"
   if [[ -n "$p" && -n "$r" ]]; then result CLOSE-PAUSE PASS "$d"; else result CLOSE-PAUSE FAIL "$d"; fi
   shoot duo-h4-resumed-120 inner
+
+  # 5. REOPEN-NO-BITE (REVIEW-1-duo P0-2, QA-1 P1-2): a real run (bites on) with the noise held at 0.6 until the pause
+  #    (`noiseUntil=pause` releases the demo hold at the first pause and logs `HUSH-T noise released`). Open gently to
+  #    130° (6°/s), lower gently to 60° (14°/s, under the closing creak), wait 2 s on the closing card, then reopen to
+  #    120° in 0.4 s (~150°/s: the "normal" hand). PASS: no `event bitten` within 2 s of the reopen, no `resumed`
+  #    while the lid was still low, and the first `resumed` after the reopen only once a logged angle is >= 95°.
+  #    Without the release line the hold stays on all run (a bite is impossible), so a clean run is INFO, not PASS.
+  hinge_set 105
+  launch reopen "screen=run;mode=run;seed=7;noise=0.6;noiseUntil=pause" 1
+  RO="$OUT_ABS/logs/reopen.txt"
+  hinge_sweep 130 4; sleep 1
+  c0=$(nlines "$RO")
+  hinge_sweep 60 5; sleep 2
+  p=$(first_line "$RO" "HUSH-T paused closing" "$c0")
+  # (no shot here: a shot takes 3–15 s and the wait on the card must stay 2 s; duo-h3 already shows the closing card)
+  r0=$(nlines "$RO")
+  early=$(first_line "$RO" "HUSH-T resumed" "${p:-$c0}")
+  [[ -n "$early" && "$early" -gt "$r0" ]] && early=""
+  hinge_sweep 120 0.4
+  sleep 2
+  r2=$(nlines "$RO")
+  sleep 3
+  bitten=$(between "$RO" "$r0" "$r2" | grep -m1 -E "HUSH-T event bitten" | tr -d '\r')
+  waking=$(between "$RO" "$r0" "$r2" | grep -m1 -E "HUSH-T event stageChanged .*to=(waking|biting)" | tr -d '\r')
+  rl=$(first_line "$RO" "HUSH-T resumed" "$r0")
+  ra=""
+  if [[ -n "$rl" ]]; then
+    ra=$(sed -n "${rl}p" "$RO" | grep -oE "angle [0-9.]+" | awk '{print $2}')
+    [[ -n "$ra" ]] || ra=$(angle_before "$RO" "$rl")
+  fi
+  released=$(count "HUSH-T noise released" "$RO")
+  pre=$( [[ -n "$p" ]] && angle_before "$RO" "$p" || echo -)
+  maxn=$(after "$RO" "${rl:-$r0}" | lid_vals noise | max_of)
+  d="paused@${p:-none} (${pre}°); resumed while low: ${early:-no}; resumed@${rl:-none} angle ${ra:-none}°; bitten≤2s: ${bitten:-none}; waking≤2s: ${waking:-none}; maxNoise after resume=$maxn; noise released=$released"
+  verdict=PASS
+  [[ -z "$p" ]] && { verdict=FAIL; d="$d; never paused at 60°"; }
+  [[ -n "$early" ]] && { verdict=FAIL; d="$d; resumed before the reopen"; }
+  [[ -n "$bitten" ]] && verdict=FAIL
+  if [[ -z "$rl" ]]; then verdict=FAIL; d="$d; no resume within 5 s of the reopen"
+  elif [[ "$ra" == none ]] || lt "$ra" 95; then verdict=FAIL; d="$d; resumed below 95°"; fi
+  if [[ "$verdict" == PASS && "$released" == 0 ]]; then
+    verdict=INFO; d="$d; INCONCLUSIVE: no 'HUSH-T noise released', so noise=0.6 was held all run (no bite possible). App: noiseUntil=pause (design/NEEDS.md)"
+  fi
+  result REOPEN-NO-BITE "$verdict" "$d"
+  shoot duo-h6-reopened-120 inner
 fi
 
 # ---- pass: the tabletop frames (closed 105, half 135, wide 160, cover shut, reopened) -----------------------------
@@ -282,7 +377,14 @@ if [[ " $PASSES " == *" frames "* ]]; then
   result TURNED INFO "$(canvas_line "$FL")"
   hinge_sweep 60 2; hinge_sweep 10 0.8; hinge_set 0; sleep 3; shoot duo-04-cover-shut cover
   result COVER INFO "paused-closing lines=$(count 'HUSH-T paused closing' "$FL"); last canvas: $(canvas_line "$FL")"
-  hinge_sweep 165 2.5; sleep 3; shoot duo-05-reopened-165 inner
+  o0=$(nlines "$FL")
+  hinge_sweep 165 2.5; sleep 3
+  # The reopen from the cover (REVIEW-1-duo P0-2's other half): where did the run resume? Evidence only (attract
+  # never bites); the R2 rule is >= 95° and still for 0.3 s.
+  orl=$(first_line "$FL" "HUSH-T resumed" "$o0")
+  ora=""; [[ -n "$orl" ]] && { ora=$(sed -n "${orl}p" "$FL" | grep -oE "angle [0-9.]+" | awk '{print $2}'); [[ -n "$ora" ]] || ora=$(angle_before "$FL" "$orl"); }
+  result COVER-REOPEN INFO "reopen 0 → 165° in 2.5 s: resumed@${orl:-none} angle ${ora:-none}°; maxNoise after=$(after "$FL" "${orl:-$o0}" | lid_vals noise | max_of)"
+  shoot duo-05-reopened-165 inner
   hinge_sweep 120 1.5
   # The same half-open moment with "Turn the chest round" off, for comparison with duo-02.
   hinge_set 105
@@ -297,9 +399,10 @@ if [[ " $PASSES " == *" ui "* ]]; then
   hinge_set 120 || true
   launch ui-home "screen=home;progress=mid" 1; shoot duo-ui-home-120 inner
   hinge_sweep 150 3; sleep 2.5; shoot duo-ui-home-150 inner
-  # Lesson step 1 (pose) at 150°, then into its 95–125° window for 0.5 s+ (the step should pass by itself).
+  # Lesson step 1 (pose) at 150°, then into its R2 90–112° window (REVIEW-1-duo P1-6) for 0.5 s+ (the step should
+  # pass by itself, and step 2 must not say "Ease the lid down first": 105° is already in the chest's shut zone).
   launch ui-lesson "screen=lesson;lessonStep=1" 1; shoot duo-ui-lesson-1-150 inner
-  hinge_sweep 115 4; sleep 2.5; shoot duo-ui-lesson-after-pose inner
+  hinge_sweep 105 4; sleep 2.5; shoot duo-ui-lesson-after-pose inner
   hinge_sweep 150 2
   launch ui-results "screen=results;seed=7;progress=mid;pilot=casual" 1; sleep 3; shoot duo-ui-results inner
   launch ui-codex "screen=codex;progress=late" 1; sleep 2; shoot duo-ui-codex inner
@@ -309,7 +412,7 @@ if [[ " $PASSES " == *" ui "* ]]; then
   launch ui-pose-book "screen=home;progress=mid" 0; sleep 2; shoot duo-ui-pose-book inner
   wh=$(png_wh "$OUT_ABS/duo-ui-pose-book.png"); cl=$(canvas_line "$OUT_ABS/logs/ui-pose-book.txt")
   if [[ "$wh" != "?" ]] && ! is_portrait "$wh"; then result POSE-BOOK INFO "book pose (landscape) as expected: $wh; ${cl:-no canvas line}"
-  else result POSE-BOOK INFO "expected a landscape (book) frame, got $wh; ${cl:-no canvas line}"; fi
+  else result POSE-BOOK INFO "portrait ($wh), not the book card: with R2's automatic requestPortrait on the pose card (REVIEW-1-duo P0-1) that is the fix working; ${cl:-no canvas line}"; fi
   hinge_sweep 40 1.5; hinge_set 0; sleep 3; shoot duo-ui-cover cover
   hinge_set 160 || true
 fi

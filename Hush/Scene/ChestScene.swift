@@ -7,16 +7,20 @@ import UIKit
 /// events and owns the cosmetic state (glints, coin bursts, the bite slam, dust, the shake). It never changes game
 /// state; it forwards touches to the driver.
 ///
-/// Composition (canvas 670 × 952, origin bottom-left, y up; positions in `ChestLayout`):
-/// - **world** (shaken):
-///   - the lid half (`SceneLid`, z 0, at y 496): planks, the eye, the plate, the jaw (z 50 inside it: it slams
-///     down across the fold);
-///   - the hinge strip (z 5, y 456…496);
-///   - the floor half (`SceneFloor`, z 0): the satchel; the chest (slides) with the bed, the tongue, the darkness and
-///     the warm wash; then the loot (z 25, follows the chest), the moments' floor layer (z 27: the lid shadow, the
-///     throat, the lower teeth), the HUD (z 30);
-///   - FX: particles (z 55), the moments' titles, CHOMP, banners, flyers and popups (z 60).
-/// - **overlay** (z 100, never shaken): the red flash, the Waking pulse, torch-out darkness.
+/// Composition (R2). The scene is `layout.size` (670 wide, ≥ 952 tall). Everything lives under one **`world`** node
+/// whose own coordinates ARE the 670 × 952 canvas (origin bottom-left, y up; positions in `ChestLayout`); the canvas
+/// sits `layout.contentOffsetY` above the scene's bottom, and the extension art fills the rest (the lid continues
+/// above y 952; the chest's front wall, its lock and the tabletop lie below y 0). `turned` rotates `world` by π about
+/// the scene centre; every touch is read with `touch.location(in: world)`, so it is right by construction.
+/// - world
+///   - shaker (shaken):
+///     - the lid half (`SceneLid`, z 0, at y 496): planks, the eye, brow, plate, the jaw (z 50 inside it);
+///     - the hinge strip (z 5, y 456…496);
+///     - the floor half (`SceneFloor`, z 0): the satchel; the chest (slides) with the front wall, bed, tongue,
+///       darkness, wash; then the loot (z 25), the moments' floor layer (z 27), the HUD (z 30);
+///     - FX: particles (z 55), the moments' callouts, banners, flyers, popups (z 60);
+///     - the NOISE meter (z 90: on top of everything).
+///   - overlay (z 100, never shaken): the red flash, the Waking pulse, candle-out darkness.
 ///
 /// **Clocks.** FX run on the session's clock (snapshot time), so a pause freezes them; when the session stops
 /// stepping (a pause, a CI freeze) they run on for `stallWindow` s of wall time so a moment reaches its peak.
@@ -24,7 +28,7 @@ import UIKit
 final class ChestScene: SKScene {
     weak var driver: SceneDriver?
 
-    /// Reduce Motion: no shakes, no red flash, gentler tongue twitches and torch flicker.
+    /// Reduce Motion: no shakes, no red flash, gentler tongue twitches and candle flicker.
     var reduceMotion: Bool = false {
         didSet {
             fx.reduceMotion = reduceMotion
@@ -38,6 +42,14 @@ final class ChestScene: SKScene {
         }
     }
 
+    /// R2: turned round (the blurred-half rule, GAME-DESIGN §3): the whole world is rotated by π about the scene
+    /// centre. Touches stay right (they are read in `world`).
+    var turned: Bool = false {
+        didSet {
+            if turned != oldValue { placeWorld() }
+        }
+    }
+
     /// FX keep running this long (wall time) after the session stops stepping.
     static let stallWindow: Double = 0.4
 
@@ -48,37 +60,53 @@ final class ChestScene: SKScene {
     /// The snapshot drawn last.
     private(set) var snapshot = HeistSnapshot()
     /// The shake offset applied this frame (zero under Reduce Motion).
-    var shakeOffset: CGPoint { world.position }
-    /// The eye's openness (0…1) and the teeth (0…1) as drawn.
+    var shakeOffset: CGPoint { shaker.position }
+    /// The eye's openness (0…1) and the fangs (0…1) as drawn.
     var eyeWake: Double { lid.wake }
     var teethShown: CGFloat { lid.teethShown }
+    var browTilt: CGFloat { lid.browTilt }
     /// The gold counter as drawn (it rolls during a bank).
     var shownBanked: Int { hud.shownBanked }
     /// The chest's slide offset this frame.
     var chestOffset: CGFloat { floor.chestRoot.position.y }
-    /// Items drawn this frame.
+    /// Items drawn this frame, and relics glimmering.
     var visibleLoot: Int { lootView.visibleCount }
+    var glimmeringRelics: Int { lootView.glimmerCount }
     /// The tongue's curl (0…1) and the interior darkness.
     var tongueCurl: CGFloat { floor.curlLevel }
     var interiorDarkness: CGFloat { floor.darknessAlpha }
     var torchFraction: CGFloat { hud.torchFraction }
+    var candleCountdown: String? { hud.countdownText }
+    var pouchGlow: CGFloat { hud.pouchGlowLevel }
+    var chainBadgeShowing: Bool { hud.chainShowing }
+    var chainCracking: Bool { hud.chainCracking }
     var torchOutLevel: CGFloat { moments.torchOutLevel }
     var biteActive: Bool { moments.biteActive }
+    var biteCalloutShowing: Bool { moments.biteCalloutShowing }
+    var biteLossText: String { moments.biteLossText }
     var bankActive: Bool { moments.bankActive }
     var relicBannerShowing: Bool { moments.bannerShowing }
     var floorTier: ChestTier { floor.tier }
+    var dress: ChestDress { floor.dress }
     var mimicName: String { lid.name }
+    var plateSubline: String { lid.subline }
     var eyeRebuilds: Int { lid.eyeRebuilds }
+    /// The extension drawn above the lid and below the floor (pt).
+    var extensionTop: CGFloat { lid.topExtension }
+    var extensionBottom: CGFloat { floor.bottomExtension }
     /// Every node under the scene (budget: ≈ 150 typical).
     var nodeCount: Int { countNodes(self) }
     /// Nodes actually drawn this frame (not hidden, not transparent).
     var drawnNodeCount: Int { countNodes(self, visibleOnly: true) }
+    /// The node whose coordinates are the canvas (tests convert through it).
+    var worldNode: SKNode { world }
 
-    /// The App's hint band and pause button area (canvas points, y up).
+    /// The App's hint band and pause coin area (canvas points, y up).
     static var hintBandRect: CGRect { ChestLayout.hintBand }
     static var pauseButtonRect: CGRect { ChestLayout.pauseArea }
 
     private let world: SKNode
+    private let shaker: SKNode
     private let overlay: SKNode
     private let lid: SceneLid
     private let hinge: SKSpriteNode
@@ -97,9 +125,11 @@ final class ChestScene: SKScene {
     private var touchHalves: [Int: Bool] = [:]
     private var floorTouchPoints: [Int: CGPoint] = [:]
     private var moteClock: Double = 0
+    private var lastDressed: ChestSpec?
 
     init(layout: ScreenLayout) {
         let worldN = SKNode()
+        let shakerN = SKNode()
         let overlayN = SKNode()
         let lidV = SceneLid()
         let hingeN = SKSpriteNode(texture: SceneTextures.hinge,
@@ -112,6 +142,7 @@ final class ChestScene: SKScene {
         let momentsV = SceneMoments()
         self.layout = layout
         world = worldN
+        shaker = shakerN
         overlay = overlayN
         lid = lidV
         hinge = hingeN
@@ -129,42 +160,72 @@ final class ChestScene: SKScene {
     }
 
     private func setUp() {
-        scaleMode = .aspectFit
+        scaleMode = .aspectFill
         anchorPoint = .zero
         backgroundColor = ScenePaint.ui(ChestArt.palette.dungeonDeep)
 
         world.zPosition = 0
         addChild(world)
+        shaker.zPosition = 0
+        world.addChild(shaker)
         overlay.zPosition = 100
-        addChild(overlay)
+        world.addChild(overlay)
 
         lid.root.zPosition = 0
-        world.addChild(lid.root)
+        shaker.addChild(lid.root)
         hinge.position = CGPoint(x: ChestLayout.canvas.width / 2, y: (ChestLayout.floorTop + ChestLayout.lidBottom) / 2)
         hinge.zPosition = 5
-        world.addChild(hinge)
+        shaker.addChild(hinge)
         floor.root.zPosition = 0
-        world.addChild(floor.root)
+        shaker.addChild(floor.root)
         lootView.root.zPosition = 25
         floor.root.addChild(lootView.root)
         floor.root.addChild(moments.floorRoot)
         hud.root.zPosition = 30
         floor.root.addChild(hud.root)
         fx.root.zPosition = 55
-        world.addChild(fx.root)
-        world.addChild(moments.fxRoot)
+        shaker.addChild(fx.root)
+        shaker.addChild(moments.fxRoot)
+        hud.meterRoot.zPosition = 90
+        shaker.addChild(hud.meterRoot)
         overlay.addChild(moments.overlayRoot)
 
-        // Warm every tier's big textures now (not mid-run).
-        for t in ChestTier.allCases {
-            _ = SceneTextures.chestFrame(t)
-            _ = SceneTextures.lid(t)
+        // Warm every dress's big textures now (not mid-run).
+        for d in ChestDress.all {
+            _ = SceneTextures.chestFrame(d)
+            _ = SceneTextures.lid(d)
+            _ = SceneTextures.lidCap(d)
+            _ = SceneTextures.lidTile(d)
+            _ = SceneTextures.frontWall(d)
+            _ = SceneTextures.browKnob(d)
         }
         applyLayout()
     }
 
     private func applyLayout() {
         if size != layout.size { size = layout.size }
+        lid.applyExtension(top: ChestLayout.topExtension(layout))
+        floor.applyExtension(bottom: ChestLayout.bottomExtension(layout))
+        moments.applyExtension(top: ChestLayout.topExtension(layout), bottom: ChestLayout.bottomExtension(layout))
+        placeWorld()
+    }
+
+    /// The world's transform: canvas → scene. Unturned the canvas sits `contentOffsetY` up; turned it is rotated by π
+    /// about the scene centre.
+    private func placeWorld() {
+        let off = layout.contentOffsetY
+        if turned {
+            world.zRotation = .pi
+            world.position = CGPoint(x: size.width, y: size.height - off)
+        } else {
+            world.zRotation = 0
+            world.position = CGPoint(x: 0, y: off)
+        }
+    }
+
+    override func didChangeSize(_ oldSize: CGSize) {
+        super.didChangeSize(oldSize)
+        placeWorld()
     }
 
     override func didMove(to view: SKView) {
@@ -180,7 +241,7 @@ final class ChestScene: SKScene {
         lid.reset()
         floor.reset()
         hud.snap(banked: 0)
-        world.position = .zero
+        shaker.position = .zero
         lootView.root.position = .zero
         // Live touches are kept, so their ends still reach the driver (nothing stays "held").
         hasSnapshot = false
@@ -230,25 +291,22 @@ final class ChestScene: SKScene {
         let s = snapshot
         handle(events, snapshot: s)
 
-        // Keep the chest's dress in step with the snapshot even without an arrival event (a mid-session start).
-        if let c = s.chest {
-            if c.tier != floor.tier { floor.setTier(c.tier) }
-            if c.tier != lid.tier { lid.setTier(c.tier, animated: false) }
-            if c.mimicName != lid.name { lid.setName(c.mimicName) }
-        }
+        // Keep the chest's dress and plate in step with the snapshot even without an arrival event.
+        if let c = s.chest { dressChest(c, animated: false) }
 
         let light = torchLight(s)
         let mf = moments.update(dt: dt, snapshot: s, effects: fx, hud: hud, lid: lid)
+        if moments.slammedThisFrame { lid.squash() }
         floor.chestRoot.position = CGPoint(x: 0, y: mf.chestOffset)
         lootView.root.position = CGPoint(x: 0, y: mf.chestOffset)
         lid.jaw.position = CGPoint(x: 0, y: mf.jawDrop)
         floor.update(dt: dt, snapshot: s, light: light, reduceMotion: reduceMotion)
-        lootView.update(dt: dt, loot: s.loot, hideBagged: mf.hideBagged, light: light)
+        lootView.update(dt: dt, loot: s.loot, hideBagged: mf.hideBagged, light: light, openness: s.openness)
         hud.update(dt: dt, snapshot: s, light: light, reduceMotion: reduceMotion)
         lid.update(dt: dt, snapshot: s, light: light, wakeOverride: mf.wakeOverride, teethOverride: mf.teethOverride,
                    lookAt: lookTarget(), usesSlider: usesSlider, reduceMotion: reduceMotion)
         fx.update(CGFloat(dt))
-        world.position = reduceMotion ? .zero : moments.shake
+        shaker.position = reduceMotion ? .zero : moments.shake
 
         // Ambience: a few motes drift in the light once the lid is open.
         moteClock += dt
@@ -261,10 +319,21 @@ final class ChestScene: SKScene {
         }
     }
 
-    /// The torch's flicker on the light (1 steady; lower is dimmer). It gutters in the last 15 s.
+    /// Dress the floor and lid for a chest (tier or golden) and fill the name plate.
+    private func dressChest(_ c: ChestSpec, animated: Bool) {
+        // Cheap when nothing changed (the snapshot shares the chest's storage frame to frame).
+        if let last = lastDressed, last == c { return }
+        lastDressed = c
+        let d = ChestDress.of(tier: c.tier, golden: c.golden)
+        floor.setDress(d, tier: c.tier)
+        lid.setDress(d, tier: c.tier, animated: animated)
+        lid.setPlate(name: c.mimicName, subline: ChestCopy.plateSubline(c))
+    }
+
+    /// The candle's flicker on the light (1 steady; lower is dimmer). It gutters in the last 15 s.
     private func torchLight(_ s: HeistSnapshot) -> CGFloat {
         let t = animTime
-        let low = s.torchTotal > 0 && s.torchRemaining > 0 && s.torchRemaining < 15
+        let low = s.torchTotal > 0 && s.torchRemaining > 0 && s.torchRemaining < Tuning.torchLowSeconds
         var amp: Double = low ? 0.28 : 0.05
         if reduceMotion { amp *= 0.4 }
         let n = 0.5 + 0.5 * sin(t * 17.0) * sin(t * 6.1 + 1.3)
@@ -286,10 +355,16 @@ final class ChestScene: SKScene {
             switch e {
             case .chestArrived(_, let tier, _, let name):
                 lootView.clearAll()
-                floor.setTier(tier)
-                lid.setTier(tier, animated: true)
-                lid.setName(name)
-                moments.arrive(name: name, tier: tier, multiplier: s.chest?.multiplier ?? 1)
+                if let c = s.chest {
+                    // The plate is re-dressed from the snapshot's chest (trait, tier, golden).
+                    lastDressed = nil
+                    dressChest(c, animated: true)
+                } else {
+                    floor.setTier(tier)
+                    lid.setTier(tier, animated: true)
+                    lid.setName(name)
+                }
+                moments.arrive()
             case .lidCracked:
                 let r = ChestLayout.interior
                 fx.dustPuff(from: CGPoint(x: r.minX + 20, y: r.maxY - 6), to: CGPoint(x: r.maxX - 20, y: r.maxY - 6),
@@ -302,6 +377,12 @@ final class ChestScene: SKScene {
                     if case .gem = kind { big = true }
                     fx.sparkBurst(at: p, count: big ? 10 : 4, color: ScenePaint.ui(big ? pal.gold : pal.candle),
                                   speed: big ? 200 : 120, size: big ? 26 : 18)
+                    // The golden mimic: every coin is worth double.
+                    if s.chest?.golden == true, kind != .oil {
+                        // (Kept under the App's hint band at the back edge.)
+                        moments.popup("×2", at: CGPoint(x: p.x, y: min(p.y + 30, 372)), color: ScenePaint.ui(pal.gold),
+                                      rise: 14)
+                    }
                 }
             case .itemPicked(let id, _):
                 lootView.bounce(id)
@@ -313,30 +394,37 @@ final class ChestScene: SKScene {
                 }
             case .itemBagged(let id, _, let value):
                 lootView.bounce(id)
-                if let p = point(of: id, in: s) {
-                    fx.sparkBurst(at: p, count: 5, color: ScenePaint.ui(pal.gold), speed: 140, size: 18)
-                    if value > 0 {
-                        // Over the in-hand value, rising only a little (the hint band sits above the meter).
-                        moments.popup("+\(SceneNumber.gold(value))",
-                                      at: CGPoint(x: ChestLayout.bagValueLeft + 70, y: ChestLayout.claspCenter.y + 30),
-                                      color: ScenePaint.ui(pal.gold), rise: 20)
-                    }
+                fx.sparkBurst(at: ChestLayout.pouchMouth, count: 5, color: ScenePaint.ui(pal.gold), speed: 140, size: 18)
+                if value > 0 {
+                    // Beside the IN BAG number (under the meter's row, clear of the hint band).
+                    moments.popup("+\(SceneNumber.gold(value))",
+                                  at: CGPoint(x: ChestLayout.bagValueRect.maxX - 30, y: ChestLayout.plateNumberY + 8),
+                                  color: ScenePaint.ui(pal.gold), rise: 22)
                 }
             case .oilAdded(let seconds):
                 hud.flare()
                 let fp = hud.flamePoint
-                moments.popup("+\(Int(seconds.rounded()))s", at: CGPoint(x: fp.x + 46, y: min(fp.y + 20, 400)),
-                              color: ScenePaint.ui(pal.amber))
+                moments.popup("+\(Int(seconds.rounded()))s", at: CGPoint(x: fp.x + 50, y: min(fp.y + 20, 330)),
+                              color: ScenePaint.ui(pal.amber), rise: 40)
                 fx.sparkBurst(at: fp, count: 6, color: ScenePaint.ui(pal.amber), speed: 120, size: 18)
             case .stageChanged:
                 break
             case .dreamTwitch:
                 lid.twitch()
-            case .bitten:
-                moments.bite()
+            case .bitten(let lostValue):
+                moments.bite(lostValue: lostValue)
+            case .biteCost(let lostValue, let seconds):
+                moments.biteCost(lostValue: lostValue, seconds: seconds, candle: hud.flamePoint)
             case .banked(let value, _, let hushed):
                 moments.bank(items: lootView.bagged(), value: value, hushed: hushed)
                 hud.roll(to: s.banked, delay: 0.3, duration: 0.9)
+            case .chainUp(_, let multiplier):
+                hud.chainUp()
+                moments.chainUp(multiplier: multiplier)
+                fx.sparkBurst(at: ChestLayout.chainCenter, count: 8, color: ScenePaint.ui(ScenePaint.meterGreen),
+                              speed: 150, size: 18)
+            case .chainBroken:
+                hud.chainBroken()
             case .relicFound(let id):
                 moments.queueRelic(id)
             case .torchLow:
@@ -346,9 +434,7 @@ final class ChestScene: SKScene {
                 moments.torchOut()
                 fx.smoke(at: hud.flamePoint, count: 6)
             case .newBest:
-                let c = ChestLayout.counterRect
-                moments.popup("New best!", at: CGPoint(x: c.midX, y: c.maxY + 6), color: ScenePaint.ui(pal.candle),
-                              rise: 14)
+                moments.popup("New best!", at: CGPoint(x: 500, y: 156), color: ScenePaint.ui(pal.candle), rise: 18)
                 fx.sparkBurst(at: ChestLayout.counterCoin, count: 10, color: ScenePaint.ui(pal.gold), speed: 200)
             case .finished:
                 break
@@ -371,61 +457,68 @@ final class ChestScene: SKScene {
         return c
     }
 
-    // MARK: Touches
+    // MARK: Touches (read in `world`, i.e. canvas coordinates, so turning round needs nothing more)
+
+    /// A scene point (e.g. a touch's `location(in: scene)`) in canvas coordinates.
+    func canvasPoint(fromScene p: CGPoint) -> CGPoint { world.convert(p, from: self) }
+
+    /// A canvas point where it is drawn in the scene.
+    func scenePoint(fromCanvas p: CGPoint) -> CGPoint { convert(p, from: world) }
+
+    /// The floor-space point a touch at canvas `p` reports (the extension below the floor counts as the bag).
+    func floorPoint(forCanvas p: CGPoint) -> CGPoint { ChestLayout.floorTouchPoint(fromCanvas: p) }
+
+    private func sliderFraction(_ p: CGPoint) -> Double {
+        ChestLayout.lidFraction(canvasY: p.y, topExtension: ChestLayout.topExtension(layout))
+    }
+
+    /// One touch beginning at canvas point `p` (UITouch path and tests).
+    func beginTouch(_ id: Int, canvas p: CGPoint, time: TimeInterval) {
+        guard let d = driver else { return }
+        if ChestLayout.startsOnFloor(p) {
+            touchHalves[id] = true
+            floorTouchPoints[id] = p
+            d.floorTouchBegan(id, at: floorPoint(forCanvas: p), time: time)
+        } else if d.usesSlider {
+            touchHalves[id] = false
+            d.sliderTouch(began: true, ended: false, fraction: sliderFraction(p), time: time)
+        }
+    }
+
+    func moveTouch(_ id: Int, canvas p: CGPoint, time: TimeInterval) {
+        guard let d = driver, let onFloor = touchHalves[id] else { return }
+        if onFloor {
+            floorTouchPoints[id] = p
+            d.floorTouchMoved(id, to: floorPoint(forCanvas: p), time: time)
+        } else {
+            d.sliderTouch(began: false, ended: false, fraction: sliderFraction(p), time: time)
+        }
+    }
+
+    func endTouch(_ id: Int, canvas p: CGPoint, time: TimeInterval) {
+        guard let onFloor = touchHalves.removeValue(forKey: id) else { return }
+        let d = driver
+        if onFloor {
+            floorTouchPoints[id] = nil
+            d?.floorTouchEnded(id, at: floorPoint(forCanvas: p), time: time)
+        } else {
+            d?.sliderTouch(began: false, ended: true, fraction: sliderFraction(p), time: time)
+        }
+    }
 
     override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
-        guard let d = driver else { return }
-        for t in touches {
-            let p = t.location(in: self)
-            let id = ObjectIdentifier(t).hashValue
-            if ChestLayout.startsOnFloor(p) {
-                touchHalves[id] = true
-                floorTouchPoints[id] = p
-                d.floorTouchBegan(id, at: layout.floorPoint(fromCanvas: p), time: t.timestamp)
-            } else if d.usesSlider {
-                touchHalves[id] = false
-                d.sliderTouch(began: true, ended: false, fraction: layout.lidFraction(fromCanvas: p), time: t.timestamp)
-            }
-        }
+        for t in touches { beginTouch(ObjectIdentifier(t).hashValue, canvas: t.location(in: world), time: t.timestamp) }
     }
 
     override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent?) {
-        guard let d = driver else { return }
-        for t in touches {
-            let p = t.location(in: self)
-            let id = ObjectIdentifier(t).hashValue
-            guard let onFloor = touchHalves[id] else { continue }
-            if onFloor {
-                floorTouchPoints[id] = p
-                d.floorTouchMoved(id, to: layout.floorPoint(fromCanvas: p), time: t.timestamp)
-            } else {
-                d.sliderTouch(began: false, ended: false, fraction: layout.lidFraction(fromCanvas: p),
-                              time: t.timestamp)
-            }
-        }
+        for t in touches { moveTouch(ObjectIdentifier(t).hashValue, canvas: t.location(in: world), time: t.timestamp) }
     }
 
     override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) {
-        finish(touches)
+        for t in touches { endTouch(ObjectIdentifier(t).hashValue, canvas: t.location(in: world), time: t.timestamp) }
     }
 
     override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent?) {
-        finish(touches)
-    }
-
-    private func finish(_ touches: Set<UITouch>) {
-        let d = driver
-        for t in touches {
-            let p = t.location(in: self)
-            let id = ObjectIdentifier(t).hashValue
-            guard let onFloor = touchHalves.removeValue(forKey: id) else { continue }
-            if onFloor {
-                floorTouchPoints[id] = nil
-                d?.floorTouchEnded(id, at: layout.floorPoint(fromCanvas: p), time: t.timestamp)
-            } else {
-                d?.sliderTouch(began: false, ended: true, fraction: layout.lidFraction(fromCanvas: p),
-                               time: t.timestamp)
-            }
-        }
+        for t in touches { endTouch(ObjectIdentifier(t).hashValue, canvas: t.location(in: world), time: t.timestamp) }
     }
 }

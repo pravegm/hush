@@ -33,7 +33,7 @@ struct SessionOptions: Equatable {
     }
 }
 
-// MARK: - One run (GAME-DESIGN §4–§6, ARCHITECTURE "HeistSession behaviour")
+// MARK: - One run (GAME-DESIGN §4–§6, ARCHITECTURE "HeistSession behaviour", ROUND-2 Core)
 //
 // Deterministic: the same seed, inputs and touch calls give the same run. `step` sub-steps at ≤ Tuning.maxSubstep.
 // Phases: ready → looting → banked | bitten → (next chest) ready …; the torch going out → torchOut → finished.
@@ -42,7 +42,13 @@ struct SessionOptions: Equatable {
 // - The touch calls come between steps. Their one-off noise applies at once (and can bite at once); the drag speed
 //   they measure feeds the noise rate from the next step on.
 // - Light is 0 in .ready (the chest waits until the lid has been eased into the shut zone).
-// Mirrored by HeistSession in tools/balance-sim.js (minus hints and cosmetic snapshot fields).
+// - R2: the lid is "closing" in a step when its openness fell since the previous step; it is then silent below
+//   Tuning.closeQuietSpeed instead of Tuning.quietSpeed.
+// - R2 Hush Chain: a Hushed bank adds 1 and pays ×Noise.chainMultiplier(chain). The chain breaks (to 0) the moment the
+//   mimic leaves Asleep in a chest (a stir, or a bite straight from Asleep): that chest can no longer be Hushed.
+// - R2 bag jingle: while loot is in the bag, decay stops at Noise.jingleFloor (it never pushes noise up).
+// - R2 pause: `rest(dt:)` while paused (decay only), `resumeGrace(seconds:)` on resume (lid noise ignored).
+// Mirrored by HeistSession in tools/balance-sim.js (minus hints, rest/resumeGrace and cosmetic snapshot fields).
 
 final class HeistSession {
 
@@ -52,6 +58,7 @@ final class HeistSession {
     let bestRun: Int
 
     private struct TouchTrack {
+        var id: Int
         var lootIndex: Int
         var lastPoint: CGPoint
         var lastTime: Double
@@ -68,6 +75,10 @@ final class HeistSession {
     private var loot: [LootState]
     private var found: Set<RelicID>
     private var lid: LidInput = LidInput()
+    /// The lid's openness fell since the previous step (R2 closeQuietSpeed).
+    private var closing: Bool = false
+    /// Seconds of lid noise still ignored after a resume (`resumeGrace`).
+    private var lidGrace: Double = 0
 
     private var noise: Double = 0
     private var stage: MimicStage = .asleep
@@ -90,8 +101,13 @@ final class HeistSession {
     private var relicsBanked: [RelicID] = []
     private var bestChestValue: Int = 0
     private var highestTier: ChestTier
+    private var chain: Int = 0
+    private var bestChain: Int = 0
+    private var goldenBanked: Int = 0
+    private var chestLog: [ChestOutcome] = []
 
-    private var touches: [Int: TouchTrack] = [:]
+    /// Held fingers (at most a few; an array so the per-step loops never allocate).
+    private var touches: [TouchTrack] = []
     private var pending: [HeistEvent] = []
 
     private var sawShut: Bool = false
@@ -119,6 +135,7 @@ final class HeistSession {
         var tr = SeededRandom(seed: HeistSession.twitchSeed(seed: seed, index: 0))
         self.twitchIn = tr.range(Tuning.dreamTwitchMin...Tuning.dreamTwitchMax)
         self.twitchRng = tr
+        touches.reserveCapacity(4)
         pending.append(.chestArrived(index: first.index, tier: first.tier, mimic: first.mimic, name: first.mimicName))
     }
 
@@ -132,7 +149,7 @@ final class HeistSession {
     /// Fastest held-item drag speed right now (pt/s), for telemetry.
     var dragSpeed: Double {
         var best: Double = 0
-        for t in touches.values where t.speed > best { best = t.speed }
+        for t in touches where t.speed > best { best = t.speed }
         return best
     }
 
@@ -141,7 +158,19 @@ final class HeistSession {
                              openness: lid.openness, lidSpeed: lid.speed, noise: noise, stage: stage,
                              torchRemaining: torch, torchTotal: torchTotal, bagValue: bagValue, banked: banked,
                              bestRun: bestRun, chestsBanked: chestsBanked, hushed: hushed, bites: bites,
-                             shutHold: shutHold, hint: currentHint())
+                             shutHold: shutHold, hint: currentHint(), chain: chain,
+                             chainMultiplier: nextChainMultiplier, noiseFloor: isPlaying ? noiseFloor : 0)
+    }
+
+    /// The result so far (QA-1 P1-3: for an abandoned run). Once finished, exactly `result`. Otherwise the counters
+    /// now; a chest being looted counts as opened and goes in `chestLog` with value 0 (its bag was never banked).
+    func partialResult() -> RunResult {
+        if let r = result { return r }
+        var log: [ChestOutcome] = chestLog
+        if isLooting {
+            log.append(ChestOutcome(tier: chest.tier, golden: chest.golden, value: 0, hushed: false, bitten: false))
+        }
+        return makeResult(chestLog: log)
     }
 
     // MARK: Stepping
@@ -155,6 +184,7 @@ final class HeistSession {
         var l: LidInput = input
         l.openness = l.openness.isFinite ? min(max(l.openness, 0), 1) : 0
         l.speed = l.speed.isFinite ? max(0, l.speed) : 0
+        closing = l.openness < lid.openness - 1e-9
         lid = l
         let n: Int = max(1, Int((d / Tuning.maxSubstep - 1e-9).rounded(.up)))
         let h: Double = d / Double(n)
@@ -165,6 +195,36 @@ final class HeistSession {
             i += 1
         }
         return ev
+    }
+
+    /// R2: call instead of `step` while the game is paused (closing, cover, menu). Noise decays (to the bag jingle
+    /// floor, after the usual grace) and nothing else happens: no candle, no bites, no moments, no light; the lid
+    /// reads still (`lidSpeed` 0). The only events are `stageChanged` (the mimic settling). Only in .ready / .looting.
+    @discardableResult
+    func rest(dt: Double) -> [HeistEvent] {
+        guard isPlaying else { return [] }
+        let d: Double = dt.isFinite ? max(0, dt) : 0
+        lid.speed = 0
+        guard d > 0 else { return [] }
+        var ev: [HeistEvent] = []
+        let n: Int = max(1, Int((d / Tuning.maxSubstep - 1e-9).rounded(.up)))
+        let h: Double = d / Double(n)
+        var i: Int = 0
+        while i < n {
+            settleTouches(h)
+            quietFor += h
+            if quietFor >= Tuning.decayGrace { decayNoise(h) }
+            settleNoise(&ev, allowBite: false)
+            i += 1
+        }
+        return ev
+    }
+
+    /// R2: on resume, lid motion makes no noise for `seconds` of play (the lift back into play is free; REVIEW-1-duo
+    /// P0-2). Drags and one-off sounds still count. A longer pending grace is kept.
+    func resumeGrace(seconds: Double) {
+        let s: Double = seconds.isFinite ? max(0, seconds) : 0
+        lidGrace = max(lidGrace, s)
     }
 
     private func tick(_ h: Double, _ ev: inout [HeistEvent]) {
@@ -211,26 +271,21 @@ final class HeistSession {
             }
         }
         updateLight(&ev)
-
-        // A held item that gets no touch moves is still: its speed decays.
-        for key in Array(touches.keys) {
-            guard var t = touches[key] else { continue }
-            t.stillFor += h
-            if t.stillFor > Tuning.dragStillAfter { t.speed *= exp(-h / Tuning.dragStillDecay) }
-            touches[key] = t
-        }
+        settleTouches(h)
 
         // Noise.
-        var raw: Double = Noise.lidRate(speed: lid.speed)
-        for t in touches.values { raw += Noise.dragRate(speed: t.speed) }
+        var raw: Double = 0
+        if lidGrace > 0 {
+            lidGrace = max(0, lidGrace - h)
+        } else {
+            raw = Noise.lidRate(speed: lid.speed, closing: closing)
+        }
+        for t in touches { raw += Noise.dragRate(speed: t.speed) }
         let rate: Double = raw * noiseMultiplier
         noise += rate * h
         if rate > Tuning.quietRateThreshold { quietFor = 0 } else { quietFor += h }
-        if quietFor >= Tuning.decayGrace {
-            let restless: Double = max(Tuning.restlessFloor, 1 - Tuning.restlessPerSecond * chestTime)
-            noise -= chest.decay * restless * h
-        }
-        settleNoise(&ev)
+        if quietFor >= Tuning.decayGrace { decayNoise(h) }
+        settleNoise(&ev, allowBite: true)
         if !isPlaying { return }
 
         // Bank: hold the lid in the shut zone with loot in the bag.
@@ -268,6 +323,16 @@ final class HeistSession {
         }
     }
 
+    /// A held item that gets no touch moves is still: its speed decays.
+    private func settleTouches(_ h: Double) {
+        var k: Int = 0
+        while k < touches.count {
+            touches[k].stillFor += h
+            if touches[k].stillFor > Tuning.dragStillAfter { touches[k].speed *= exp(-h / Tuning.dragStillDecay) }
+            k += 1
+        }
+    }
+
     private func updateLight(_ ev: inout [HeistEvent]) {
         let looting: Bool = isLooting
         let o: Double = lid.openness
@@ -293,15 +358,37 @@ final class HeistSession {
 
     // MARK: Noise
 
+    /// Personality × golden × the mode's noise scale; applies to every source.
     private var noiseMultiplier: Double {
-        return Noise.multiplier(for: chest.mimic) * options.noiseScale
+        return Noise.multiplier(for: chest.mimic) * (chest.golden ? Tuning.goldenNoiseMultiplier : 1)
+            * options.noiseScale
+    }
+
+    /// R2 bag jingle: decay stops here while loot is in the bag.
+    private var noiseFloor: Double {
+        return Noise.jingleFloor(items: bagCount, multiplier: noiseMultiplier)
+    }
+
+    /// What the next bank pays for the Hush Chain: ×1 once this chest has stirred, else the extended chain's rate.
+    private var nextChainMultiplier: Double {
+        if isPlaying && leftAsleep { return 1 }
+        return Noise.chainMultiplier(chain + 1)
     }
 
     private var canBite: Bool { return options.bites && isLooting }
 
-    /// Clamp, bite if due, else move the stage (with hysteresis).
-    private func settleNoise(_ ev: inout [HeistEvent]) {
-        let bite: Bool = canBite
+    /// Quiet decay for `h` s (restlessness applies), never below the bag jingle floor (it never raises the noise).
+    private func decayNoise(_ h: Double) {
+        let restless: Double = max(Tuning.restlessFloor, 1 - Tuning.restlessPerSecond * chestTime)
+        let floor: Double = noiseFloor
+        let before: Double = noise
+        noise -= chest.decay * restless * h
+        if noise < floor { noise = min(before, floor) }
+    }
+
+    /// Clamp, bite if due (and allowed), else move the stage (with hysteresis).
+    private func settleNoise(_ ev: inout [HeistEvent], allowBite: Bool) {
+        let bite: Bool = allowBite && canBite
         let cap: Double = bite ? 1 : Tuning.noBiteCap
         noise = noise.isFinite ? min(max(noise, 0), cap) : 0
         if bite && noise >= Tuning.biteNoise {
@@ -312,14 +399,26 @@ final class HeistSession {
         if ns != stage {
             ev.append(.stageChanged(from: stage, to: ns))
             stage = ns
-            if ns > .asleep { leftAsleep = true }
+            if ns > .asleep { markStirred(&ev) }
         }
+    }
+
+    /// The mimic has left Asleep in this chest: it can't be Hushed, so the Hush Chain breaks now.
+    private func markStirred(_ ev: inout [HeistEvent]) {
+        if leftAsleep { return }
+        leftAsleep = true
+        breakChain(&ev)
+    }
+
+    private func breakChain(_ ev: inout [HeistEvent]) {
+        if chain >= 2 { ev.append(.chainBroken(count: chain)) }
+        chain = 0
     }
 
     private func addOneOff(_ amount: Double, _ ev: inout [HeistEvent]) {
         noise += amount * noiseMultiplier
         quietFor = 0
-        settleNoise(&ev)
+        settleNoise(&ev, allowBite: true)
     }
 
     /// Adds noise directly (the lesson's scripted stir): sets the level; stage events come with the next step.
@@ -327,7 +426,7 @@ final class HeistSession {
         noise = level.isFinite ? level : 0
         quietFor = 0
         var ev: [HeistEvent] = []
-        settleNoise(&ev)
+        settleNoise(&ev, allowBite: true)
         pending.append(contentsOf: ev)
     }
 
@@ -353,34 +452,44 @@ final class HeistSession {
             case .inChest, .lost: break
             }
         }
-        touches.removeAll()
+        touches.removeAll(keepingCapacity: true)
         bagValue = 0
         bagCount = 0
     }
 
     private func biteNow(_ ev: inout [HeistEvent]) {
         let lost: Int = inHandValue()
+        let torchBefore: Double = torch
         loseInHand()
         ev.append(.stageChanged(from: stage, to: .biting))
         stage = .biting
-        leftAsleep = true
         ev.append(.bitten(lostValue: lost))
         bites += 1
         lostToBites += lost
         if options.torch { torch = max(0, torch - Tuning.biteTorchPenalty) }
+        ev.append(.biteCost(lostValue: lost, seconds: torchBefore - torch))
+        chestLog.append(ChestOutcome(tier: chest.tier, golden: chest.golden, value: 0, hushed: false, bitten: true))
+        leftAsleep = true
+        breakChain(&ev)
         phase = .bitten(elapsed: 0)
         shutHold = 0
         noise = 1
     }
 
     private func bank(_ ev: inout [HeistEvent]) {
-        let value: Int = bagValue
         let items: Int = bagCount
         let hushedNow: Bool = !leftAsleep
+        if hushedNow { chain += 1 } else { chain = 0 }
+        bestChain = max(bestChain, chain)
+        let chainMult: Double = hushedNow ? Noise.chainMultiplier(chain) : 1
+        let value: Int = hushedNow ? Int((Double(bagValue) * chainMult).rounded()) : bagValue
         banked += value
         chestsBanked += 1
         if hushedNow { hushed += 1 }
+        if chest.golden { goldenBanked += 1 }
         bestChestValue = max(bestChestValue, value)
+        chestLog.append(ChestOutcome(tier: chest.tier, golden: chest.golden, value: value, hushed: hushedNow,
+                                     bitten: false))
         var relicsHere: [RelicID] = []
         for k in loot.indices {
             switch loot[k].place {
@@ -397,8 +506,9 @@ final class HeistSession {
                 break
             }
         }
-        touches.removeAll()
+        touches.removeAll(keepingCapacity: true)
         ev.append(.banked(value: value, items: items, hushed: hushedNow))
+        if hushedNow { ev.append(.chainUp(count: chain, multiplier: chainMult)) }
         for rid in relicsHere { ev.append(.relicFound(rid)) }
         if !newBestSent && bestRun > 0 && banked > bestRun {
             newBestSent = true
@@ -428,7 +538,7 @@ final class HeistSession {
         bagValue = 0
         leftAsleep = false
         revealed = []
-        touches.removeAll()
+        touches.removeAll(keepingCapacity: true)
         noise = 0
         quietFor = 0
         twitchRng = SeededRandom(seed: HeistSession.twitchSeed(seed: seed, index: chestIndex))
@@ -437,6 +547,11 @@ final class HeistSession {
     }
 
     private func startTorchOut(_ ev: inout [HeistEvent]) {
+        // A chest the candle went out on (it was being looted) goes in the log with nothing banked.
+        if isLooting {
+            chestLog.append(ChestOutcome(tier: chest.tier, golden: chest.golden, value: 0, hushed: false,
+                                         bitten: false))
+        }
         loseInHand()
         shutHold = 0
         phase = .torchOut(elapsed: 0)
@@ -445,17 +560,30 @@ final class HeistSession {
 
     private func finish(_ ev: inout [HeistEvent]) {
         phase = .finished
-        result = RunResult(mode: mode, seed: seed, gold: banked, seconds: time, chestsOpened: chestsOpened,
-                           chestsBanked: chestsBanked, hushed: hushed, bites: bites, relics: relicsBanked,
-                           bestChestValue: bestChestValue, itemsBagged: itemsBagged, highestTier: highestTier,
-                           lostToBites: lostToBites)
+        result = makeResult(chestLog: chestLog)
         ev.append(.finished)
+    }
+
+    private func makeResult(chestLog log: [ChestOutcome]) -> RunResult {
+        return RunResult(mode: mode, seed: seed, gold: banked, seconds: time, chestsOpened: chestsOpened,
+                         chestsBanked: chestsBanked, hushed: hushed, bites: bites, relics: relicsBanked,
+                         bestChestValue: bestChestValue, itemsBagged: itemsBagged, highestTier: highestTier,
+                         lostToBites: lostToBites, bestChain: bestChain, goldenBanked: goldenBanked, chestLog: log)
     }
 
     // MARK: Touches (floor space; between steps)
 
+    private func touchIndex(_ id: Int) -> Int? {
+        var k: Int = 0
+        while k < touches.count {
+            if touches[k].id == id { return k }
+            k += 1
+        }
+        return nil
+    }
+
     func touchBegan(id: Int, at point: CGPoint, time: Double) -> [HeistEvent] {
-        guard isLooting, touches[id] == nil else { return [] }
+        guard isLooting, touchIndex(id) == nil else { return [] }
         var best: Int = -1
         var bestD: Double = Double.greatestFiniteMagnitude
         for k in loot.indices {
@@ -473,14 +601,15 @@ final class HeistSession {
         loot[best].position = HeistSession.clampToFloor(point)
         loot[best].light = 1
         loot[best].grabbable = false
-        touches[id] = TouchTrack(lootIndex: best, lastPoint: point, lastTime: time, speed: 0, stillFor: 0)
+        touches.append(TouchTrack(id: id, lootIndex: best, lastPoint: point, lastTime: time, speed: 0, stillFor: 0))
         ev.append(.itemPicked(id: loot[best].item.id, kind: loot[best].item.kind))
         addOneOff(Tuning.pickNoise, &ev)
         return ev
     }
 
     func touchMoved(id: Int, to point: CGPoint, time: Double) -> [HeistEvent] {
-        guard var t = touches[id] else { return [] }
+        guard let ti = touchIndex(id) else { return [] }
+        var t: TouchTrack = touches[ti]
         let dtt: Double = time - t.lastTime
         if dtt > Tuning.dragMinInterval {
             let inst: Double = HeistSession.distance(point, t.lastPoint) / dtt
@@ -491,7 +620,7 @@ final class HeistSession {
             t.lastTime = time
         }
         t.stillFor = 0
-        touches[id] = t
+        touches[ti] = t
         if t.lootIndex >= 0 && t.lootIndex < loot.count {
             loot[t.lootIndex].position = HeistSession.clampToFloor(point)
         }
@@ -499,7 +628,8 @@ final class HeistSession {
     }
 
     func touchEnded(id: Int, at point: CGPoint, time: Double) -> [HeistEvent] {
-        guard let t = touches.removeValue(forKey: id) else { return [] }
+        guard let ti = touchIndex(id) else { return [] }
+        let t: TouchTrack = touches.remove(at: ti)
         let k: Int = t.lootIndex
         guard k >= 0, k < loot.count, loot[k].place == .held(touchID: id) else { return [] }
         var ev: [HeistEvent] = []
@@ -536,21 +666,40 @@ final class HeistSession {
         addOneOff(Tuning.dropNoise, &ev)
     }
 
-    // MARK: Hints (priority: freeze > slower > tooWide > easeLidDown > shutToBank > dragToBag > openSlowly)
+    // MARK: Hints (priority: freeze > slower > candleLow > tooWide > easeLidDown > shutToBank > dragToBag
+    //        > relicDeeper > openSlowly)
 
     private func currentHint() -> HeistHint? {
         guard isPlaying else { return nil }
         if stage >= .waking { return .freeze }
-        if lid.speed > Tuning.loudSpeed { return .slower }
+        // During a resume grace the lid makes no noise, so it isn't "too fast" either.
+        if lidGrace <= 0 && lid.speed > Tuning.loudSpeed { return .slower }
+        if options.torch && isLooting && bagCount > 0 && torch <= Tuning.torchLowSeconds { return .candleLow }
         if lid.tooWide { return .tooWide }
         if phase == .ready && !lid.inShutZone { return .easeLidDown }
         if isLooting && bagCount > 0 { return .shutToBank }
-        let anyGrabbable: Bool = loot.contains { (s: LootState) -> Bool in s.place == .inChest && s.grabbable }
+        var anyGrabbable: Bool = false
+        var glimmer: Bool = false
+        for s in loot where s.place == .inChest {
+            if s.grabbable { anyGrabbable = true }
+            if case .relic = s.item.kind, HeistSession.relicGlimmers(depth: s.item.depth, openness: lid.openness) {
+                glimmer = true
+            }
+        }
         if isLooting && anyGrabbable { return .dragToBag }
+        if isLooting && glimmer { return .relicDeeper }
         if phase == .ready { return .openSlowly }
-        let anyHeld: Bool = !touches.isEmpty
-        if isLooting && revealed.isEmpty && !anyHeld { return .openSlowly }
+        if isLooting && revealed.isEmpty && touches.isEmpty { return .openSlowly }
         return nil
+    }
+
+    /// R2 relic glimmer: a relic at `depth` (still in the chest) glimmers while the openness is within
+    /// Tuning.relicGlimmerRange of its glint line (depth + revealLight·lightRamp) but hasn't reached it. The scene's
+    /// twinkle and `HeistHint.relicDeeper` both use this.
+    static func relicGlimmers(depth: Double, openness: Double) -> Bool {
+        guard depth.isFinite, openness.isFinite else { return false }
+        let glintAt: Double = depth + Tuning.revealLight * Tuning.lightRamp
+        return openness >= glintAt - Tuning.relicGlimmerRange && openness < glintAt
     }
 
     // MARK: Geometry helpers

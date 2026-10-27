@@ -1,7 +1,8 @@
 import SpriteKit
 import UIKit
 
-/// One drawn item: contact shadow, the warm pool of light it sits in, a relic's golden ray, the art, and a glint.
+/// One drawn item: contact shadow, the warm pool of light it sits in, a relic's golden ray, the art, a glint, and
+/// (R2) a relic's glimmer while it is almost lit.
 @MainActor
 final class SceneLootSlot {
     let node: SKNode
@@ -10,7 +11,9 @@ final class SceneLootSlot {
     let ray: SKSpriteNode
     let art: SKSpriteNode
     let sparkle: SKSpriteNode
-    var key = ""
+    let glimmer: SKSpriteNode
+    /// The item this slot is dressed for (configured only when it changes: no per-frame work).
+    var item: LootItem?
     var id = -1
     var radius: CGFloat = 20
     var bounceAge: Double = 10
@@ -21,6 +24,8 @@ final class SceneLootSlot {
     /// Seconds since it went into the bag (nil = not bagged), and where it jumped from.
     var bagAge: Double?
     var bagFrom: CGPoint = .zero
+    var bagIndex = 0
+    var stamp = 0
     var glints = true
     var isRelic = false
     var phase: CGFloat = 0
@@ -50,22 +55,29 @@ final class SceneLootSlot {
         sp.color = UIColor(red: 1, green: 0.97, blue: 0.85, alpha: 1)
         sp.zPosition = 2
         sp.alpha = 0
-        for c in [sh, r, h, a, sp] { n.addChild(c) }
+        let gl = SKSpriteNode(texture: SceneTextures.sparkle)
+        gl.blendMode = .add
+        gl.colorBlendFactor = 1
+        gl.color = ScenePaint.ui(ChestArt.palette.gold)
+        gl.zPosition = 3
+        gl.alpha = 0
+        gl.isHidden = true
+        for c in [sh, r, h, a, sp, gl] { n.addChild(c) }
         node = n
         shadow = sh
         halo = h
         ray = r
         art = a
         sparkle = sp
+        glimmer = gl
     }
 
-    func configure(_ item: LootItem) {
-        let r = max(item.radius, 6)
-        let k = "\(SceneTextures.lootKey(item.kind))-\(Int(r.rounded()))"
-        guard k != key else { return }
-        key = k
+    func configure(_ it: LootItem) {
+        guard item != it else { return }
+        item = it
+        let r = max(it.radius, 6)
         radius = r
-        art.texture = SceneTextures.loot(item.kind, radius: r)
+        art.texture = SceneTextures.loot(it.kind, radius: r, value: it.value)
         let side = SceneTextures.lootSide(r)
         art.size = CGSize(width: side, height: side)
         shadow.size = CGSize(width: r * 2.3, height: r * 1.1)
@@ -73,14 +85,15 @@ final class SceneLootSlot {
         ray.size = CGSize(width: r * 7, height: r * 7)
         sparkle.size = CGSize(width: r * 1.3, height: r * 1.3)
         sparkle.position = CGPoint(x: -r * 0.36, y: r * 0.42)
+        glimmer.size = CGSize(width: r * 1.9, height: r * 1.9)
         isRelic = false
         glints = true
-        switch item.kind {
+        switch it.kind {
         case .relic:
             isRelic = true
             halo.color = ScenePaint.ui(ChestArt.palette.gold)
         case .gem:
-            halo.color = ScenePaint.ui(ChestArt.lootColors(item.kind).fill.mixed(with: ChestArt.palette.candle, 0.5))
+            halo.color = ScenePaint.ui(ChestArt.lootColors(it.kind).fill.mixed(with: ChestArt.palette.candle, 0.5))
         case .oil:
             glints = false
             halo.color = ScenePaint.ui(ChestArt.palette.amber)
@@ -91,7 +104,9 @@ final class SceneLootSlot {
 }
 
 /// The loot as the snapshot has it (floor space → canvas), with the cosmetic touches: reveal pops, glints, drops and
-/// bags bouncing, the bitten loot flying into the mouth. It never moves an item itself except for the bite flight.
+/// bags bouncing, the bitten loot flying into the mouth, a relic's glimmer when it is nearly lit. It never moves an
+/// item itself except for the bite flight and the hop into the pouch. Per frame it allocates nothing (scratch buffers
+/// are reused).
 @MainActor
 final class SceneLootView {
     let root: SKNode
@@ -99,8 +114,13 @@ final class SceneLootView {
     private var live: [Int: SceneLootSlot] = [:]
     private var states: [Int: LootState] = [:]
     private var time: Double = 0
+    private var frameStamp = 0
+    private var bagScratch: [(id: Int, y: CGFloat, x: CGFloat)] = []
+    private var goneScratch: [Int] = []
     /// Items drawn this frame (tests).
     private(set) var visibleCount = 0
+    /// Relics glimmering this frame (tests).
+    private(set) var glimmerCount = 0
     /// The first held item's canvas point (the eye watches it).
     private(set) var heldPoint: CGPoint?
 
@@ -108,6 +128,8 @@ final class SceneLootView {
 
     init() {
         root = SKNode()
+        bagScratch.reserveCapacity(16)
+        goneScratch.reserveCapacity(16)
     }
 
     func clearAll() {
@@ -115,10 +137,11 @@ final class SceneLootView {
             s.node.isHidden = true
             free.append(s)
         }
-        live = [:]
-        states = [:]
+        live.removeAll(keepingCapacity: true)
+        states.removeAll(keepingCapacity: true)
         heldPoint = nil
         visibleCount = 0
+        glimmerCount = 0
     }
 
     func bounce(_ id: Int) { live[id]?.bounceAge = 0 }
@@ -131,11 +154,11 @@ final class SceneLootView {
     }
 
     /// The bagged items as last drawn (the bank's flyers start from here).
-    func bagged() -> [(kind: LootKind, radius: CGFloat, point: CGPoint)] {
-        var out: [(kind: LootKind, radius: CGFloat, point: CGPoint)] = []
+    func bagged() -> [(kind: LootKind, radius: CGFloat, value: Int, point: CGPoint)] {
+        var out: [(kind: LootKind, radius: CGFloat, value: Int, point: CGPoint)] = []
         for st in states.values.sorted(by: { $0.id < $1.id }) where st.place == .inBag {
             let p = canvasPoint(st.id) ?? ChestLayout.canvas(fromFloor: st.position)
-            out.append((st.item.kind, max(st.item.radius, 6), p))
+            out.append((st.item.kind, max(st.item.radius, 6), st.item.value, p))
         }
         return out
     }
@@ -148,6 +171,7 @@ final class SceneLootView {
         s.revealAge = 10
         s.lostAge = nil
         s.bagAge = nil
+        s.item = nil
         s.node.alpha = 1
         return s
     }
@@ -157,32 +181,40 @@ final class SceneLootView {
         return t * t * (3 - 2 * t)
     }
 
-    /// Where bagged item number `k` sits in the satchel's mouth (canvas): a pile of two staggered rows between the
-    /// in-hand and gold panels, so the numbers stay clear. Core's own bag slots are not drawn (the whole strip is the
-    /// drop target; bagged loot isn't touchable).
+    /// Where bagged item number `k` sits in the pouch's mouth (canvas): a back row and a front row, half hidden by the
+    /// pouch's front lip so the loot sits IN the pouch (not at the buckles, not under the numbers). Core's own bag
+    /// slots are not drawn (the whole strip is the drop target; bagged loot isn't touchable).
     static func pilePoint(_ k: Int) -> CGPoint {
         let i = max(k, 0) % 10
         let row = i / 5
         let col = i % 5
-        return CGPoint(x: 283 + CGFloat(col) * 26 + (row == 1 ? 13 : 0), y: row == 0 ? 60 : 82)
+        let m = ChestLayout.pouchMouth
+        return CGPoint(x: m.x - 36 + CGFloat(col) * 18 + (row == 1 ? 9 : 0), y: row == 0 ? m.y + 4 : m.y - 4)
     }
 
     static let pileScale: CGFloat = 0.66
 
-    func update(dt: Double, loot: [LootState], hideBagged: Bool, light: CGFloat) {
+    /// How strongly a relic glimmers (0 … 1): it is within 0.25 of being lit and not yet revealed.
+    static func glimmer(depth: Double, openness: Double, light: Double) -> CGFloat {
+        guard depth.isFinite, openness.isFinite else { return 0 }
+        let near = CGFloat(min(max((openness - (depth - 0.25)) / 0.25, 0), 1))
+        guard near > 0 else { return 0 }
+        let l = CGFloat(min(max(light.isFinite ? light : 0, 0), 1))
+        return near * (1 - smooth(0.15, 0.45, l))
+    }
+
+    func update(dt: Double, loot: [LootState], hideBagged: Bool, light: CGFloat, openness: Double = 0) {
         time += dt
-        var seen = Set<Int>()
+        frameStamp &+= 1
         var visible = 0
+        var glimmering = 0
         var held: CGPoint?
         let mouth = CGPoint(x: ChestLayout.mouthPoint.x - root.position.x, y: ChestLayout.mouthPoint.y - root.position.y)
-        // Bag order: Core fills its slots row by row, so sorting by (y, x) keeps the order they went in.
-        let inBag = loot.filter { $0.place == .inBag }.sorted {
-            $0.position.y != $1.position.y ? $0.position.y < $1.position.y : $0.position.x < $1.position.x
-        }
-        var bagIndex: [Int: Int] = [:]
-        for (k, st) in inBag.enumerated() { bagIndex[st.id] = k }
+
+        // Pass 1: a slot per item; collect the bag's order (Core fills its slots row by row, so (y, x) keeps the
+        // order they went in).
+        bagScratch.removeAll(keepingCapacity: true)
         for st in loot {
-            seen.insert(st.id)
             let slot: SceneLootSlot
             if let s = live[st.id] {
                 slot = s
@@ -193,8 +225,28 @@ final class SceneLootView {
                 slot.lostSpin = slot.phase < 0.5 ? -1 : 1
                 live[st.id] = slot
             }
+            slot.stamp = frameStamp
             states[st.id] = st
             slot.configure(st.item)
+            if st.place == .inBag { bagScratch.append((st.id, st.position.y, st.position.x)) }
+        }
+        // A tiny insertion sort (no allocation).
+        if bagScratch.count > 1 {
+            for i in 1..<bagScratch.count {
+                let v = bagScratch[i]
+                var j = i - 1
+                while j >= 0 && (bagScratch[j].y > v.y || (bagScratch[j].y == v.y && bagScratch[j].x > v.x)) {
+                    bagScratch[j + 1] = bagScratch[j]
+                    j -= 1
+                }
+                bagScratch[j + 1] = v
+            }
+        }
+        for (k, e) in bagScratch.enumerated() { live[e.id]?.bagIndex = k }
+
+        // Pass 2: draw.
+        for st in loot {
+            guard let slot = live[st.id] else { continue }
             let r = slot.radius
             let p = ChestLayout.canvas(fromFloor: st.position)
             let l = CGFloat(min(max(st.light.isFinite ? st.light : 0, 0), 1))
@@ -229,32 +281,39 @@ final class SceneLootView {
                 slot.ray.isHidden = true
                 slot.shadow.alpha = 0
                 slot.sparkle.alpha = 0
+                slot.glimmer.isHidden = true
                 if t < 1 { visible += 1 }
                 continue
             }
             slot.lostAge = nil
             slot.node.alpha = 1
             if st.place == .inBag {
-                // Pop from where it was dropped into its place in the pile.
+                // Hop from where it was dropped into its place in the pouch.
                 if slot.bagAge == nil {
                     slot.bagAge = 0
                     slot.bagFrom = slot.node.isHidden ? p : slot.node.position
                 }
                 let age = (slot.bagAge ?? 0) + dt
                 slot.bagAge = age
-                let pile = SceneLootView.pilePoint(bagIndex[st.id] ?? 0)
+                let pile = SceneLootView.pilePoint(slot.bagIndex)
                 let target = CGPoint(x: pile.x - root.position.x, y: pile.y - root.position.y)
                 let k = SceneLootView.smooth(0, 1, CGFloat(min(age / 0.18, 1)))
+                let hop = 26 * CGFloat(sin(Double(k) * Double.pi))
                 slot.node.position = CGPoint(x: slot.bagFrom.x + (target.x - slot.bagFrom.x) * k,
-                                             y: slot.bagFrom.y + (target.y - slot.bagFrom.y) * k)
+                                             y: slot.bagFrom.y + (target.y - slot.bagFrom.y) * k + hop)
             } else {
                 slot.bagAge = nil
                 slot.node.position = p
             }
+            slot.glimmer.isHidden = true
             switch st.place {
             case .inChest:
                 let vis = SceneLootView.smooth(0, 0.4, l)
-                slot.node.isHidden = vis <= 0.002
+                var gl: CGFloat = 0
+                if slot.isRelic {
+                    gl = SceneLootView.glimmer(depth: st.item.depth, openness: openness, light: Double(l))
+                }
+                slot.node.isHidden = vis <= 0.002 && gl <= 0.002
                 slot.node.zPosition = 0
                 slot.node.setScale(b)
                 slot.art.alpha = vis
@@ -274,6 +333,15 @@ final class SceneLootView {
                 } else {
                     slot.ray.isHidden = true
                 }
+                if gl > 0.002 {
+                    // A faint pulsing sparkle at the relic's spot ("Something glints deeper…").
+                    let pulse = 0.5 + 0.5 * sin(time * 4.2 + Double(slot.phase) * 6.283)
+                    slot.glimmer.isHidden = false
+                    slot.glimmer.alpha = gl * CGFloat(0.25 + 0.55 * pulse)
+                    slot.glimmer.zRotation = CGFloat(time) * 0.6
+                    slot.glimmer.setScale(0.7 + 0.35 * CGFloat(pulse))
+                    glimmering += 1
+                }
             case .held:
                 slot.node.isHidden = false
                 slot.node.zPosition = 20
@@ -289,24 +357,23 @@ final class SceneLootView {
                 if held == nil { held = CGPoint(x: p.x + root.position.x, y: p.y + root.position.y) }
             case .inBag:
                 slot.node.isHidden = hideBagged
-                // Under the HUD (z 30) so the in-hand value and the counter stay readable over bagged loot.
-                slot.node.zPosition = (bagIndex[st.id] ?? 0) < 5 ? 1.2 : 1
+                // In the pouch: the back row under the front row, all under the pouch's front lip (HUD z 30).
+                slot.node.zPosition = slot.bagIndex % 10 < 5 ? 1 : 1.2
                 slot.node.setScale(SceneLootView.pileScale * b)
                 slot.art.alpha = 1
                 slot.art.colorBlendFactor = 0
                 slot.halo.alpha = 0
-                slot.shadow.alpha = 0.35
-                slot.shadow.position = CGPoint(x: 2, y: -r * 0.4)
+                slot.shadow.alpha = 0
                 slot.sparkle.alpha = slot.glints ? tw * 0.6 : 0
                 slot.ray.isHidden = true
             case .lost:
                 break
             }
-            if !slot.node.isHidden { visible += 1 }
+            if !slot.node.isHidden && slot.art.alpha > 0.002 { visible += 1 }
         }
-        var gone: [Int] = []
-        for id in live.keys where !seen.contains(id) { gone.append(id) }
-        for id in gone {
+        goneScratch.removeAll(keepingCapacity: true)
+        for (id, s) in live where s.stamp != frameStamp { goneScratch.append(id) }
+        for id in goneScratch {
             if let s = live[id] {
                 s.node.isHidden = true
                 free.append(s)
@@ -315,6 +382,7 @@ final class SceneLootView {
             states[id] = nil
         }
         visibleCount = visible
+        glimmerCount = glimmering
         heldPoint = held
     }
 }

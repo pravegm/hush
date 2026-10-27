@@ -1,66 +1,107 @@
 import SwiftUI
 
-/// Where the 670 × 952 play canvas lands on screen (aspect-fit, centred) and how canvas rects (SpriteKit: origin
-/// bottom-left, y up) map to SwiftUI points (y down). The SpriteView is framed to `rect` exactly, so the scene and the
-/// SwiftUI HUD share one geometry and the bars around it are SwiftUI's dungeon colour. Pure; tested.
+/// Where the play canvas lands on screen and how canvas rects (SpriteKit: origin bottom-left, y up) map to SwiftUI
+/// points (y down). R2 (UX P1-11, juror P0-4): the scene FILLS the screen. Its size is `ScreenLayout.make(hasFold:
+/// viewSize:)` (670 wide, taller than 952 on screens narrower than the Duo's), shown aspect-fill, with the 670 × 952
+/// canvas at `contentOffsetY` inside it and extension art above the lid and below the floor: no bars. The SpriteView
+/// is the whole screen, so the scene and the SwiftUI HUD share this one geometry. Pure; tested.
+///
+/// Turned round, the scene turns its own world about its centre and the App turns its overlays about the screen's
+/// centre: the same point, so these unturned rects stay right after both turns.
 struct CanvasFit: Equatable {
     let viewSize: CGSize
+    /// The scene's size (canvas points).
+    let sceneSize: CGSize
+    /// Where canvas y = 0 sits in the scene.
+    let contentOffsetY: CGFloat
+    /// The scene's rect in view points (it may overhang the view by a fraction of a point: aspect-fill).
     let rect: CGRect
     let scale: CGFloat
 
-    init(viewSize: CGSize) {
+    init(viewSize: CGSize, layout: ScreenLayout? = nil) {
         self.viewSize = viewSize
-        let w = ScreenLayout.canvasWidth
-        let h = ScreenLayout.canvasHeight
-        let s = viewSize.width > 0 && viewSize.height > 0 ? min(viewSize.width / w, viewSize.height / h) : 1
+        let l = layout ?? ScreenLayout.make(hasFold: false, viewSize: viewSize)
+        sceneSize = l.size
+        contentOffsetY = l.contentOffsetY
+        let valid = viewSize.width > 0 && viewSize.height > 0 && l.size.width > 0 && l.size.height > 0
+        let s = valid ? max(viewSize.width / l.size.width, viewSize.height / l.size.height) : 1
         scale = s
-        rect = CGRect(x: (viewSize.width - w * s) / 2, y: (viewSize.height - h * s) / 2, width: w * s, height: h * s)
+        rect = CGRect(x: (viewSize.width - l.size.width * s) / 2, y: (viewSize.height - l.size.height * s) / 2,
+                      width: l.size.width * s, height: l.size.height * s)
     }
 
     /// A canvas rect (y up) → view points (y down).
     func viewRect(canvas r: CGRect) -> CGRect {
-        CGRect(x: rect.minX + r.minX * scale, y: rect.minY + (ScreenLayout.canvasHeight - r.maxY) * scale,
+        CGRect(x: rect.minX + r.minX * scale,
+               y: rect.minY + (sceneSize.height - contentOffsetY - r.maxY) * scale,
                width: r.width * scale, height: r.height * scale)
     }
 
     func viewPoint(canvas p: CGPoint) -> CGPoint {
-        CGPoint(x: rect.minX + p.x * scale, y: rect.minY + (ScreenLayout.canvasHeight - p.y) * scale)
+        CGPoint(x: rect.minX + p.x * scale, y: rect.minY + (sceneSize.height - contentOffsetY - p.y) * scale)
     }
 
-    /// The lid half (drawn upper) and the floor half (drawn lower), in view points.
-    var lidRect: CGRect { viewRect(canvas: ScreenLayout(hasFold: true).lidRect) }
-    var floorRect: CGRect { viewRect(canvas: ScreenLayout(hasFold: true).floorRect) }
+    /// The 670 × 952 canvas, the lid half (drawn upper) and the floor half (drawn lower), in view points.
+    var canvasRect: CGRect {
+        viewRect(canvas: CGRect(x: 0, y: 0, width: ScreenLayout.canvasWidth, height: ScreenLayout.canvasHeight))
+    }
+    var lidRect: CGRect {
+        viewRect(canvas: CGRect(x: 0, y: ScreenLayout.foldMaxY, width: ScreenLayout.canvasWidth,
+                                height: ScreenLayout.canvasHeight - ScreenLayout.foldMaxY))
+    }
+    var floorRect: CGRect {
+        viewRect(canvas: CGRect(x: 0, y: 0, width: ScreenLayout.canvasWidth, height: ScreenLayout.foldMinY))
+    }
+
+    /// Type over the chest scales with the canvas, never below 0.72 nor above 1 (QA-1 P2-10/11: phone overflow).
+    var textScale: CGFloat { min(max(scale, 0.72), 1) }
 }
 
 /// The HUD's rects on the play canvas (canvas points, SpriteKit y up), derived from Contracts' ScreenLayout and
-/// FloorSpace. Agreed with the Scene engineer (design/NEEDS.md, App R1):
-/// - the bag strip is canvas y 0…110 (floor y ≥ FloorSpace.bagMinY);
-/// - the scene's noise meter sits on the front rim just above it (ChestLayout.meterRect, canvas y 106…134);
-/// - SwiftUI's one-line hint lives in `hintBand`, the 60 pt just above the meter (ChestLayout.hintBand, y 138…198);
-/// - the pause button is the floor half's top-right 70 × 70 (`pauseRect`, at the fold, outside the chest interior);
-/// - the First Chest card sits in `lessonBand` (canvas y 138…254); the lesson chest's loot lies behind it (floor y
-///   ≤ 160, canvas y ≥ 296), so the card never covers what it asks you to grab.
+/// FloorSpace and the Scene's ChestLayout:
+/// - the bag strip is canvas y 0…110 (floor y ≥ FloorSpace.bagMinY); the scene's noise meter sits on the front rim
+///   just above it (ChestLayout.meterRect, about y 106…134);
+/// - R2 (UX P0-10): SwiftUI's one-line hint lives in `hintBand`, the floor's back edge by the fold (ChestLayout.hintBand,
+///   y 404…452): never over the loot or the drag path, right under the mimic's eye;
+/// - the pause button is placed from `pauseRect` (ChestLayout.pauseArea) and kept ≥ 16 pt inside the safe area
+///   (`AppCanvas.pauseCenter`);
+/// - R2 (UX P0-2): the First Chest card sits in `lessonBand`, canvas y 146…262: 12 pt clear of the meter, below the
+///   lesson chest's loot (floor y ≤ 150, canvas y ≥ 284 with its radius), so it never covers the meter or the coin.
 enum HUDLayout {
     /// The bag strip's top edge (canvas y).
     static var bagTop: CGFloat { ScreenLayout.foldMinY - FloorSpace.bagMinY }
-    /// The top of Scene's snore-o-meter (ChestLayout.meterRect, y 106…134).
+    /// The top of Scene's noise meter.
     static var meterTop: CGFloat { ChestLayout.meterRect.maxY }
-    static let hintHeight: CGFloat = 60
     static let pauseSide: CGFloat = 70
+    /// The lesson card's clearance over the meter.
+    static let meterClearance: CGFloat = 12
 
-    /// Scene's ChestLayout.hintBand (x 80…590, y 138…198).
+    /// Scene's ChestLayout.hintBand.
     static var hintBand: CGRect { ChestLayout.hintBand }
 
-    /// Scene's ChestLayout.pauseArea (x 600…670, y 386…456).
+    /// Scene's ChestLayout.pauseArea.
     static var pauseRect: CGRect { ChestLayout.pauseArea }
 
+    /// The IN BAG pouch (the drop target; `hud.bag`'s frame).
+    static var bagRect: CGRect { ChestLayout.pouchRect }
+
     static var lessonBand: CGRect {
-        CGRect(x: 50, y: hintBand.minY, width: 570, height: 116)
+        let bottom = max(meterTop, 134) + meterClearance
+        return CGRect(x: 50, y: bottom, width: 570, height: 116)
     }
 
     /// The floor half's whole rect (canvas).
-    static var floor: CGRect { ScreenLayout(hasFold: true).floorRect }
-    static var lid: CGRect { ScreenLayout(hasFold: true).lidRect }
+    static var floor: CGRect { CGRect(x: 0, y: 0, width: ScreenLayout.canvasWidth, height: ScreenLayout.foldMinY) }
+    static var lid: CGRect {
+        CGRect(x: 0, y: ScreenLayout.foldMaxY, width: ScreenLayout.canvasWidth,
+               height: ScreenLayout.canvasHeight - ScreenLayout.foldMaxY)
+    }
+
+    /// The lid lever's track (no hinge): lid-local x 606, y 40…420 (ChestLayout.slider…), on the canvas.
+    static var leverTrack: CGRect {
+        CGRect(x: ChestLayout.sliderX - 20, y: ScreenLayout.foldMaxY + ChestLayout.sliderMinY, width: 40,
+               height: ChestLayout.sliderMaxY - ChestLayout.sliderMinY)
+    }
 }
 
 /// The screen as the SwiftUI pages see it: size, safe-area insets (already turned round if the canvas is), and the
@@ -73,6 +114,8 @@ struct AppCanvas: Equatable {
 
     /// The fold band's half-height either side of the middle (Contracts: 40 pt band).
     static let foldHalf: CGFloat = 22
+    /// R2 (juror P1-10): the pause coin stays this far inside the safe area on every side.
+    static let pauseInset: CGFloat = 16
 
     var isCompact: Bool { size.height < 720 }
     var fit: CanvasFit { CanvasFit(viewSize: size) }
@@ -93,11 +136,26 @@ struct AppCanvas: Equatable {
                       height: max(bottom - top, 0))
     }
 
+    /// The safe area as a rect.
+    var safeRect: CGRect {
+        CGRect(x: insets.leading, y: insets.top, width: max(size.width - insets.leading - insets.trailing, 0),
+               height: max(size.height - insets.top - insets.bottom, 0))
+    }
+
     /// Nothing tappable may overlap the fold band. Pure; tested.
     func isFoldClear(_ r: CGRect) -> Bool {
         guard hasFold else { return true }
         let band = CGRect(x: 0, y: size.height / 2 - Self.foldHalf, width: size.width, height: Self.foldHalf * 2)
         return !r.intersects(band)
+    }
+
+    /// The pause coin's centre: the scene's pause area, pulled in so a `side`-pt button keeps `pauseInset` from every
+    /// safe edge (it was clipped by the screen edge in R1). Pure; tested.
+    func pauseCenter(side: CGFloat = HushTheme.minTap) -> CGPoint {
+        let want = fit.viewRect(canvas: HUDLayout.pauseRect)
+        let r = safeRect.insetBy(dx: Self.pauseInset + side / 2, dy: Self.pauseInset + side / 2)
+        guard r.width > 0, r.height > 0 else { return CGPoint(x: want.midX, y: want.midY) }
+        return CGPoint(x: min(max(want.midX, r.minX), r.maxX), y: min(max(want.midY, r.minY), r.maxY))
     }
 
     /// A readable column width.

@@ -47,8 +47,8 @@ struct FeelDice {
 enum FeelSoundBook {
     // MARK: The creak (the hero)
 
-    /// Speeds (°/s) of the creak curve: silent at or below `Tuning.quietSpeed` (8), soft up to `softTop` (20), loud
-    /// from `Tuning.loudSpeed` (30), full at `fullSpeed`. The squeal partial fades in from `squealStart` (25).
+    /// Speeds (°/s) of the creak curve: silent at or below `Tuning.quietSpeed` (12 from R2), soft up to `softTop` (20),
+    /// loud from `Tuning.loudSpeed` (30), full at `fullSpeed`. The squeal partial fades in from `squealStart` (25).
     static var quietSpeed: Double { Tuning.quietSpeed }
     static var loudSpeed: Double { Tuning.loudSpeed }
     static let softTop = 20.0
@@ -67,7 +67,7 @@ enum FeelSoundBook {
     static let grainBase = 12.0
     static let grainSpan = 240.0
 
-    /// 0…1 creak level for a lid speed: 0 at ≤ 8°/s; a soft ease-in to 0.4 at 20; up to 0.8 at 30; 1.0 at 50.
+    /// 0…1 creak level for a lid speed: 0 at ≤ `quietSpeed`; a soft ease-in to 0.4 at 20; up to 0.8 at 30; 1.0 at 50.
     /// Continuous and monotonic, so the creak swells and fades with the hand and never switches on with a click.
     static func creakLevel(speed: Double) -> Double {
         guard speed.isFinite, speed > quietSpeed else { return 0 }
@@ -80,6 +80,19 @@ enum FeelSoundBook {
             return softLevel + (loudLevel - softLevel) * v
         }
         return loudLevel + (1 - loudLevel) * smoothstep((speed - loudSpeed) / (fullSpeed - loudSpeed))
+    }
+
+    /// R2 (REVIEW-1-feel #2): while the lid is *closing* it is silent up to this speed (°/s, 18), so the creak (sound
+    /// and haptic) stays truthful to Core's noise rule (`Noise.quietSpeed(closing:)`).
+    static var closeQuietSpeed: Double { Tuning.closeQuietSpeed }
+
+    /// The speed the creak is drawn for: the lid speed, shifted down by the closing allowance while closing, so the
+    /// closing creak starts at `closeQuietSpeed` with the same shape. Never negative; NaN → 0.
+    static func creakSpeed(_ speed: Double, closing: Bool) -> Double {
+        guard speed.isFinite else { return 0 }
+        let s = max(speed, 0)
+        guard closing else { return s }
+        return max(s - max(closeQuietSpeed - quietSpeed, 0), 0)
     }
 
     /// 0…1 squeal level: nothing up to 25°/s, a smoothstep to full at 45.
@@ -562,9 +575,181 @@ enum FeelSoundBook {
         ]
     }
 
-    /// Each whole second in the last 15: a dry clock tick.
-    static func torchTick() -> [FeelSynthCommand] {
-        [.ring(FeelRingSpec(.wood, fundamental: 2400, partials: 2, decay: 0.008, brightness: 0.35, gain: 0.05))]
+    /// The candle's last `torchUrgentSeconds` tick twice as fast (R2: "faster in the last 5").
+    static let torchUrgentSeconds = 5.0
+
+    /// The candle clock: an integer that steps down once per tick, or nil outside the last 15 s. Each whole second in
+    /// 15…5 s, then each half second in the last 5. A tick plays whenever the slot falls (oil raising it plays nothing).
+    static func torchTickSlot(remaining: Double) -> Int? {
+        guard remaining.isFinite, remaining > 0, remaining <= torchLowSeconds else { return nil }
+        if remaining > torchUrgentSeconds { return Int(remaining.rounded(.up)) * 2 }
+        return Int((remaining * 2).rounded(.up))
+    }
+
+    /// One candle-clock tick: a dry wooden tick-tock (alternating with `tock`); in the last 5 s higher, louder and
+    /// keener, twice a second.
+    static func torchTick(urgent: Bool = false, tock: Bool = false) -> [FeelSynthCommand] {
+        let pitch: Float = urgent ? (tock ? 2500 : 3000) : (tock ? 2000 : 2400)
+        var commands: [FeelSynthCommand] = [
+            .ring(FeelRingSpec(.wood, fundamental: pitch, partials: 2, decay: urgent ? 0.01 : 0.008, brightness: 0.35,
+                               gain: urgent ? 0.07 : 0.05)),
+        ]
+        if urgent {
+            commands.append(.noise(FeelNoiseSpec(.highPass, cutoff: 4000, q: 0.7, attack: 0.0005, decay: 0.004,
+                                                 gain: 0.03)))
+        }
+        return commands
+    }
+
+    // MARK: R2: the Hush Chain, the golden mimic, the bite's cost, the relic glimmer
+
+    /// The chain chime's ladder: D major pentatonic from A5 up (each Hushed bank climbs one rung).
+    static let chainLadder: [Float] = [880, 987.77, 1174.66, 1318.51, 1479.98, 1760, 1975.53, 2349.3]
+    /// When the chain chime starts after a bank's thunk (after the ka-ching and the Hushed chimes).
+    static let chainAfterBank: Float = kaChingAt + 0.55
+
+    /// The rungs a chain of `count` plays: up to three notes climbing to rung `count` (capped at the ladder's top).
+    static func chainNotes(count: Int) -> [Float] {
+        let top = min(max(count, 1), chainLadder.count) - 1
+        let first = max(top - 2, 0)
+        return Array(chainLadder[first...top])
+    }
+
+    /// The Hush Chain grew: a quick rising sparkle that ends one rung higher each step, and a glint an octave up.
+    static func chainUp(count: Int, delay: Float = 0, dice: inout FeelDice) -> [FeelSynthCommand] {
+        let notes = chainNotes(count: count)
+        var commands: [FeelSynthCommand] = []
+        for (index, f) in notes.enumerated() {
+            let last = index == notes.count - 1
+            commands.append(.ring(FeelRingSpec(.chime, fundamental: f, partials: 3, decay: last ? 0.8 : 0.35,
+                                               brightness: 0.35, gain: last ? 0.075 : 0.06,
+                                               delay: delay + 0.065 * Float(index), seed: dice.seed32())))
+        }
+        let topDelay = delay + 0.065 * Float(max(notes.count - 1, 0))
+        commands.append(.ring(FeelRingSpec(.glass, fundamental: (notes.last ?? 1760) * 2, partials: 2, decay: 0.3,
+                                           brightness: 0.3, gain: 0.03, delay: topDelay + 0.03, seed: dice.seed32())))
+        return commands
+    }
+
+    /// The chain broke (a stir or a bite): a glassy crack, then shards tinkling down.
+    static func chainBroken(delay: Float = 0, dice: inout FeelDice) -> [FeelSynthCommand] {
+        var commands: [FeelSynthCommand] = [
+            .noise(FeelNoiseSpec(.highPass, cutoff: 3200, q: 0.9, attack: 0.0005, decay: 0.014, gain: 0.13,
+                                 delay: delay)),
+            .ring(FeelRingSpec(.glass, fundamental: dice.float(2850, 2950), partials: 3, decay: 0.09, brightness: 0.55,
+                               gain: 0.07, delay: delay, seed: dice.seed32())),
+            .ring(FeelRingSpec(.glass, fundamental: dice.float(3650, 3800), partials: 2, decay: 0.07, brightness: 0.5,
+                               gain: 0.05, delay: delay + 0.004, seed: dice.seed32())),
+        ]
+        let shards: [Float] = [4200, 3550, 3100, 2650]
+        for (index, f) in shards.enumerated() {
+            let k = Float(index)
+            commands.append(.ring(FeelRingSpec(.glass, fundamental: f * dice.float(0.97, 1.03), partials: 2,
+                                               decay: 0.06, brightness: 0.4, gain: 0.04 - 0.006 * k,
+                                               delay: delay + chainShardTimes[index], seed: dice.seed32())))
+        }
+        return commands
+    }
+
+    /// When the chain's shards land (s after the crack); the haptic uses the same times.
+    static let chainShardTimes: [Float] = [0.07, 0.14, 0.22, 0.31]
+
+    /// A golden mimic arrives (with the chest's own landing): a shimmering glissando up the D major pentatonic over a
+    /// soft, trembling chord, and a scatter of glints. The jackpot moment, but still a hush.
+    static func goldenArrived(delay: Float = 0.4, dice: inout FeelDice) -> [FeelSynthCommand] {
+        var commands: [FeelSynthCommand] = []
+        let glissando: [Float] = [1174.66, 1318.51, 1479.98, 1760, 1975.53, 2349.3, 2637.02]
+        for (index, f) in glissando.enumerated() {
+            let last = index == glissando.count - 1
+            commands.append(.ring(FeelRingSpec(.glass, fundamental: f, partials: 2, decay: last ? 0.7 : 0.25,
+                                               brightness: 0.3, gain: last ? 0.05 : 0.04,
+                                               delay: delay + 0.045 * Float(index), seed: dice.seed32())))
+        }
+        // The shimmer: a soft D major chord with a fast tremble.
+        let chord: [Float] = [587.33, 739.99, 880]
+        for (index, f) in chord.enumerated() {
+            commands.append(.tone(FeelToneSpec(start: f, duration: 1.3, attack: 0.25, decay: 0.45, gain: 0.03,
+                                               harmonics: 2, vibratoRate: 7.5 + 0.6 * Float(index),
+                                               vibratoDepth: 0.01, delay: delay + 0.1)))
+        }
+        commands.append(.noise(FeelNoiseSpec(.bandPass, cutoff: 5200, to: 7000, sweep: 0.8, q: 2, attack: 0.2,
+                                             decay: 0.35, gain: 0.025, delay: delay + 0.05)))
+        for k in 0..<3 {
+            commands.append(.ring(FeelRingSpec(.glass, fundamental: dice.float(3100, 4200), partials: 2, decay: 0.15,
+                                               brightness: 0.3, gain: 0.025,
+                                               delay: delay + 0.45 + 0.17 * Float(k) + dice.float(0, 0.05),
+                                               seed: dice.seed32())))
+        }
+        return commands
+    }
+
+    /// The coins a bite spills: 4 (a pocketful) … 10, by the value lost; none for an empty bag.
+    static func spillCount(lostValue: Int) -> Int {
+        guard lostValue > 0 else { return 0 }
+        return min(max(cascadeCount(value: lostValue) - 3, 4), 10)
+    }
+
+    /// When the spilled coins land (s after the bite): from just after the CHOMP's teeth, bouncing apart and slowing.
+    /// Shared by the sound and the haptic patter.
+    static func spillTimes(count: Int) -> [Double] {
+        let n = min(max(count, 0), 12)
+        var times: [Double] = []
+        for k in 0..<n {
+            let x = n == 1 ? 0 : Double(k) / Double(n - 1)
+            let jitter = 0.018 * sin(Double(k) * 1.7 + 0.4)
+            times.append(max(spillStart + 0.6 * pow(x, 1.25) + jitter, spillStart))
+        }
+        return times
+    }
+
+    static let spillStart = 0.3
+
+    /// The bite's cost (with the CHOMP): the bag's coins spill and skitter over the stone (by value), and the candle
+    /// gutters for the seconds it took.
+    static func coinSpill(lostValue: Int, seconds: Double, dice: inout FeelDice) -> [FeelSynthCommand] {
+        var commands: [FeelSynthCommand] = []
+        let times = spillTimes(count: spillCount(lostValue: lostValue))
+        for (index, time) in times.enumerated() {
+            let fade = Float(1 - 0.5 * Double(index) / Double(max(times.count - 1, 1)))
+            let d = Float(time)
+            commands.append(.fm(FeelFMSpec(carrier: dice.float(2100, 3400), ratio: 1.41, index: 1.3, indexDecay: 0.015,
+                                           decay: 0.05, gain: 0.075 * fade, delay: d)))
+            if index % 3 == 0 {
+                // A coin landing flat on stone: a little knock under the clink.
+                commands.append(.ring(FeelRingSpec(.wood, fundamental: dice.float(900, 1300), partials: 2,
+                                                   decay: 0.01, brightness: 0.4, gain: 0.05 * fade, delay: d,
+                                                   seed: dice.seed32())))
+            }
+        }
+        if !times.isEmpty {
+            // The last coin spins down.
+            let last = Float(times.last ?? spillStart)
+            commands.append(.fm(FeelFMSpec(carrier: dice.float(2500, 2900), ratio: 1.41, index: 0.8, indexDecay: 0.02,
+                                           decay: 0.035, gain: 0.03, delay: last + 0.07)))
+            commands.append(.fm(FeelFMSpec(carrier: dice.float(2500, 2900), ratio: 1.41, index: 0.6, indexDecay: 0.02,
+                                           decay: 0.03, gain: 0.022, delay: last + 0.12)))
+        }
+        if seconds.isFinite && seconds > 0 {
+            commands.append(.noise(FeelNoiseSpec(.bandPass, cutoff: 1300, to: 350, sweep: 0.45, q: 0.9, attack: 0.01,
+                                                 decay: 0.18, gain: 0.07, delay: 0.95)))
+        }
+        return commands
+    }
+
+    /// The relic glimmer (while "Something glints deeper…" shows): one faint, high twinkle. The director strings them
+    /// together every `glimmerGap` s into a shimmer.
+    static let glimmerGap: ClosedRange<Double> = 0.28...0.6
+    static func glimmerTwinkle(dice: inout FeelDice) -> [FeelSynthCommand] {
+        var commands: [FeelSynthCommand] = [
+            .ring(FeelRingSpec(.glass, fundamental: dice.float(3200, 4800), partials: 2, decay: dice.float(0.18, 0.3),
+                               brightness: 0.25, gain: dice.float(0.012, 0.02), seed: dice.seed32())),
+        ]
+        if dice.unit() < 0.35 {
+            commands.append(.ring(FeelRingSpec(.glass, fundamental: dice.float(5000, 6200), partials: 1, decay: 0.15,
+                                               brightness: 0.2, gain: 0.009, delay: dice.float(0.05, 0.1),
+                                               seed: dice.seed32())))
+        }
+        return commands
     }
 
     /// The torch goes out: a snuff, a sinking tone and one low bell.

@@ -3,15 +3,18 @@ import Foundation
 import Testing
 @testable import Hush
 
-// MARK: - Headless balance playtest
+// MARK: - Headless balance playtest (Round 2)
 //
 // Every PilotSkill plays real HeistSessions (mode .run, HUSH_BAL_SEEDS seeds, default 8) at 60 Hz with its touches fed
 // in between steps, the way GameController feeds a pilot. Each run is capped at 10 min. Prints, per skill:
-//   HUSH-BAL skill=casual gold=2585 p10=… p90=… seconds=131.9 banked=7.0 bites=0.0 maxBites=0 hushed=… relics=… n=8
-// The assertions are the ROUND-1 targets on medians, with margins (tools/balance-sim.js predicts, 8 seeds:
-// novice ~560 gold / 4 bites, casual ~2,590 / 7 chests / 132 s, expert ~4,880, perfect ~6,120 and never bitten):
-//   novice gold < casual < expert, perfect ≥ 0.95 × expert; casual banks 4–8 chests and lasts 90–160 s;
-//   novice is bitten ≥ 1 time per run; perfect is never bitten.
+//   HUSH-BAL skill=casual gold=3803 p10=… p90=… seconds=131.3 banked=8.0 bites=0.0 maxBites=0 hushed=2.0 … n=8
+// The assertions are the ROUND-2 table on MEDIANS, inside bands (tools/balance-sim.js mirrors them as BANDS and
+// checks them with `windows=40` over 40 different 8-seed windows). The sim predicts, on these seeds:
+//   8 seeds:  novice 1,244 gold / 4 chests / 4 bites; casual 3,803 / 8 / 0 / 2 Hushed; expert 10,089 / 12;
+//             perfect 10,989 / 12, never bitten.
+//   40 seeds: novice 1,685 / 5.5 / 3; casual 3,958 / 8 / 0 / 2; expert 11,007 / 13; perfect 11,573 / 13.
+// R2 targets: novice ≥ 1,000 gold and ≥ 3 chests; casual banks 5–10 chests in 90–160 s, unbitten, ≥ 1 Hushed;
+// novice < casual < expert, perfect ≥ 0.95 × expert; perfect never bitten; every chest log adds up to the gold.
 // Each skill is simulated once (memoised per skill), so the tests share the runs.
 
 struct HushBalanceRun {
@@ -21,6 +24,10 @@ struct HushBalanceRun {
     var bites: Int
     var hushed: Int
     var relics: Int
+    var bestChain: Int
+    var goldenBanked: Int
+    /// chestLog has one entry per chest opened and its values add up to the gold.
+    var logAddsUp: Bool
     var capped: Bool
 }
 
@@ -50,6 +57,29 @@ final class HushBalanceMemo: @unchecked Sendable {
         results[skill] = computed
         dataLock.unlock()
         return computed
+    }
+}
+
+/// Median bands per skill (the R2 table with room for seed noise and Swift/JS libm drift).
+struct HushBalanceBands {
+    var gold: ClosedRange<Double>
+    var banked: ClosedRange<Double>
+    var bites: ClosedRange<Double>?
+    var hushed: ClosedRange<Double>?
+    var seconds: ClosedRange<Double>?
+
+    static func bands(_ skill: PilotSkill) -> HushBalanceBands {
+        switch skill {
+        case .novice:
+            return HushBalanceBands(gold: 1_000...2_600, banked: 3...8, bites: 1...6, hushed: nil, seconds: nil)
+        case .casual:
+            return HushBalanceBands(gold: 3_000...5_200, banked: 5...10, bites: 0...0.5, hushed: 1...5,
+                                    seconds: 90...160)
+        case .expert:
+            return HushBalanceBands(gold: 8_000...14_000, banked: 10...16, bites: 0...1, hushed: 8...16, seconds: nil)
+        case .perfect:
+            return HushBalanceBands(gold: 8_500...15_000, banked: 10...16, bites: nil, hushed: 9...16, seconds: nil)
+        }
     }
 }
 
@@ -87,13 +117,13 @@ enum HushBalanceHarness {
             t += frameDt
             frames += 1
         }
-        if let r = session.result {
-            return HushBalanceRun(gold: r.gold, seconds: r.seconds, chestsBanked: r.chestsBanked, bites: r.bites,
-                                  hushed: r.hushed, relics: r.relics.count, capped: false)
-        }
-        let snap: HeistSnapshot = session.snapshot
-        return HushBalanceRun(gold: snap.banked, seconds: snap.time, chestsBanked: snap.chestsBanked,
-                              bites: snap.bites, hushed: snap.hushed, relics: 0, capped: true)
+        let capped: Bool = session.result == nil
+        let r: RunResult = session.partialResult()
+        let logGold: Int = r.chestLog.reduce(0) { (a: Int, c: ChestOutcome) -> Int in a + c.value }
+        let adds: Bool = r.chestLog.count == r.chestsOpened && logGold == r.gold
+        return HushBalanceRun(gold: r.gold, seconds: r.seconds, chestsBanked: r.chestsBanked, bites: r.bites,
+                              hushed: r.hushed, relics: r.relics.count, bestChain: r.bestChain,
+                              goldenBanked: r.goldenBanked, logAddsUp: adds, capped: capped)
     }
 
     static func simulate(_ skill: PilotSkill) -> [HushBalanceRun] {
@@ -131,13 +161,19 @@ enum HushBalanceHarness {
         let bites: [Double] = runs.map { (r: HushBalanceRun) -> Double in Double(r.bites) }
         let hushed: [Double] = runs.map { (r: HushBalanceRun) -> Double in Double(r.hushed) }
         let relics: [Double] = runs.map { (r: HushBalanceRun) -> Double in Double(r.relics) }
+        let chains: [Double] = runs.map { (r: HushBalanceRun) -> Double in Double(r.bestChain) }
+        let golden: Int = runs.reduce(0) { (a: Int, r: HushBalanceRun) -> Int in a + r.goldenBanked }
         let maxBites: Int = runs.map { (r: HushBalanceRun) -> Int in r.bites }.max() ?? 0
         let capped: Int = runs.filter { (r: HushBalanceRun) -> Bool in r.capped }.count
-        return String(format: "HUSH-BAL skill=%@ gold=%.0f p10=%.0f p90=%.0f seconds=%.1f p10=%.1f p90=%.1f banked=%.1f bites=%.1f maxBites=%d hushed=%.1f relics=%.1f capped=%d n=%d",
-                      skill.rawValue, percentile(gold, 0.5), percentile(gold, 0.1), percentile(gold, 0.9),
-                      percentile(secs, 0.5), percentile(secs, 0.1), percentile(secs, 0.9), percentile(banked, 0.5),
-                      percentile(bites, 0.5), maxBites, percentile(hushed, 0.5), percentile(relics, 0.5), capped,
-                      runs.count)
+        let head: String = String(format: "HUSH-BAL skill=%@ gold=%.0f p10=%.0f p90=%.0f seconds=%.1f p10=%.1f p90=%.1f",
+                                  skill.rawValue, percentile(gold, 0.5), percentile(gold, 0.1),
+                                  percentile(gold, 0.9), percentile(secs, 0.5), percentile(secs, 0.1),
+                                  percentile(secs, 0.9))
+        let tail: String = String(format: " banked=%.1f bites=%.1f maxBites=%d hushed=%.1f relics=%.1f bestChain=%.1f goldenBanked=%d capped=%d n=%d",
+                                  percentile(banked, 0.5), percentile(bites, 0.5), maxBites,
+                                  percentile(hushed, 0.5), percentile(relics, 0.5), percentile(chains, 0.5),
+                                  golden, capped, runs.count)
+        return head + tail
     }
 }
 
@@ -151,19 +187,27 @@ struct BalanceTests {
         FileHandle.standardOutput.write(Data((line + "\n").utf8))
         let capped: Int = runs.filter { (r: HushBalanceRun) -> Bool in r.capped }.count
         #expect(capped == 0, "\(line)")
-        let seconds: Double = HushBalanceHarness.median(runs) { (r: HushBalanceRun) -> Double in r.seconds }
+        let badLogs: Int = runs.filter { (r: HushBalanceRun) -> Bool in !r.logAddsUp }.count
+        #expect(badLogs == 0, "chest log doesn't add up in \(badLogs) runs: \(line)")
+        let b: HushBalanceBands = HushBalanceBands.bands(skill)
+        let gold: Double = HushBalanceHarness.median(runs) { (r: HushBalanceRun) -> Double in Double(r.gold) }
         let banked: Double = HushBalanceHarness.median(runs) { (r: HushBalanceRun) -> Double in Double(r.chestsBanked) }
-        let bites: Double = HushBalanceHarness.median(runs) { (r: HushBalanceRun) -> Double in Double(r.bites) }
-        let maxBites: Int = runs.map { (r: HushBalanceRun) -> Int in r.bites }.max() ?? 0
-        switch skill {
-        case .novice:
-            #expect(bites >= 1, "\(line)")
-        case .casual:
-            #expect(banked >= 4 && banked <= 8, "\(line)")
-            #expect(seconds >= 90 && seconds <= 160, "\(line)")
-        case .expert:
-            #expect(bites <= 1, "\(line)")
-        case .perfect:
+        #expect(b.gold.contains(gold), "gold median \(gold) outside \(b.gold): \(line)")
+        #expect(b.banked.contains(banked), "banked median \(banked) outside \(b.banked): \(line)")
+        if let band = b.bites {
+            let bites: Double = HushBalanceHarness.median(runs) { (r: HushBalanceRun) -> Double in Double(r.bites) }
+            #expect(band.contains(bites), "bites median \(bites) outside \(band): \(line)")
+        }
+        if let band = b.hushed {
+            let hushed: Double = HushBalanceHarness.median(runs) { (r: HushBalanceRun) -> Double in Double(r.hushed) }
+            #expect(band.contains(hushed), "hushed median \(hushed) outside \(band): \(line)")
+        }
+        if let band = b.seconds {
+            let seconds: Double = HushBalanceHarness.median(runs) { (r: HushBalanceRun) -> Double in r.seconds }
+            #expect(band.contains(seconds), "seconds median \(seconds) outside \(band): \(line)")
+        }
+        if skill == .perfect {
+            let maxBites: Int = runs.map { (r: HushBalanceRun) -> Int in r.bites }.max() ?? 0
             #expect(maxBites == 0, "\(line)")
         }
     }
@@ -176,7 +220,14 @@ struct BalanceTests {
         let line: String = "novice \(novice) casual \(casual) expert \(expert) perfect \(perfect)"
         #expect(novice < casual, "\(line)")
         #expect(casual < expert, "\(line)")
-        // "expert ≤ perfect", with 5 % slack for seed noise (the sim has perfect ~25 % ahead).
+        // "expert ≤ perfect", with 5 % slack for seed noise (the sim has perfect 6–9 % ahead).
         #expect(perfect >= expert * 0.95, "\(line)")
+    }
+
+    @Test func mastersBuildHushChains() {
+        // The chain is what makes mastery pay (REVIEW-1-feel: ~24 % of an expert's gold).
+        let expert: [HushBalanceRun] = HushBalanceMemo.shared.runs(.expert)
+        let chain: Double = HushBalanceHarness.median(expert) { (r: HushBalanceRun) -> Double in Double(r.bestChain) }
+        #expect(chain >= 3, "expert best chain median \(chain)")
     }
 }

@@ -89,6 +89,15 @@ private func play(speed: Double, noise: Double = 0.1, stage: MimicStage = .aslee
                    torchRemaining: torch, playing: playing)
 }
 
+/// One display frame (or, with `frames: false`, one tick of a paused game) with the hand held at `angle`; returns
+/// `canResume` after it (the App polls it every frame while paused).
+@MainActor
+@discardableResult
+private func feelHold(_ hinge: FakeHinge, _ angle: Double, frames: Bool = true) -> Bool {
+    hinge.run(FakeHinge.frame, frames: frames) { _ in angle }
+    return hinge.source.canResume
+}
+
 /// Every heist event, once.
 private let everyEvent: [HeistEvent] = [
     .chestArrived(index: 0, tier: .wooden, mimic: .snorer, name: "Snoring Sam"),
@@ -105,6 +114,8 @@ private let everyEvent: [HeistEvent] = [
     .stageChanged(from: .waking, to: .stirring), .stageChanged(from: .waking, to: .biting), .dreamTwitch,
     .bitten(lostValue: 120), .banked(value: 640, items: 4, hushed: true), .relicFound(RelicID("relic01")),
     .relicFound(RelicID("relic02")), .torchLow, .torchOut, .newBest, .finished,
+    .chainUp(count: 2, multiplier: 1.2), .chainUp(count: 9, multiplier: 1.5), .chainBroken(count: 3),
+    .biteCost(lostValue: 120, seconds: 10), .biteCost(lostValue: 0, seconds: 10),
 ]
 
 @MainActor
@@ -243,18 +254,33 @@ struct FeelTests {
     @Test func closingNeedsTheFullDwellAndClearsOnReopening() {
         let hinge = FakeHinge(source: HingeLidSource())
         hinge.run(0.5) { _ in 120 }
-        hinge.run(0.3) { t in 120 - 40 * t / 0.3 }
-        hinge.run(0.15) { _ in 80 }
+        hinge.run(0.3) { t in 120 - 60 * t / 0.3 }
+        hinge.run(0.15) { _ in 60 }
         #expect(hinge.source.isClosing == false)
-        hinge.run(0.5) { _ in 80 }
+        hinge.run(0.5) { _ in 60 }
         #expect(hinge.source.isClosing)
-        hinge.run(0.5) { t in 80 + 40 * min(t / 0.3, 1) }
+        hinge.run(0.5) { t in 60 + 60 * min(t / 0.3, 1) }
         #expect(hinge.source.isClosing == false)
-        // A dip under 85° shorter than the dwell never pauses.
-        hinge.run(0.1) { t in 120 - 38 * t / 0.1 }
-        hinge.run(0.1) { _ in 82 }
-        hinge.run(0.3) { t in 82 + 38 * min(t / 0.1, 1) }
+        // A dip under 70° shorter than the dwell never pauses.
+        hinge.run(0.1) { t in 120 - 54 * t / 0.1 }
+        hinge.run(0.1) { _ in 66 }
+        hinge.run(0.3) { t in 66 + 54 * min(t / 0.1, 1) }
         #expect(hinge.source.isClosing == false)
+    }
+
+    /// REVIEW-1-duo P1-4: an upright lid resting at about 90° (the Duo reads ±5°) never pauses the game.
+    @Test func anUprightRestNeverPauses() {
+        #expect(FeelClosingGate.closeBelow == 70)
+        #expect(FeelClosingGate.reopenAbove == 78)
+        let hinge = FakeHinge(source: HingeLidSource())
+        hinge.run(0.5) { _ in 120 }
+        hinge.run(0.5) { t in 120 - 35 * min(t / 0.4, 1) }
+        var paused = false
+        for _ in 0..<30 {
+            hinge.run(0.1) { t in 85 + 5 * sin(2 * Double.pi * 1.3 * t) }
+            if hinge.source.isClosing { paused = true }
+        }
+        #expect(paused == false)
     }
 
     @Test func closingIsJudgedFromReportsWhileThePauseStopsTheFrames() {
@@ -273,12 +299,14 @@ struct FeelTests {
 
     @Test func closingGateHasHysteresis() {
         var gate = FeelClosingGate()
-        gate.update(angle: 84, at: 0)
+        let below = FeelClosingGate.closeBelow - 1
+        gate.update(angle: below, at: 0)
         #expect(gate.isClosing(at: 0.39) == false)
         #expect(gate.isClosing(at: 0.41))
-        gate.update(angle: 84, at: 0.5)
+        gate.update(angle: below, at: 0.5)
         #expect(gate.latched)
-        gate.update(angle: 87, at: 0.6)
+        // Between the closing line and the reopen line it stays closed.
+        gate.update(angle: FeelClosingGate.reopenAbove - 1, at: 0.6)
         #expect(gate.isClosing(at: 0.6))
         gate.update(angle: FeelClosingGate.reopenAbove + 0.5, at: 0.7)
         #expect(gate.isClosing(at: 0.7) == false)
@@ -384,7 +412,7 @@ struct FeelTests {
 
     // MARK: - The creak curve (the hero)
 
-    @Test func creakIsSilentBelowEightSoftToTwentyLoudPastThirty() {
+    @Test func creakIsSilentBelowTheQuietSpeedSoftToTwentyLoudPastThirty() {
         var speed = 0.0
         while speed <= Tuning.quietSpeed {
             #expect(FeelSoundBook.creakLevel(speed: speed) == 0)
@@ -421,9 +449,10 @@ struct FeelTests {
         #expect(FeelSoundBook.grainRate(speed: 40) > FeelSoundBook.grainRate(speed: 12))
     }
 
-    @Test func creakRendersSilentBelowEightAndGrowsWithSpeed() {
+    @Test func creakRendersSilentBelowTheQuietSpeedAndGrowsWithSpeed() {
         let silent = FeelSynth(sampleRate: 48_000)
-        silent.send(.bed(FeelSoundBook.homeBed(speed: 7.9, openness: 0.5, master: FeelAudioEngine.masterGain)))
+        silent.send(.bed(FeelSoundBook.homeBed(speed: Tuning.quietSpeed - 0.1, openness: 0.5,
+                                               master: FeelAudioEngine.masterGain)))
         let quiet = feelRender(silent, seconds: 0.5)
         #expect(quiet.finite)
         #expect(quiet.peak == 0)
@@ -558,6 +587,23 @@ struct FeelTests {
         recipes.append(FeelSoundBook.celebrate(dice: &dice))
         recipes.append(FeelSoundBook.bank(value: 20, hushed: false, dice: &dice))
         recipes.append(FeelSoundBook.bank(value: 9_000, hushed: true, dice: &dice))
+        // R2 moments.
+        for count in [0, 1, 2, 5, 9] {
+            recipes.append(FeelSoundBook.chainUp(count: count, dice: &dice))
+            recipes.append(FeelSoundBook.chainUp(count: count, delay: FeelSoundBook.chainAfterBank, dice: &dice))
+        }
+        recipes.append(FeelSoundBook.chainBroken(dice: &dice))
+        recipes.append(FeelSoundBook.chainBroken(delay: 1.1, dice: &dice))
+        recipes.append(FeelSoundBook.goldenArrived(dice: &dice))
+        for value in [0, 8, 120, 5_000, Int.max] {
+            recipes.append(FeelSoundBook.coinSpill(lostValue: value, seconds: 10, dice: &dice))
+        }
+        recipes.append(FeelSoundBook.glimmerTwinkle(dice: &dice))
+        for urgent in [false, true] {
+            for tock in [false, true] {
+                recipes.append(FeelSoundBook.torchTick(urgent: urgent, tock: tock))
+            }
+        }
         for tier in ChestTier.allCases {
             recipes.append(FeelSoundBook.chestArrived(tier: tier, dice: &dice))
         }
@@ -798,6 +844,10 @@ struct FeelTests {
             FeelHapticBook.chestArrived, FeelHapticBook.lidCracked, FeelHapticBook.oil, FeelHapticBook.torchLow,
             FeelHapticBook.torchOut, FeelHapticBook.newBest, FeelHapticBook.uiTap, FeelHapticBook.uiConfirm,
             FeelHapticBook.celebrate,
+            FeelHapticBook.chainUp(count: 1), FeelHapticBook.chainUp(count: 7, delay: 1.55),
+            FeelHapticBook.chainBroken(), FeelHapticBook.chainBroken(delay: 1.1), FeelHapticBook.goldenArrived(),
+            FeelHapticBook.coinSpill(times: FeelSoundBook.spillTimes(count: 10)),
+            FeelHapticBook.candleTick(urgent: false), FeelHapticBook.candleTick(urgent: true),
         ]
         let bitePeak = FeelHapticBook.bite.notes.map { $0.intensity }.max() ?? 0
         #expect(bitePeak == 1)
@@ -899,6 +949,372 @@ struct FeelTests {
         director.hapticsOn = true
         #expect(director.hapticProfile == .normal)
         director.hapticsOn = false
+    }
+
+    // MARK: - R2: the resume rule (REVIEW-1-duo P0-2)
+
+    /// Closing pause, then a normal-speed reopen (150°/s, the evidence run's 30–90°/s and more): never resumable while
+    /// the hand moves, even past 95°; resumable once it has been still for the hold; `reset()` starts the hold again.
+    @Test func resumeWaitsForTheLidToBeOpenAndStill() {
+        let hinge = FakeHinge(source: HingeLidSource())
+        hinge.run(0.5) { _ in 120 }
+        hinge.run(0.4) { t in 120 - 60 * min(t / 0.3, 1) }
+        hinge.run(0.6) { _ in 60 }
+        #expect(hinge.source.isClosing)
+        #expect(hinge.source.canResume == false)
+        var early = false
+        for k in 1...48 {
+            if feelHold(hinge, 60 + 60 * Double(k) / 48) { early = true }
+        }
+        #expect(early == false)
+        #expect(hinge.source.isClosing == false)
+        // Still at 120°: not within the hold, but within about a second.
+        var firstResumable: Int?
+        for frame in 1...180 where firstResumable == nil {
+            if feelHold(hinge, 120) { firstResumable = frame }
+        }
+        let seconds = Double(firstResumable ?? 999) * FakeHinge.frame
+        #expect(seconds >= HingeLidSource.resumeHold)
+        #expect(seconds <= 1.2)
+        #expect(hinge.source.canResume)
+        // The resume: forget the motion; the hold starts again from nothing, and a still lid reads still.
+        hinge.source.reset()
+        #expect(hinge.source.speed == 0)
+        #expect(hinge.source.canResume == false)
+        var again = false
+        for _ in 0..<48 { again = feelHold(hinge, 120) }
+        #expect(again)
+        #expect(hinge.source.lid(at: hinge.time + 0.001).speed < 0.5)
+    }
+
+    @Test func resumeNeedsNinetyFiveDegrees() {
+        let hinge = FakeHinge(source: HingeLidSource())
+        hinge.run(0.5) { _ in 120 }
+        hinge.run(0.4) { t in 120 - 60 * min(t / 0.3, 1) }
+        hinge.run(0.6) { _ in 60 }
+        hinge.run(0.4) { t in 60 + 33 * min(t / 0.3, 1) }
+        // Held perfectly still at 93°: closing has cleared (> 78°) but the run must not resume.
+        var resumed = false
+        for _ in 0..<240 {
+            if feelHold(hinge, 93) { resumed = true }
+        }
+        #expect(hinge.source.isClosing == false)
+        #expect(resumed == false)
+        hinge.run(0.2) { t in 93 + 4 * min(t / 0.1, 1) }
+        var later = false
+        for _ in 0..<180 {
+            if feelHold(hinge, 97) { later = true }
+        }
+        #expect(later)
+        #expect(HingeLidSource.resumeAngle == 95)
+        #expect(HingeLidSource.resumeSpeed == 6)
+    }
+
+    /// The App runs frames while paused, but the rule must not depend on them (the game can pause its frames).
+    @Test func resumeIsJudgedWithoutFrames() {
+        let hinge = FakeHinge(source: HingeLidSource())
+        hinge.run(0.5) { _ in 120 }
+        hinge.run(0.4, frames: false) { t in 120 - 60 * min(t / 0.3, 1) }
+        hinge.run(0.6, frames: false) { _ in 60 }
+        #expect(hinge.source.isClosing)
+        var early = false
+        for k in 1...48 {
+            if feelHold(hinge, 60 + 60 * Double(k) / 48, frames: false) { early = true }
+        }
+        #expect(early == false)
+        var resumed = false
+        for _ in 0..<150 {
+            if feelHold(hinge, 120, frames: false) { resumed = true }
+        }
+        #expect(resumed)
+        // Slow wobble at 3°/s still counts as still; 15°/s does not.
+        let source = HingeLidSource()
+        let slow = FakeHinge(source: source)
+        slow.run(0.5) { _ in 120 }
+        slow.run(1.0) { t in 120 + 3 * t }
+        #expect(source.canResume)
+        slow.run(1.0) { t in 123 + 15 * t }
+        #expect(source.canResume == false)
+    }
+
+    @Test func noHingeNeverResumes() {
+        let source = HingeLidSource()
+        #expect(source.canResume == false)
+        #expect(source.resumable(at: 5) == false)
+        #expect(source.motionSpeed == 0)
+        source.reset()
+        #expect(source.hasHinge == false)
+        #expect(source.canResume == false)
+    }
+
+    // MARK: - R2: the speed only counts inside the play range (REVIEW-1-duo P1-5)
+
+    @Test func motionOutsideThePlayRangeIsSilent() {
+        #expect(HingeLidSource.speedAngleRange.lowerBound == Tuning.shutAngle - 3)
+        #expect(HingeLidSource.speedAngleRange.upperBound == Tuning.wideAngle + 3)
+        #expect(HingeLidSource.speedAngle(180) == Tuning.wideAngle + 3)
+        #expect(HingeLidSource.speedAngle(40) == Tuning.shutAngle - 3)
+        #expect(HingeLidSource.speedAngle(130) == 130)
+        // Near flat: a 180 → 170 snap (40°/s) makes no noise, though the hinge really moved.
+        let flat = FakeHinge(source: HingeLidSource())
+        flat.run(0.5) { _ in 180 }
+        var loudest = 0.0
+        flat.run(0.25) { t in 180 - 40 * t }
+        loudest = max(loudest, flat.speeds.max() ?? 99)
+        #expect(flat.source.motionSpeed > 20)
+        flat.run(0.5) { _ in 170 }
+        loudest = max(loudest, flat.speeds.max() ?? 99)
+        #expect(loudest < 0.5)
+        // Folding the phone shut below the chest's shut line (96° → 30° at 110°/s) is silent too.
+        let fold = FakeHinge(source: HingeLidSource())
+        fold.run(0.5) { _ in 96 }
+        fold.run(0.6) { t in 96 - 110 * t }
+        #expect((fold.speeds.max() ?? 99) < 0.5)
+        // Inside the range nothing changed: 10°/s still reads 10.
+        let play = FakeHinge(source: HingeLidSource())
+        play.run(0.5) { _ in 110 }
+        play.run(1.5) { t in 110 + 10 * t }
+        #expect(abs((play.speeds.last ?? 0) - 10) < 1)
+    }
+
+    @Test func speedPeekNeverAdvancesAndDecays() {
+        var estimator = FeelSpeedEstimator()
+        #expect(estimator.peekSpeed(at: 1) == 0)
+        var t = 1.0
+        estimator.sample(100, at: t)
+        for _ in 0..<30 {
+            t += 1.0 / 30
+            estimator.sample(100 + 30 * (t - 1), at: t)
+        }
+        let moving = estimator.peekSpeed(at: t)
+        #expect(moving > 25 && moving < 35)
+        #expect(estimator.peekSpeed(at: t) == moving)
+        // Once the samples stop it decays like the display speed.
+        #expect(estimator.peekSpeed(at: t + FeelSpeedEstimator.hold * 0.5) == moving)
+        #expect(estimator.peekSpeed(at: t + 0.4) < moving * 0.2)
+        #expect(estimator.peekSpeed(at: t + 2) < 0.01)
+        #expect(estimator.peekSpeed(at: Double.nan) == 0)
+    }
+
+    // MARK: - R2: the creak follows the noise rule
+
+    @Test func closingIsQuieterThanOpening() {
+        #expect(FeelSoundBook.closeQuietSpeed >= Tuning.quietSpeed)
+        let close = FeelSoundBook.closeQuietSpeed
+        #expect(FeelSoundBook.creakLevel(speed: FeelSoundBook.creakSpeed(close, closing: true)) == 0)
+        #expect(FeelSoundBook.creakLevel(speed: FeelSoundBook.creakSpeed(close + 1, closing: true)) > 0)
+        #expect(FeelHapticBook.creakLevel(speed: FeelSoundBook.creakSpeed(close, closing: true)) == 0)
+        if close > Tuning.quietSpeed {
+            let between = (close + Tuning.quietSpeed) / 2
+            #expect(FeelSoundBook.creakLevel(speed: FeelSoundBook.creakSpeed(between, closing: false)) > 0)
+            #expect(FeelSoundBook.creakLevel(speed: FeelSoundBook.creakSpeed(between, closing: true)) == 0)
+        }
+        #expect(FeelSoundBook.creakSpeed(Double.nan, closing: true) == 0)
+        #expect(FeelSoundBook.creakSpeed(-5, closing: false) == 0)
+        #expect(FeelSoundBook.creakSpeed(40, closing: false) == 40)
+        #expect(FeelSoundBook.closeQuietSpeed == Tuning.closeQuietSpeed)
+        // The direction comes from the openness, exactly as HeistSession judges it: falling = closing; still or
+        // pinned = not closing.
+        var direction = FeelLidDirection()
+        #expect(direction.update(openness: 0.5) == false)
+        #expect(direction.update(openness: 0.49))
+        #expect(direction.update(openness: 0.49) == false)
+        #expect(direction.update(openness: 0.48))
+        #expect(direction.update(openness: Double.nan))
+        #expect(direction.update(openness: 0.6) == false)
+        direction.reset()
+        #expect(direction.closing == false)
+    }
+
+    /// QA-1 P1-1: a pause that began mid-motion hands the director a frozen speed; it must stop creaking by itself.
+    @Test func aFrozenSpeedStopsCreaking() {
+        var guardrail = FeelFrozenSpeedGuard()
+        #expect(guardrail.filter(28.7, at: 0) == 28.7)
+        #expect(guardrail.filter(28.7, at: 0.2) == 28.7)
+        #expect(guardrail.filter(28.7, at: FeelFrozenSpeedGuard.after + 0.01) == 0)
+        #expect(guardrail.filter(28.7, at: 9) == 0)
+        // A live speed changes every frame and passes untouched.
+        var t = 10.0
+        var speed = 30.0
+        for _ in 0..<120 {
+            t += 1.0 / 120
+            speed *= 0.995
+            #expect(guardrail.filter(speed, at: t) == speed)
+        }
+        #expect(guardrail.filter(Double.nan, at: t) == 0)
+        #expect(guardrail.filter(-3, at: t) == 0)
+        #expect(guardrail.filter(0, at: t + 1) == 0)
+    }
+
+    // MARK: - R2: the new moments
+
+    @Test func theChainClimbsAStepPerHushedBank() {
+        var previousTop: Float = 0
+        for count in 1...FeelSoundBook.chainLadder.count {
+            let notes = FeelSoundBook.chainNotes(count: count)
+            #expect(notes.count == min(count, 3))
+            #expect((notes.last ?? 0) > previousTop)
+            for index in 1..<max(notes.count, 1) where notes.count > 1 { #expect(notes[index] > notes[index - 1]) }
+            previousTop = notes.last ?? 0
+        }
+        #expect(FeelSoundBook.chainNotes(count: 0).count == 1)
+        #expect(FeelSoundBook.chainNotes(count: 99).last == FeelSoundBook.chainLadder.last)
+        // After a bank it waits for the ka-ching; its haptic lands with its notes.
+        #expect(FeelSoundBook.chainAfterBank > FeelSoundBook.kaChingAt)
+        var dice = FeelDice(seed: 4)
+        let delayed = FeelSoundBook.chainUp(count: 3, delay: FeelSoundBook.chainAfterBank, dice: &dice)
+        #expect(delayed.allSatisfy { $0.delay >= FeelSoundBook.chainAfterBank })
+        let cue = FeelHapticBook.chainUp(count: 3, delay: Double(FeelSoundBook.chainAfterBank))
+        #expect(cue.notes.count == 3)
+        #expect(abs((cue.notes.first?.time ?? 0) - Double(FeelSoundBook.chainAfterBank)) < 1e-6)
+        #expect(FeelHapticBook.chainBroken().notes.count == FeelSoundBook.chainShardTimes.count + 1)
+    }
+
+    @Test func aBiteSpillsCoinsByValue() {
+        #expect(FeelSoundBook.spillCount(lostValue: 0) == 0)
+        #expect(FeelSoundBook.spillCount(lostValue: -4) == 0)
+        var previous = 0
+        for value in stride(from: 1, through: 50_000, by: 97) {
+            let count = FeelSoundBook.spillCount(lostValue: value)
+            #expect(count >= 4 && count <= 10)
+            #expect(count >= previous)
+            previous = count
+        }
+        let times = FeelSoundBook.spillTimes(count: 10)
+        #expect(times.count == 10)
+        for index in 1..<times.count { #expect(times[index] > times[index - 1]) }
+        // After the CHOMP's slam and teeth, done within a second.
+        #expect((times.first ?? 0) >= FeelSoundBook.spillStart)
+        #expect((times.last ?? 9) < 1.0)
+        let cue = FeelHapticBook.coinSpill(times: times)
+        for time in times {
+            #expect(cue.notes.contains { abs($0.time - time) < 1e-9 && $0.kind == .transient })
+        }
+        var dice = FeelDice(seed: 8)
+        #expect(FeelSoundBook.coinSpill(lostValue: 0, seconds: 0, dice: &dice).isEmpty)
+        #expect(FeelSoundBook.coinSpill(lostValue: 0, seconds: 10, dice: &dice).count == 1)
+        let small = FeelSoundBook.coinSpill(lostValue: 20, seconds: 10, dice: &dice)
+        let big = FeelSoundBook.coinSpill(lostValue: 5_000, seconds: 10, dice: &dice)
+        #expect(big.count > small.count)
+    }
+
+    @Test func theCandleTicksFasterInItsLastFiveSeconds() {
+        #expect(FeelSoundBook.torchTickSlot(remaining: 15.5) == nil)
+        #expect(FeelSoundBook.torchTickSlot(remaining: 0) == nil)
+        #expect(FeelSoundBook.torchTickSlot(remaining: Double.nan) == nil)
+        // A 15 s countdown at 120 Hz, played exactly as the director does.
+        var last: Int?
+        var slow = 0
+        var fast = 0
+        var tickTimes: [Double] = []
+        var remaining = 15.0
+        while remaining > 0 {
+            if let slot = FeelSoundBook.torchTickSlot(remaining: remaining) {
+                if let previous = last, slot < previous {
+                    if remaining <= FeelSoundBook.torchUrgentSeconds { fast += 1 } else { slow += 1 }
+                    tickTimes.append(remaining)
+                }
+                last = slot
+            }
+            remaining -= 1.0 / 120
+        }
+        #expect(slow == 9)
+        #expect(fast == 10)
+        // Once a second, then twice a second.
+        for index in 1..<tickTimes.count {
+            let gap = tickTimes[index - 1] - tickTimes[index]
+            let expected = tickTimes[index] <= FeelSoundBook.torchUrgentSeconds && index > 9 ? 0.5 : 1.0
+            #expect(abs(gap - expected) < 0.02)
+        }
+        // Oil raising the candle never ticks (the slot goes up).
+        let before = FeelSoundBook.torchTickSlot(remaining: 4.2) ?? 0
+        let after = FeelSoundBook.torchTickSlot(remaining: 10.2) ?? 0
+        #expect(after > before)
+        // The urgent tick is louder and higher.
+        let calm = FeelSoundBook.torchTick().map { $0.gain }.max() ?? 1
+        let urgent = FeelSoundBook.torchTick(urgent: true).map { $0.gain }.max() ?? 0
+        #expect(urgent > calm)
+        let calmTap = FeelHapticBook.candleTick(urgent: false).notes.first?.intensity ?? 1
+        let urgentTap = FeelHapticBook.candleTick(urgent: true).notes.first?.intensity ?? 0
+        #expect(urgentTap > calmTap)
+    }
+
+    @Test func theNewMomentsRenderCleanly() {
+        let synth = FeelSynth(sampleRate: 48_000)
+        var dice = FeelDice(seed: 12)
+        var bed = FeelSoundBook.heistBed(telemetry: play(speed: 20, noise: 0.3), master: FeelAudioEngine.masterGain,
+                                         ambience: 1)
+        bed.glide = 0.01
+        synth.send(.bed(bed))
+        // A bite with its spill and a broken chain, a big Hushed bank with its chain chime, a golden arrival, and the
+        // glimmer throughout.
+        var cues: [[FeelSynthCommand]] = []
+        cues.append(FeelSoundBook.chomp(dice: &dice))
+        cues.append(FeelSoundBook.coinSpill(lostValue: 900, seconds: 10, dice: &dice))
+        cues.append(FeelSoundBook.chainBroken(delay: 1.1, dice: &dice))
+        cues.append(FeelSoundBook.bank(value: 2_400, hushed: true, dice: &dice))
+        cues.append(FeelSoundBook.chainUp(count: 5, delay: FeelSoundBook.chainAfterBank, dice: &dice))
+        cues.append(FeelSoundBook.chestArrived(tier: .gilded, dice: &dice))
+        cues.append(FeelSoundBook.goldenArrived(dice: &dice))
+        for _ in 0..<6 { cues.append(FeelSoundBook.glimmerTwinkle(dice: &dice)) }
+        for cue in cues {
+            for command in cue { synth.send(command) }
+        }
+        let result = feelRender(synth, seconds: 3)
+        #expect(result.finite)
+        #expect(result.peak < 1)
+        #expect(result.rms > 0.003)
+        // The glimmer is a whisper: far under a coin.
+        let twinklePeak = FeelSoundBook.glimmerTwinkle(dice: &dice).map { $0.gain }.max() ?? 1
+        let coinPeak = FeelSoundBook.coinClink(dice: &dice).map { $0.gain }.max() ?? 0
+        #expect(twinklePeak < coinPeak * 0.5)
+    }
+
+    @Test func glimmerAndGoldenThroughTheDirector() {
+        let director = FeedbackDirector()
+        director.soundOn = false
+        director.hapticsOn = false
+        #expect(director.glimmering == false)
+        director.glimmer(on: true)
+        director.glimmer(on: true)
+        #expect(director.glimmering)
+        for frame in 0..<120 {
+            director.handle([], telemetry: play(speed: Double(frame % 20), torch: 6 - Double(frame) / 20))
+        }
+        #expect(director.glimmering)
+        // A bank (or a bite, a new chest, the candle out, a silence) ends it by itself.
+        director.handle([.banked(value: 300, items: 3, hushed: true), .chainUp(count: 3, multiplier: 1.3)],
+                        telemetry: play(speed: 0))
+        #expect(director.glimmering == false)
+        director.glimmer(on: true)
+        director.silence()
+        #expect(director.glimmering == false)
+        director.glimmer(on: true)
+        director.glimmer(on: false)
+        #expect(director.glimmering == false)
+        director.goldenArrived()
+        director.handle([.stageChanged(from: .asleep, to: .stirring), .chainBroken(count: 4)],
+                        telemetry: play(speed: 0, stage: .stirring))
+        director.handle([.bitten(lostValue: 200), .biteCost(lostValue: 200, seconds: 10), .chainBroken(count: 2)],
+                        telemetry: play(speed: 0, playing: false))
+        // A pause that froze the speed mid-stroke: the director keeps taking frames without trouble.
+        for _ in 0..<60 { director.handle([], telemetry: play(speed: 28.7, playing: false)) }
+        #expect(director.soundOn == false)
+    }
+
+    // MARK: - R2: frame rate under Low Power and heat (REVIEW-1-duo P2-10)
+
+    @Test func preferredFPSDropsUnderLowPowerOrHeat() {
+        #expect(FeedbackDirector.fps(lowPower: false, thermal: .nominal) == 120)
+        #expect(FeedbackDirector.fps(lowPower: false, thermal: .fair) == 120)
+        #expect(FeedbackDirector.fps(lowPower: false, thermal: .serious) == 60)
+        #expect(FeedbackDirector.fps(lowPower: false, thermal: .critical) == 60)
+        #expect(FeedbackDirector.fps(lowPower: true, thermal: .nominal) == 60)
+        let director = FeedbackDirector()
+        let info = ProcessInfo.processInfo
+        #expect(director.preferredFPS == FeedbackDirector.fps(lowPower: info.isLowPowerModeEnabled,
+                                                              thermal: info.thermalState))
+        #expect([60, 120].contains(FeedbackDirector.preferredFPS))
     }
 
     // MARK: - Logging

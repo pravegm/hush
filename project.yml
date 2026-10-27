@@ -63,6 +63,22 @@ targets:
     settings:
       base:
         GENERATE_INFOPLIST_FILE: YES
+  # R2 (CI engineer): one XCUITest, a real synthesized finger drag through the turned SpriteView
+  # (HushUITests/TurnedDragUITests.swift). It has its OWN scheme so `xcodebuild test -scheme Hush` (the CI gate) and the
+  # Release archive never build or run it; ci.yml runs it as a separate, non-fatal step.
+  HushUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources:
+      - path: HushUITests
+    dependencies:
+      - target: Hush
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+        PRODUCT_BUNDLE_IDENTIFIER: com.pravegm.hush.uitests
+        TEST_TARGET_NAME: Hush
+        TARGETED_DEVICE_FAMILY: "1"
 schemes:
   Hush:
     build:
@@ -72,3 +88,11 @@ schemes:
     test:
       targets:
         - HushTests
+  HushUITests:
+    build:
+      targets:
+        Hush: all
+        HushUITests: [test]
+    test:
+      targets:
+        - HushUITests

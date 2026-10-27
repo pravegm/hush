@@ -74,6 +74,9 @@ enum AppTrace {
         case .torchOut: return "torchOut"
         case .newBest: return "newBest"
         case .finished: return "finished"
+        case let .chainUp(count, multiplier): return "chainUp count=\(count) multiplier=\(fixed(multiplier, 2))"
+        case let .chainBroken(count): return "chainBroken count=\(count)"
+        case let .biteCost(lostValue, seconds): return "biteCost lost=\(lostValue) seconds=\(fixed(seconds, 1))"
         }
     }
 }
