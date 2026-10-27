@@ -1,0 +1,218 @@
+<!doctype html>
+<html lang="en-GB">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="dark">
+<meta name="theme-color" content="#12161C">
+<title>Hush: Don't Wake the Mimic</title>
+<meta name="description" content="A stealth game for iPhone Duo: stand it like a little laptop, open the lid slowly, steal the gold and don't wake the mimic. A lid slider on every other iPhone. £1.99, no ads, no in-app purchases.">
+<style>
+  :root { color-scheme: dark; --bg:#12161C; --bg2:#171C24; --card:#1B212A; --line:#2B333E; --gold:#F2B84B; --gold2:#FFD98A; --ember:#E9873F; --velvet:#B4475E; --parch:#F3E9D2; --mute:#C2B79F; --teal:#2E4A4F; }
+  * { box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; }
+  body { margin:0; background:var(--bg); color:var(--parch); font: 17px/1.6 ui-rounded, -apple-system, BlinkMacSystemFont, "SF Pro Rounded", "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+  a { color:var(--gold); text-decoration-color:rgba(242,184,75,.55); text-decoration-thickness:2px; text-underline-offset:3px; }
+  a:hover { color:var(--gold2); }
+  a:focus-visible { outline:3px solid var(--gold); outline-offset:3px; border-radius:4px; }
+  .wrap { max-width:800px; margin:0 auto; padding:0 20px; }
+  .glow { background: radial-gradient(120% 70% at 70% 30%, rgba(242,184,75,.20) 0%, rgba(233,135,63,.08) 35%, rgba(18,22,28,0) 70%), linear-gradient(180deg, #0E1217 0%, var(--bg) 100%); }
+  header.top { padding:18px 0 0; }
+  nav { display:flex; gap:18px; justify-content:flex-end; flex-wrap:wrap; font-weight:700; font-size:15px; }
+  nav a { text-decoration:none; color:var(--mute); }
+  nav a:hover { color:var(--gold); }
+  .hero { display:grid; grid-template-columns:1fr; gap:22px; padding:26px 0 34px; align-items:center; }
+  @media (min-width:700px) { .hero { grid-template-columns: 1fr 1.1fr; } }
+  h1 { font-size:56px; line-height:1; margin:0 0 6px; font-weight:900; letter-spacing:.5px; color:var(--gold); text-shadow:0 0 28px rgba(242,184,75,.35); }
+  .sub { font-size:22px; color:var(--parch); margin:0 0 16px; font-weight:800; }
+  .lead { font-size:19px; margin:0 0 18px; }
+  mark { background:linear-gradient(transparent 58%, rgba(242,184,75,.38) 58%); color:inherit; padding:0 2px; }
+  .badge { display:inline-block; background:var(--gold); color:var(--bg); border-radius:14px; padding:12px 18px; font-weight:800; }
+  .note { font-size:14px; color:var(--mute); margin-top:10px; }
+  .art svg { width:100%; height:auto; display:block; }
+  section { padding:28px 0; border-top:1px solid var(--line); }
+  h2 { font-size:27px; margin:0 0 12px; font-weight:900; color:var(--gold); }
+  h3 { font-size:18px; margin:2px 0 6px; font-weight:800; color:var(--parch); }
+  .cards { display:grid; grid-template-columns:1fr; gap:14px; }
+  @media (min-width:640px) { .cards { grid-template-columns:1fr 1fr; } }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:18px; padding:16px 18px; }
+  .card p { margin:6px 0 0; }
+  .stages { list-style:none; padding:0; margin:12px 0 0; display:grid; gap:10px; }
+  .stages li { display:grid; grid-template-columns:110px 1fr; gap:12px; align-items:start; background:var(--card); border:1px solid var(--line); border-radius:14px; padding:12px 14px; }
+  .stages b { font-weight:900; letter-spacing:.3px; }
+  .s1 b { color:#9FD39A; } .s2 b { color:var(--gold); } .s3 b { color:#FF8A70; } .s4 b { color:var(--parch); }
+  @media (max-width:420px) { .stages li { grid-template-columns:1fr; gap:2px; } }
+  ul { padding-left:22px; margin:8px 0; }
+  li { margin:4px 0; }
+  table { width:100%; border-collapse:collapse; font-size:15px; background:var(--card); border-radius:14px; overflow:hidden; }
+  th, td { text-align:left; vertical-align:top; padding:9px 12px; border-bottom:1px solid var(--line); }
+  th { width:32%; font-weight:800; color:var(--gold); }
+  .tablewrap { overflow-x:auto; }
+  footer { padding:26px 0 44px; border-top:1px solid var(--line); font-size:14px; color:var(--mute); }
+  footer a { margin-right:14px; }
+  @media (prefers-reduced-motion: no-preference) {
+    .flame { animation: flicker 2.6s ease-in-out infinite alternate; transform-origin: 50% 100%; }
+    @keyframes flicker { 0% { opacity:.85; transform:scale(1,1); } 50% { opacity:1; transform:scale(1.04,.96); } 100% { opacity:.9; transform:scale(.97,1.03); } }
+  }
+</style>
+</head>
+<body>
+<div class="glow">
+  <div class="wrap">
+    <header class="top">
+      <nav><a href="support.html">Support</a><a href="privacy.html">Privacy</a><a href="#press">Press</a></nav>
+    </header>
+
+    <div class="hero">
+      <div>
+        <h1>Hush</h1>
+        <p class="sub">Don't Wake the Mimic</p>
+        <p class="lead">Stand your iPhone&nbsp;Duo like a little laptop. <mark>The raised half is the lid of a treasure chest,</mark> and the chest is a sleeping mimic. Open it slowly, drag the gold into your bag, and ease the lid shut to keep it.</p>
+        <span class="badge">On the App Store 1&nbsp;December&nbsp;2026</span>
+        <p class="note">£1.99 / $1.99. No ads. No in-app purchases. No data collected. Rated 9+.</p>
+      </div>
+      <div class="art" aria-hidden="true">
+        <!-- An illustration, not a screenshot: an iPhone Duo standing like a little laptop; the lid shows the mimic's sleeping eye, the floor the lit loot. -->
+        <svg viewBox="0 0 340 260" xmlns="http://www.w3.org/2000/svg">
+          <defs>
+            <linearGradient id="lidg" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0" stop-color="#4A2F1E"/>
+              <stop offset="1" stop-color="#2A1B12"/>
+            </linearGradient>
+            <radialGradient id="light" cx="0.5" cy="0" r="1">
+              <stop offset="0" stop-color="#FFD98A" stop-opacity=".95"/>
+              <stop offset=".45" stop-color="#F2B84B" stop-opacity=".45"/>
+              <stop offset="1" stop-color="#12161C" stop-opacity="0"/>
+            </radialGradient>
+            <linearGradient id="table" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0" stop-color="#1E2630"/>
+              <stop offset="1" stop-color="#12161C"/>
+            </linearGradient>
+          </defs>
+          <!-- table and shadow -->
+          <rect x="0" y="196" width="340" height="64" fill="url(#table)"/>
+          <ellipse cx="170" cy="238" rx="150" ry="10" fill="#000" opacity=".45"/>
+          <!-- the lid: the raised half (the mimic's upper jaw) -->
+          <path d="M70 34 L270 34 L286 160 L54 160 Z" fill="#0B0E12" stroke="#0B0E12" stroke-width="10" stroke-linejoin="round"/>
+          <path d="M74 38 L266 38 L281 157 L59 157 Z" fill="url(#lidg)"/>
+          <g stroke="#1B120C" stroke-width="2" opacity=".7">
+            <line x1="72" y1="70" x2="270" y2="70"/><line x1="66" y1="104" x2="276" y2="104"/><line x1="62" y1="134" x2="279" y2="134"/>
+          </g>
+          <g fill="#8A8F96"><circle cx="84" cy="50" r="3"/><circle cx="256" cy="50" r="3"/><circle cx="68" cy="146" r="3"/><circle cx="272" cy="146" r="3"/></g>
+          <!-- the big sleeping eye -->
+          <ellipse cx="170" cy="96" rx="40" ry="24" fill="#2A1B12"/>
+          <path d="M132 96 Q170 120 208 96" fill="none" stroke="#F3E9D2" stroke-width="4" stroke-linecap="round"/>
+          <g stroke="#F3E9D2" stroke-width="3" stroke-linecap="round"><line x1="144" y1="104" x2="140" y2="112"/><line x1="170" y1="108" x2="170" y2="117"/><line x1="196" y1="104" x2="200" y2="112"/></g>
+          <text x="224" y="74" fill="#C2B79F" font-family="ui-rounded, -apple-system, Segoe UI, sans-serif" font-weight="800" font-size="18">z</text>
+          <text x="238" y="60" fill="#C2B79F" font-family="ui-rounded, -apple-system, Segoe UI, sans-serif" font-weight="800" font-size="13">z</text>
+          <!-- rounded teeth tucked along the fold -->
+          <g fill="#F3E9D2"><path d="M86 157 q8 10 16 0z"/><path d="M118 157 q8 10 16 0z"/><path d="M150 157 q8 10 16 0z"/><path d="M182 157 q8 10 16 0z"/><path d="M214 157 q8 10 16 0z"/><path d="M246 157 q8 10 16 0z"/></g>
+          <!-- the hinge -->
+          <rect x="50" y="158" width="240" height="8" rx="4" fill="#B8862E"/>
+          <!-- the floor: the sharp half, lying on the table -->
+          <path d="M50 166 L290 166 L322 214 L18 214 Z" fill="#0B0E12" stroke="#0B0E12" stroke-width="8" stroke-linejoin="round"/>
+          <path d="M56 169 L284 169 L314 210 L26 210 Z" fill="#5A2A33"/>
+          <path d="M56 169 L284 169 L314 210 L26 210 Z" fill="url(#light)"/>
+          <!-- loot glinting in the light -->
+          <g>
+            <ellipse cx="122" cy="186" rx="10" ry="5" fill="#F2B84B" stroke="#8A5A12" stroke-width="1.5"/>
+            <ellipse cx="140" cy="194" rx="10" ry="5" fill="#FFD98A" stroke="#8A5A12" stroke-width="1.5"/>
+            <ellipse cx="206" cy="190" rx="10" ry="5" fill="#F2B84B" stroke="#8A5A12" stroke-width="1.5"/>
+            <path d="M170 176 l9 7 -9 9 -9 -9z" fill="#D8354F" stroke="#5E1220" stroke-width="1.5"/>
+            <path d="M240 182 l7 5 -7 7 -7 -7z" fill="#3FB37B" stroke="#14492F" stroke-width="1.5"/>
+            <g fill="#FFF4D6"><path d="M174 178 l1.5 3 3 1.5 -3 1.5 -1.5 3 -1.5 -3 -3 -1.5 3 -1.5z"/><path d="M144 188 l1 2 2 1 -2 1 -1 2 -1 -2 -2 -1 2 -1z"/></g>
+          </g>
+          <!-- the bag strip along the front edge -->
+          <rect x="34" y="202" width="272" height="8" rx="3" fill="#7A4A26"/>
+          <!-- a candle on the table -->
+          <rect x="304" y="168" width="14" height="30" rx="3" fill="#F3E9D2"/>
+          <path class="flame" d="M311 150 C 318 158, 318 164, 311 168 C 304 164, 304 158, 311 150 Z" fill="#F2B84B"/>
+          <circle cx="311" cy="160" r="26" fill="#F2B84B" opacity=".10"/>
+        </svg>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="wrap">
+  <section>
+    <h2>How it plays</h2>
+    <div class="cards">
+      <div class="card">
+        <h3>On iPhone Duo</h3>
+        <p>Stand the Duo like a little laptop: one half flat, the other raised. The raised half is the lid. Open it slowly and the candlelight spills in, deeper the wider you go. Drag the loot into your bag gently, then ease the lid shut to bank it. About two slow strokes per chest.</p>
+      </div>
+      <div class="card">
+        <h3>On every other iPhone</h3>
+        <p>A lid slider on the screen does the hinge's job: slide it up slowly to open, down to shut. Same chests, same mimic, same leaderboards. On the Duo you feel the lid creak under your fingers, but nobody is left out.</p>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Don't wake it</h2>
+    <p>Every chest starts asleep. The noise meter on the chest floor fills when you move too fast and drains when you keep still. The creak, in sound and in your fingers, follows your exact speed.</p>
+    <ul class="stages">
+      <li class="s1"><b>Asleep</b><span>It snores. The velvet tongue rises and falls. Loot away.</span></li>
+      <li class="s2"><b>Stirring</b><span>The snoring stops, a slow heartbeat starts and the tongue twitches. Slow down.</span></li>
+      <li class="s3"><b>Waking</b><span>The meter turns red, <strong>FREEZE</strong> pulses and the heartbeat quickens. Hold still and it settles.</span></li>
+      <li class="s4"><b>CHOMP</b><span>Too late. The teeth snap shut across the fold. Everything in your bag is lost, and your torch loses 15 seconds.</span></li>
+    </ul>
+    <p class="note">Each mimic wears a name tag and has a habit: Snorers, Light Sleepers, Heavy Sleepers, and Dreamers who twitch in their sleep.</p>
+  </section>
+
+  <section>
+    <h2>Push your luck</h2>
+    <p>Coins sit near the front, gems further back and relics deep inside: open wider for those, or bank what you have. Your torch burns down while you loot (torch oil buys more time), and the chests get richer as you go, from Wooden to Iron-bound, Gilded and Royal. When the torch goes out the run ends, and anything still in your bag is lost.</p>
+    <h3>Ways to play</h3>
+    <ul>
+      <li><strong>Run</strong>: chest after chest until your torch burns out. Runs last about two minutes.</li>
+      <li><strong>Daily Dungeon</strong>: the same chests for everyone, every day, and one try that counts. Then practise as much as you like.</li>
+      <li><strong>First Chest</strong>: a short lesson with a very heavy sleeper. Replay it from Settings any time.</li>
+    </ul>
+    <h3>Collect</h3>
+    <ul>
+      <li>Twenty-four named relics for your <strong>Relic Codex</strong>, each found once and kept.</li>
+      <li>Twelve <strong>thief ranks</strong>, from Pickpocket to Mimic Whisperer, earned by every coin you bank.</li>
+      <li>Game Center leaderboards for your Best Haul and the Daily Dungeon, and twelve achievements (optional).</li>
+    </ul>
+  </section>
+
+  <section>
+    <h2>Made for the Duo's fold</h2>
+    <p>iPhone Duo softens one half of its screen for a moment when a fold starts. So Hush draws the chest turned round: the half that softens is the lid, and the loot, the noise meter and every warning stay on the half that stays sharp. The game shows you which half to lift, and Settings → "Turn the chest round" changes it if your Duo differs.</p>
+    <p>It's kind to the hinge, too. Hush never asks you to lay the phone flat, close it or move it fast. Moving fast is how you lose.</p>
+  </section>
+
+  <section>
+    <h2>Pay once. That's it.</h2>
+    <p>No ads, no in-app purchases, no accounts, no tracking and no data collected. Your progress stays on your iPhone. Every sound, from the creak to the CHOMP, is made live in the app, and every warning is shown on screen too, so you can play with the sound off.</p>
+  </section>
+
+  <section id="press">
+    <h2>Press</h2>
+    <p><strong>One-liner:</strong> Your iPhone Duo is a treasure chest: open the lid slowly, steal the gold, and don't wake the mimic.</p>
+    <div class="tablewrap">
+    <table>
+      <tr><th>Name</th><td>Hush (App Store: “Hush: Don't Wake the Mimic”)</td></tr>
+      <tr><th>Release</th><td>Tuesday 1 December 2026, worldwide</td></tr>
+      <tr><th>Platform</th><td>iPhone. Designed for iPhone Duo standing like a little laptop; an on-screen lid slider on every other iPhone. iOS 18 or later</td></tr>
+      <tr><th>Price</th><td>£1.99 / $1.99, one-off. No ads, no in-app purchases</td></tr>
+      <tr><th>Rating</th><td>9+ (mild cartoon peril)</td></tr>
+      <tr><th>Modes</th><td>Run, Daily Dungeon, First Chest (the lesson)</td></tr>
+      <tr><th>Game Center</th><td>Best Haul and Daily Dungeon leaderboards, twelve achievements (optional)</td></tr>
+      <tr><th>Sound</th><td>Every sound is synthesised live in the app</td></tr>
+      <tr><th>Privacy</th><td>Data Not Collected</td></tr>
+      <tr><th>Contact</th><td><a href="https://github.com/pravegm/hush/issues">GitHub issues</a></td></tr>
+    </table>
+    </div>
+    <p class="note">No embargo. Screenshots, icon and clips are free to use with a link to the App Store; ask for a promo code or a different format through GitHub issues.</p>
+  </section>
+
+  <footer>
+    <a href="support.html">Support</a><a href="privacy.html">Privacy Policy</a>
+    <p>Hush, an independent game by pravegm. iPhone and iPhone Duo are trademarks of Apple Inc., registered in the U.S. and other countries.</p>
+  </footer>
+</div>
+</body>
+</html>

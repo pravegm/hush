@@ -55,7 +55,8 @@ Store line: **"The game where you have to be gentle."**
 1. **Ready.** A chest slides in, shut. If θ > 110° the prompt says "Ease the lid down", and the chest waits.
 2. **Open.**
    - As `o` rises, the light reaches deeper into the chest. Each item has a **depth** `d ∈ [0, 1]`.
-   - An item appears at `o ≥ d + 0.04` (a glint) and can be grabbed at `o ≥ d + 0.10`.
+   - Light per item is `clamp((o − d) / 0.10, 0, 1)`. An item glints at light 0.4 (`o ≥ d + 0.04`) and can be
+    grabbed at light 0.6 (`o ≥ d + 0.06`), so a 0.92-deep relic is reachable at full open.
    - Relics sit at d ≈ 0.85–0.92, so they need about 160°.
 3. **Grab.**
    - Touch a lit item and drag it to the **bag**, the strip along the floor's front edge nearest the player (about
@@ -152,7 +153,7 @@ The lesson teaches by doing, one sentence per step, no walls of text:
 ## 9. iPhone without a hinge (fallback)
 - The canvas, chest and floor are the same, laid flat.
 - The **lid slider** is a wide vertical strip on the lid half: drag up to open, down to shut. Slider speed maps to
-  ω with the same noise formula, at 1 pt/s ≈ 0.25°/s.
+  ω with the same noise formula: the slider's full length is the lid's full 65° of travel (about 0.14°/pt).
 - The lesson's pose step becomes "Slide the lid up… slowly."
 
 ## 10. Feel
