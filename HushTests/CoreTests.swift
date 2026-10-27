@@ -158,7 +158,7 @@ struct CoreTests {
         #expect(Noise.lidRate(speed: 12) == 0)
         #expect(Noise.lidRate(speed: 12.5) > 0)
         #expect(abs(Noise.lidRate(speed: 20) - 0.0896) < 1e-9)
-        #expect(abs(Noise.lidRate(speed: 40) - 0.5476) < 1e-9)
+        #expect(abs(Noise.lidRate(speed: 40) - 0.5376) < 1e-9)   // 0.008·28 + 0.0004·784
         // A 45 °/s full open (65° in 1.44 s) bites a Snorer; 40 °/s doesn't.
         #expect(Noise.lidRate(speed: 45) * (Tuning.lidTravel / 45) >= 1)
         #expect(Noise.lidRate(speed: 40) * (Tuning.lidTravel / 40) < 1)
