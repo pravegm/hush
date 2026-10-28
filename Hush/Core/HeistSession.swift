@@ -83,7 +83,7 @@ struct SessionOptions: Equatable {
 //     (`chestArrived`) the step the lid enters the shut zone (or on `noteLidShut()`), already "seen shut".
 //     After a BANK (founder refinement) the next chest is always dealt at the end of the 1.4 s moment, "seen shut",
 //     whatever the lid is doing: the lid was closed to bank, so a quick reopen simply opens it (never `.closeForNext`).
-//   - `.easeLidDown` is only produced by the lesson.
+//   - `.easeLidDown` is no longer produced (R15: a run's first chest is the phone as it is at Play).
 // - R14: every later chest is dealt under a closed lid (after a bank, or after a bite once the lid comes down), and
 //   the candle doesn't burn until the first chest is opened. No mode is special (R1–R12's lesson-only `shutGate` is
 //   gone).
