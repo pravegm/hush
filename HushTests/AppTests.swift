@@ -3892,10 +3892,10 @@ struct R12Tests {
         #expect(AppRules.allowsCloseForNext(.openSlowly, awaitingClose: false))
         #expect(AppRules.allowsCloseForNext(nil, awaitingClose: false))
         // Feedback never plays the sleeping mimic's bed over the robbed chest.
-        #expect(AppRules.feedbackPlays(.looting, awaitingClose: false))
-        #expect(AppRules.feedbackPlays(.ready, awaitingClose: false))
-        #expect(!AppRules.feedbackPlays(.ready, awaitingClose: true))
-        #expect(!AppRules.feedbackPlays(.bitten(elapsed: 0.2), awaitingClose: false))
+        #expect(!AppRules.feedbackRobbed(.looting, awaitingClose: false))
+        #expect(!AppRules.feedbackRobbed(.ready, awaitingClose: false))
+        #expect(AppRules.feedbackRobbed(.ready, awaitingClose: true))
+        #expect(!AppRules.feedbackRobbed(.bitten(elapsed: 0.2), awaitingClose: true))
     }
 
     @Test func theR12DemoKeysParse() {

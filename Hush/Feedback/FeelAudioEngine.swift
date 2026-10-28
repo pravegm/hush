@@ -13,8 +13,11 @@ import UIKit
 /// simply goes silent: nothing here can crash.
 @MainActor
 final class FeelAudioEngine {
-    /// Master trim applied to everything (the bed's master).
-    static let masterGain: Float = 1.25
+    /// Master trim applied to everything (the bed's master). R12 (REVIEW-6 #3): 1.25 → 1.8, +3.2 dB, because careful
+    /// play sat at about −32 LUFS ("is the sound on?" on a phone speaker). Node port: careful play −31.9 → −28.7 LUFS,
+    /// the mixed-events test 0.07 → 0.37 % of samples over 0.6 (bound 2 %), the peak still the limiter's −2.9 dBFS. It
+    /// ships with the R12 creak top trim and the leaner CHOMP, which keep the slam creak out of the limiter.
+    static let masterGain: Float = 1.8
     /// Seconds of quiet while idle before the engine naps (lets a tap, a bell or the calm pad ring out).
     static let napAfter: Double = 6
 

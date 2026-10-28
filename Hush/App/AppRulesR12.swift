@@ -32,11 +32,11 @@ extension AppRules {
         hint != .closeForNext || awaitingClose
     }
 
-    /// R12 (Core R12 hook 2): Feedback's `playing` flag. Off over the robbed chest (`awaitingClose`): Core puts its
-    /// mimic to sleep with noise 0, and the snore bed must not play over a chest that reads angry. The continuous lid
-    /// layers go quiet with it (Feedback has no snore-only switch yet: NEEDS, Feel R12). Pure; tested.
-    static func feedbackPlays(_ phase: RunPhase, awaitingClose: Bool) -> Bool {
-        isLive(phase) && !awaitingClose
+    /// R12 (Core R12 hook 2): Feedback's robbed switch (`FeedbackDirector.setRobbed`). On over the robbed chest
+    /// (`awaitingClose`, Core's mimic asleep with noise 0) so the snore bed never plays over a chest that reads angry;
+    /// the creak and candle tick keep playing while the lid comes down. Pure; tested.
+    static func feedbackRobbed(_ phase: RunPhase, awaitingClose: Bool) -> Bool {
+        isLive(phase) && awaitingClose
     }
 }
 

@@ -203,11 +203,15 @@ struct FeelBed: Sendable, Equatable {
     var rattle: Float = 0
     var rattleRate: Float = 0
 
+    /// R12 (founder): 0…1, the robbed chest's grumble, a low, slow breath while it waits for the lid to close after a
+    /// bite (`FeedbackDirector.setRobbed`). It replaces the snore and the tiptoe.
+    var grumble: Float = 0
+
     /// True when any continuous layer is audible (the engine stays awake for it).
     var hasLayers: Bool {
         let zero: Float = 0
         if creak > zero || squeal > zero || snore > zero { return true }
-        if growl > zero || motif > zero || drone > zero { return true }
+        if growl > zero || motif > zero || drone > zero || grumble > zero { return true }
         return crackle > zero || rattle > zero || dripRate > zero
     }
 
@@ -230,6 +234,7 @@ struct FeelBed: Sendable, Equatable {
         crackleRate += (target.crackleRate - crackleRate) * k
         rattle += (target.rattle - rattle) * k
         rattleRate += (target.rattleRate - rattleRate) * k
+        grumble += (target.grumble - grumble) * k
     }
 }
 
@@ -353,10 +358,16 @@ private struct FeelVoice {
 final class FeelSynth: @unchecked Sendable {
     let sampleRate: Float
 
-    static let voiceCount = 48
+    /// R12 (REVIEW-6 B1): 48 → 96. A 1,700 g Hushed bank with a chain, a relic and a new best queues 72 commands in one
+    /// frame (each delayed voice holds its slot from then), so 48 slots silently lost the ka-ching, the chain chime and
+    /// the choir. 96 keeps every command of the biggest bank (Node port: 0 steals); the bank is 96 × 6 × 5 floats.
+    static let voiceCount = 96
     static let maxPartials = 6
     static let queueCapacity = 512
     static let ceiling: Float = 0.9
+    /// R12: a struck ring holds its slot for this many time constants of its first partial (was 7): freed at −43 dB
+    /// (after the 30 ms release), inaudible under the bed, instead of holding a gem bell's slot for 6 s.
+    static let ringLife: Float = 5
     private static let partialStride = 5 // re, im, cos, sin, decay
     /// Below this a continuous layer is skipped entirely.
     private static let quiet: Float = 0.00002
@@ -365,9 +376,13 @@ final class FeelSynth: @unchecked Sendable {
     static let motifSteps = 32
     static let motifRootHz: Float = 293.66
     /// The groan's mix and the grains' mix inside the creak (before `bed.creak` and master).
+    /// R12 (REVIEW-6 #2, wood, not buzz): the body formant 0.05 → 0.18 (−23 → −10 dB re the groan), the grains
+    /// 2.0 → 3.5 (−10 → −2 dB), and the groan's resonance Q 5 → 3, so the fixed body and the fibre crackle carry the
+    /// sound instead of a vowel that slides with the pitch. Periodicity at 20°/s 0.69 → 0.55, centroid 494 → 789 Hz.
     static let groanGain: Float = 0.11
-    static let bodyGain: Float = 0.05
-    static let grainGain: Float = 2.0
+    static let groanQ: Float = 3
+    static let bodyGain: Float = 0.18
+    static let grainGain: Float = 3.5
     static let squealGain: Float = 0.06
 
     private let queue: UnsafeMutablePointer<FeelSynthCommand>
@@ -375,6 +390,8 @@ final class FeelSynth: @unchecked Sendable {
     private let readIndex = Atomic<Int>(0)
     private let peakBits = Atomic<UInt32>(0)
     private let renderCount = Atomic<Int>(0)
+    private let stealCount = Atomic<Int>(0)
+    private let liveCount = Atomic<Int>(0)
 
     // Audio-thread-only state below.
     private let voices: UnsafeMutablePointer<FeelVoice>
@@ -415,6 +432,12 @@ final class FeelSynth: @unchecked Sendable {
     private var growlLFO: Float = 0
     private var growlNoiseFilter = FeelSVF()
     private var growlToneFilter = FeelSVF()
+    // Grumble (R12, the robbed chest).
+    private var grumblePhase: Float = 0
+    private var grumbleTonePhase: Float = 0
+    private var grumbleFlutter: Float = 0
+    private var grumbleNoiseFilter = FeelSVF()
+    private var grumbleToneFilter = FeelSVF()
     // Motif.
     private var motifCountdown = 0
     private var motifStep = -1
@@ -493,6 +516,13 @@ final class FeelSynth: @unchecked Sendable {
     /// Render callbacks so far: if it stops climbing, the engine isn't pulling audio.
     var renderCallbacks: Int { renderCount.load(ordering: .relaxed) }
 
+    /// R12: one-shot voices started while every slot was busy (each one cut a sounding voice), for tests and
+    /// diagnostics. 0 in any real moment: the pool is sized for the biggest bank.
+    var voiceSteals: Int { stealCount.load(ordering: .relaxed) }
+
+    /// R12: one-shot voices holding a slot (sounding or still waiting out their delay) at the end of the last render.
+    var liveVoices: Int { liveCount.load(ordering: .relaxed) }
+
     // MARK: Audio thread
 
     func render(frames: Int, into out: UnsafeMutablePointer<Float>) {
@@ -516,6 +546,9 @@ final class FeelSynth: @unchecked Sendable {
             }
             if bed.growl > FeelSynth.quiet {
                 sample += renderGrowl()
+            }
+            if bed.grumble > FeelSynth.quiet {
+                sample += renderGrumble()
             }
             if bed.motif > FeelSynth.quiet {
                 runMotif()
@@ -583,6 +616,9 @@ final class FeelSynth: @unchecked Sendable {
         }
         let previous = Float(bitPattern: peakBits.load(ordering: .relaxed))
         if blockPeak > previous { peakBits.store(blockPeak.bitPattern, ordering: .relaxed) }
+        var live = 0
+        for index in 0..<FeelSynth.voiceCount where voices[index].active { live += 1 }
+        liveCount.store(live, ordering: .relaxed)
         renderCount.store(renderCount.load(ordering: .relaxed) &+ 1, ordering: .relaxed)
     }
 
@@ -590,8 +626,9 @@ final class FeelSynth: @unchecked Sendable {
 
     /// Wood friction, the hero. Three parts, all following the bed per sample (no zipper):
     /// - the **groan**: a stick-slip pulse train (a band-limited saw whose every period has its own slip strength and a
-    ///   ±7 % period jitter, with an occasional "catch") through a resonant low-pass at ~3× its pitch, plus a fixed
-    ///   wooden body formant (1.1 kHz). Its pitch wavers on a slow random walk (±9 %);
+    ///   ±7 % period jitter, with an occasional "catch") through a gently resonant low-pass (Q 3, R12) at ~3× its
+    ///   pitch, plus a fixed wooden body formant (1.1 kHz, R12: 10 dB under the groan, not 23). Its pitch wavers on a
+    ///   slow random walk (±9 %);
     /// - **friction grains**: tiny noise bursts (1.5–5.5 ms) at `grainRate`, each through its own resonant band
     ///   (600–2,500 Hz, brighter with speed): the dry ticking of the fibres;
     /// - the **squeal**: a sine partial (1.7–2.6 kHz) whose amplitude flutters with the slips.
@@ -714,6 +751,35 @@ final class FeelSynth: @unchecked Sendable {
         return (tone + noise) * rough * bed.growl
     }
 
+    // MARK: The grumble (R12, the robbed chest)
+
+    /// One slow breath cycle of the grumble (s).
+    static let grumblePeriod: Float = 5.5
+
+    /// A low, slow grumble: a 62 Hz saw through a 320 Hz low-pass and breath noise round 240 Hz, fluttering at 11 Hz,
+    /// on a 5.5 s cycle (a long rumbling breath out over the first 62 %, then a pause). Quiet: at 1 it measures about
+    /// −32 LUFS on its own (Node port), and the director plays it at `FeelSoundBook.robbedGrumble`, under the bed.
+    private func renderGrumble() -> Float {
+        let twoPi = 2 * Float.pi
+        grumblePhase += 1 / (FeelSynth.grumblePeriod * sampleRate)
+        if grumblePhase >= 1 { grumblePhase -= 1 }
+        var breath: Float = 0
+        if grumblePhase < 0.62 {
+            let s = sin(Float.pi * grumblePhase / 0.62)
+            breath = s * s
+        }
+        grumbleFlutter += twoPi * 11 / sampleRate
+        if grumbleFlutter > twoPi { grumbleFlutter -= twoPi }
+        let flutter: Float = 0.55 + 0.45 * (0.5 + 0.5 * sin(grumbleFlutter))
+        let dt: Float = 62 / sampleRate
+        grumbleTonePhase += dt
+        if grumbleTonePhase >= 1 { grumbleTonePhase -= 1 }
+        let saw = 2 * grumbleTonePhase - 1 - FeelSynth.polyBlep(grumbleTonePhase, dt)
+        let tone = grumbleToneFilter.process(saw, .lowPass) * 0.05
+        let noise = grumbleNoiseFilter.process(nextNoise(), .bandPass) * 0.09
+        return (tone + noise) * flutter * breath * bed.grumble
+    }
+
     // MARK: The tiptoe motif
 
     /// Semitones above the root for each of the 32 eighth-note steps (D minor, a sneaking ostinato), or nil for a rest.
@@ -781,6 +847,8 @@ final class FeelSynth: @unchecked Sendable {
         snoreToneFilter.tune(cutoff: 600, q: 1.2, sampleRate: sampleRate)
         growlNoiseFilter.tune(cutoff: 260, q: 3, sampleRate: sampleRate)
         growlToneFilter.tune(cutoff: 420, q: 2, sampleRate: sampleRate)
+        grumbleNoiseFilter.tune(cutoff: 240, q: 1.2, sampleRate: sampleRate)
+        grumbleToneFilter.tune(cutoff: 320, q: 1.5, sampleRate: sampleRate)
         airFilter.tune(cutoff: 240, q: 0.7, sampleRate: sampleRate)
         flameFilter.tune(cutoff: 1300, q: 0.5, sampleRate: sampleRate)
         crackleFilter.tune(cutoff: 2400, q: 0.7, sampleRate: sampleRate)
@@ -791,7 +859,7 @@ final class FeelSynth: @unchecked Sendable {
     private func retuneContinuous() {
         let pitch = min(max(bed.creakHz, 40), 900) * (1 + 0.09 * wobbleValue)
         let bright = min(max(bed.creakBright, 0), 1)
-        groanFilter.tune(cutoff: pitch * (2.4 + 2 * bright), q: 5, sampleRate: sampleRate)
+        groanFilter.tune(cutoff: pitch * (2.4 + 2 * bright), q: FeelSynth.groanQ, sampleRate: sampleRate)
     }
 
     private func drain() {
@@ -832,6 +900,8 @@ final class FeelSynth: @unchecked Sendable {
         snoreToneFilter = FeelSVF()
         growlNoiseFilter = FeelSVF()
         growlToneFilter = FeelSVF()
+        grumbleNoiseFilter = FeelSVF()
+        grumbleToneFilter = FeelSVF()
         airFilter = FeelSVF()
         flameFilter = FeelSVF()
         crackleFilter = FeelSVF()
@@ -873,7 +943,10 @@ final class FeelSynth: @unchecked Sendable {
                 oldest = index
             }
         }
-        if slot < 0 { slot = oldest }
+        if slot < 0 {
+            slot = oldest
+            stealCount.store(stealCount.load(ordering: .relaxed) &+ 1, ordering: .relaxed)
+        }
         guard slot >= 0 else { return }
         var voice = FeelVoice()
         voice.active = true
@@ -929,7 +1002,7 @@ final class FeelSynth: @unchecked Sendable {
             voice.delay = Int(max(spec.delay, 0) * sampleRate)
             voice.attack = max(Int(0.0005 * sampleRate), 1)
             voice.decayRate = 1
-            voice.length = min(Int(spec.decay * sampleRate * 7), Int(sampleRate * 6))
+            voice.length = min(Int(spec.decay * sampleRate * FeelSynth.ringLife), Int(sampleRate * 6))
             voice.gain = 1
             configureRing(spec, slot: slot, voice: &voice)
         case .bed, .stopAll:

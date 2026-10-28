@@ -445,10 +445,10 @@ final class GameController: ObservableObject, SceneDriver {
 
         let live = AppRules.isLive(snapshot.phase)
         let dragSpeed = session.dragSpeed
-        // R12 (Core R12 hook 2): the robbed chest reads angry, so Feedback never plays the sleeping mimic's snore bed
-        // over it (Core sets its mimic asleep, noise 0, while `awaitingClose`).
-        let audible = AppRules.feedbackPlays(snapshot.phase, awaitingClose: session.awaitingClose)
-        feedback.handle(events, telemetry: AppRules.telemetry(snapshot, dragSpeed: dragSpeed, playing: audible))
+        // R12 (Core R12 hook 2): the robbed chest reads angry, so Feedback swaps the sleeping mimic's snore bed for a
+        // grumble over it (Core sets its mimic asleep, noise 0, while `awaitingClose`); the creak and tick play on.
+        feedback.setRobbed(AppRules.feedbackRobbed(snapshot.phase, awaitingClose: session.awaitingClose))
+        feedback.handle(events, telemetry: AppRules.telemetry(snapshot, dragSpeed: dragSpeed, playing: live))
         // R11 (UX P2-5): VoiceOver's bank line names the Hush Chain the same bank raised.
         let chain = Self.chainMultiplier(in: events)
         for event in events {

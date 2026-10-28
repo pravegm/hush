@@ -83,6 +83,17 @@ private func feelRender(_ synth: FeelSynth, seconds: Double,
     return ((sum / count).squareRoot(), peak, Double(hot) / count, finite)
 }
 
+/// R12: one recipe alone on a silent bed at the master gain (after 60 ms for the master to settle): its RMS over
+/// `seconds` from the start and its peak. The Node port's `renderShot` (tools/audio-probe.js) measures the same.
+private func feelShot(_ commands: [FeelSynthCommand], seconds: Double = 0.4) -> (rms: Double, peak: Float) {
+    let synth = FeelSynth(sampleRate: 48_000)
+    synth.send(.bed(FeelSoundBook.idleBed(master: FeelAudioEngine.masterGain, glide: 0.004)))
+    _ = feelRender(synth, seconds: 0.06)
+    for command in commands { synth.send(command) }
+    let result = feelRender(synth, seconds: seconds)
+    return (result.rms, result.peak)
+}
+
 private func play(speed: Double, noise: Double = 0.1, stage: MimicStage = .asleep, openness: Double = 0.5,
                   drag: Double = 0, torch: Double = 80, playing: Bool = true) -> HeistTelemetry {
     HeistTelemetry(lidSpeed: speed, openness: openness, noise: noise, stage: stage, dragSpeed: drag,
@@ -667,10 +678,14 @@ struct FeelTests {
                 #expect(command.delay < 3)
             }
         }
-        // The CHOMP is the biggest sound; a coin is small and bright.
-        let chompPeak = FeelSoundBook.chomp(dice: &dice).map { $0.gain }.max() ?? 0
-        let coinPeak = FeelSoundBook.coinClink(dice: &dice).map { $0.gain }.max() ?? 1
-        #expect(chompPeak > coinPeak * 3)
+        // The CHOMP is the biggest sound; a coin is small and bright. R12: measured rendered (0.4 s RMS), not by gain
+        // parameters (the louder coin's FM gains and the leaner CHOMP's are not comparable). Node port: CHOMP 0.20,
+        // loudest coin 0.082, so the CHOMP is ≥ 2.4×.
+        let chompShot = feelShot(FeelSoundBook.chomp(dice: &dice))
+        var coinRMS = 0.0
+        for _ in 0..<8 { coinRMS = max(coinRMS, feelShot(FeelSoundBook.coinClink(dice: &dice)).rms) }
+        #expect(chompShot.rms > coinRMS * 2)
+        #expect(coinRMS > 0.01)
         let coin = FeelSoundBook.coinClink(dice: &dice)
         var bright = true
         for command in coin {
@@ -855,7 +870,8 @@ struct FeelTests {
 
     @Test func theCreakTextureFollowsTheSpeed() {
         #expect(FeelHapticBook.creakLevel(speed: Tuning.quietSpeed) == 0)
-        #expect(abs(FeelHapticBook.creakLevel(speed: Tuning.quietSpeed + 15) - 0.5) < 1e-6)
+        // R12 (REVIEW-6 #7): the onset is ((speed − quiet) / 30)^0.6, so halfway (+15°/s) is 0.66, not 0.5.
+        #expect(abs(FeelHapticBook.creakLevel(speed: Tuning.quietSpeed + 15) - Float(pow(0.5, 0.6))) < 1e-6)
         #expect(FeelHapticBook.creakLevel(speed: Tuning.quietSpeed + 30) == 1)
         #expect(FeelHapticBook.creakLevel(speed: 500) == 1)
         #expect(FeelHapticBook.creakLevel(speed: Double.nan) == 0)
@@ -891,7 +907,7 @@ struct FeelTests {
             FeelHapticBook.chainBroken(), FeelHapticBook.chainBroken(delay: 1.1), FeelHapticBook.goldenArrived(),
             FeelHapticBook.coinSpill(times: FeelSoundBook.spillTimes(count: 10)),
             FeelHapticBook.candleTick(urgent: false), FeelHapticBook.candleTick(urgent: true),
-            FeelHapticBook.creakAccent, FeelHapticBook.quietTick,
+            FeelHapticBook.creakAccent, FeelHapticBook.quietTick, FeelHapticBook.heartbeatSoft,
         ]
         let bitePeak = FeelHapticBook.bite.notes.map { $0.intensity }.max() ?? 0
         #expect(bitePeak == 1)
@@ -910,9 +926,19 @@ struct FeelTests {
             let first = cue.notes.first { $0.kind == .transient }?.intensity ?? 0
             #expect(first <= bitePeak)
         }
-        // Strong turns taps into bursts the Duo's weak actuator can push, and keeps the curve.
+        // R12 (REVIEW-6 #6): Strong keeps every tap (its own sharpness, its crisp edge) and layers a 40 ms burst under
+        // it the Duo's weak actuator can push; continuous notes stay continuous (× 1.4); the curve is kept.
         let strong = FeelHapticBook.adapt(FeelHapticBook.bite, to: .strong)
-        #expect(strong.notes.allSatisfy { $0.kind == .continuous })
+        let biteTaps = FeelHapticBook.bite.notes.filter { $0.kind == .transient }
+        let biteBuzzes = FeelHapticBook.bite.notes.filter { $0.kind == .continuous }
+        #expect(strong.notes.count == biteTaps.count * 2 + biteBuzzes.count)
+        for tap in biteTaps {
+            #expect(strong.notes.contains { $0.kind == .transient && $0.time == tap.time
+                && $0.sharpness == tap.sharpness && $0.intensity >= tap.intensity })
+            #expect(strong.notes.contains { $0.kind == .continuous && $0.time == tap.time
+                && abs($0.duration - FeelHapticBook.strongBurst) < 1e-9
+                && $0.sharpness <= FeelHapticBook.strongBurstSharpness })
+        }
         #expect(strong.curve == FeelHapticBook.bite.curve)
         #expect(FeelHapticBook.adapt(FeelHapticBook.coinTick, to: .normal) == FeelHapticBook.coinTick)
         #expect(FeelHapticProfile.defaultFor(hasFold: true) == .strong)
@@ -1553,12 +1579,14 @@ struct FeelTests {
             #expect(command.delay >= 0)
             #expect(command.delay < 0.1)
         }
-        // Louder than a coin, smaller than the CHOMP.
-        let crackPeak = crack.map { $0.gain }.max() ?? 0
-        let chompPeak = FeelSoundBook.chomp(dice: &dice).map { $0.gain }.max() ?? 0
-        let coinPeak = FeelSoundBook.coinClink(dice: &dice).map { $0.gain }.max() ?? 1
-        #expect(crackPeak < chompPeak)
-        #expect(crackPeak > coinPeak * 2)
+        // Sharper than a coin (a higher peak: it cuts through), smaller than the CHOMP. R12: rendered, not by gain
+        // parameters. Node port: crack peak ≥ 0.66 vs the loudest coin's 0.53; CHOMP RMS 0.20 vs the crack's ≤ 0.073.
+        let crackShot = feelShot(crack)
+        let chompShot = feelShot(FeelSoundBook.chomp(dice: &dice))
+        var coinPeak: Float = 0
+        for _ in 0..<8 { coinPeak = max(coinPeak, feelShot(FeelSoundBook.coinClink(dice: &dice)).peak) }
+        #expect(crackShot.rms * 2 < chompShot.rms)
+        #expect(crackShot.peak > coinPeak)
         // It renders cleanly over a loud creak.
         let synth = FeelSynth(sampleRate: 48_000)
         var bed = FeelSoundBook.heistBed(telemetry: play(speed: 90, noise: 0.6, stage: .stirring),
@@ -1822,10 +1850,14 @@ struct FeelTests {
             if paused || tremor || weird { otherTicks += 1 }
         }
         #expect(otherTicks == 0)
-        // The tick itself is faint (it must never compete with a creak), and Strong makes it a burst like every cue.
+        // The tick itself is light (R12, REVIEW-6 #10: 0.18 → 0.3, felt as a tick, not fuzz; still under the stirring
+        // nudge and every reward), and Strong keeps it a tick with a short burst under it, like every cue.
         let tickCue = FeelHapticBook.quietTick
-        #expect((tickCue.notes.map { $0.intensity }.max() ?? 1) <= 0.25)
-        #expect(FeelHapticBook.adapt(tickCue, to: .strong).notes.allSatisfy { $0.kind == .continuous })
+        #expect((tickCue.notes.map { $0.intensity }.max() ?? 1) <= 0.35)
+        #expect((tickCue.notes.map { $0.intensity }.max() ?? 0) >= 0.25)
+        let strongTick = FeelHapticBook.adapt(tickCue, to: .strong)
+        #expect(strongTick.notes.contains { $0.kind == .transient })
+        #expect(strongTick.notes.contains { $0.kind == .continuous && $0.duration <= 0.05 })
         #expect(FeelHapticBook.stirring.notes.first?.intensity == 0.5)
         // Through the director (haptics off, nothing starts): careful play takes frames without trouble.
         let director = FeedbackDirector()
@@ -1908,6 +1940,336 @@ struct FeelTests {
         #expect(live.contains("reports over"))
         #expect(live.contains("120.00"))
         #expect(live.contains("snaps 0"))
+    }
+
+    // MARK: - R12: REVIEW-6 (feel, audio, haptics) and the robbed chest
+
+    /// B1 (REVIEW-6 #1): the biggest banks queue more commands in one frame than the old 48-voice pool held (every
+    /// delayed voice holds its slot from then). With a bed running and two items just bagged (a gem bell still
+    /// ringing), every command still gets a slot: the ka-ching, the Hushed chimes, the chain chime, the relic choir and
+    /// the new best all play. Node port (tools/audio-probe.js tests): 0 steals, at most 84 voices live.
+    @Test func theBiggestBankKeepsItsKaChingChainAndChoir() {
+        for value in [1_700, 9_999] {
+            let synth = FeelSynth(sampleRate: 48_000)
+            var dice = FeelDice(seed: 21)
+            var bed = FeelSoundBook.heistBed(telemetry: play(speed: 0, noise: 0.1), master: FeelAudioEngine.masterGain,
+                                             ambience: 1)
+            bed.glide = 0.01
+            synth.send(.bed(bed))
+            _ = feelRender(synth, seconds: 2)
+            for command in FeelSoundBook.itemBagged(.gem(.sapphire), dice: &dice) { synth.send(command) }
+            _ = feelRender(synth, seconds: 0.5)
+            for command in FeelSoundBook.itemBagged(.copper, dice: &dice) { synth.send(command) }
+            _ = feelRender(synth, seconds: 0.25)
+            #expect(synth.voiceSteals == 0)
+            var moment = FeelSoundBook.bank(value: value, hushed: true, dice: &dice)
+            let kaChing = moment.filter { $0.delay >= FeelSoundBook.kaChingAt }.count
+            #expect(kaChing >= 5)
+            moment.append(contentsOf: FeelSoundBook.chainUp(count: 5, delay: FeelSoundBook.chainAfterBank,
+                                                            dice: &dice))
+            moment.append(contentsOf: FeelSoundBook.relicChoir(delay: FeelSoundBook.kaChingAt + 0.15))
+            moment.append(contentsOf: FeelSoundBook.newBest(delay: FeelSoundBook.kaChingAt + 0.4))
+            // More than the old pool: this moment used to lose its last-queued voices (the ka-ching and after).
+            #expect(moment.count > 48)
+            #expect(moment.count < FeelSynth.voiceCount - 8)
+            for command in moment { synth.send(command) }
+            _ = feelRender(synth, seconds: 0.02)
+            let live = synth.liveVoices
+            #expect(live >= moment.count)
+            #expect(synth.voiceSteals == 0)
+            let result = feelRender(synth, seconds: 3)
+            #expect(result.finite)
+            #expect(result.peak < 1)
+            #expect(synth.voiceSteals == 0)
+        }
+    }
+
+    /// REVIEW-6 #1: a struck ring holds its slot for decay × 5 (was × 7): a 0.2 s ring is free by 1.15 s.
+    @Test func aStruckRingFreesItsSlotAfterFiveTimeConstants() {
+        #expect(FeelSynth.voiceCount == 96)
+        #expect(FeelSynth.ringLife == 5)
+        let synth = FeelSynth(sampleRate: 48_000)
+        synth.send(.bed(FeelSoundBook.idleBed(master: FeelAudioEngine.masterGain, glide: 0.004)))
+        synth.send(.ring(FeelRingSpec(.chime, fundamental: 880, partials: 3, decay: 0.2, gain: 0.05)))
+        _ = feelRender(synth, seconds: 0.8)
+        let ringing = synth.liveVoices
+        #expect(ringing == 1)
+        _ = feelRender(synth, seconds: 0.35)
+        let freed = synth.liveVoices
+        #expect(freed == 0)
+        #expect(synth.voiceSteals == 0)
+    }
+
+    /// REVIEW-6 #2 and #3 with the R12 top trim: the woodier creak at the 1.8 master keeps a slam out of the limiter
+    /// (Node port, hot = |x| > 0.6: 45°/s 0.27 %, 60°/s 0.64 %; the untrimmed curve gave 1.0 % and 1.4 %).
+    @Test func theWoodierCreakKeepsASlamOutOfTheLimiter() {
+        #expect(FeelSynth.bodyGain > FeelSynth.groanGain)
+        #expect(FeelSynth.groanQ <= 3)
+        #expect(FeelSoundBook.grainBase >= 30)
+        #expect(FeelAudioEngine.masterGain == 1.8)
+        #expect(FeelSoundBook.topLevel >= FeelSoundBook.loudLevel)
+        #expect(abs(FeelSoundBook.creakLevel(speed: FeelSoundBook.fullSpeed) - FeelSoundBook.topLevel) < 1e-9)
+        #expect(abs(FeelSoundBook.creakLevel(speed: 200) - FeelSoundBook.topLevel) < 1e-9)
+        for (speed, bound) in [(45.0, 0.006), (60.0, 0.01)] {
+            let synth = FeelSynth(sampleRate: 48_000)
+            var bed = FeelSoundBook.heistBed(telemetry: play(speed: speed, noise: 0.95, stage: .waking),
+                                             master: FeelAudioEngine.masterGain, ambience: 1)
+            bed.glide = 0.01
+            synth.send(.bed(bed))
+            _ = feelRender(synth, seconds: 0.5)
+            let result = feelRender(synth, seconds: 1.5)
+            #expect(result.finite)
+            #expect(result.peak < 1)
+            #expect(result.rms > 0.05)
+            #expect(result.hot < bound)
+        }
+    }
+
+    /// REVIEW-6 #4, #5, #10: the coin clink is louder and never identical, the ka-ching is an octave up, the bag thud
+    /// varies.
+    @Test func rewardsAreBrighterAndNeverIdentical() {
+        var dice = FeelDice(seed: 41)
+        let first = FeelSoundBook.coinClink(dice: &dice)
+        let second = FeelSoundBook.coinClink(dice: &dice)
+        let base: [Float] = [0.16, 0.11, 0.065, 0.08]
+        #expect(first.count == 4 && second.count == 4)
+        var differ = false
+        for (index, pair) in zip(first, second).enumerated() {
+            guard case .fm(let a) = pair.0, case .fm(let b) = pair.1 else {
+                Issue.record("a coin clink is FM")
+                continue
+            }
+            #expect(a.gain >= base[index] * 0.85 - 1e-6 && a.gain <= base[index] * 1.15 + 1e-6)
+            if a.gain != b.gain || a.index != b.index { differ = true }
+        }
+        #expect(differ)
+        // The ka-ching: D5 F♯5 A5 bells (its hum partials above the speaker's 200 Hz dead zone) and a stronger glint.
+        #expect(FeelSoundBook.kaChingChord == [587.33, 739.99, 880])
+        let bank = FeelSoundBook.bank(value: 20, hushed: false, dice: &dice)
+        var bells: [Float] = []
+        for command in bank {
+            if case .ring(let ring) = command, ring.kind == .bell, ring.delay >= FeelSoundBook.kaChingAt {
+                bells.append(ring.fundamental)
+            }
+        }
+        #expect(bells == FeelSoundBook.kaChingChord)
+        #expect(bells.allSatisfy { $0 * 0.5 > 250 })
+        // The bag thud's pitch and cutoff vary per item, inside their ranges.
+        var pitches: Set<Float> = []
+        for _ in 0..<6 {
+            let bagged = FeelSoundBook.itemBagged(.copper, dice: &dice)
+            for command in bagged.prefix(2) {
+                switch command {
+                case .noise(let noise):
+                    #expect(noise.cutoff >= 330 && noise.cutoff <= 430)
+                case .tone(let tone):
+                    #expect(tone.start >= 138 && tone.start <= 165)
+                    pitches.insert(tone.start)
+                default:
+                    Issue.record("the bag thud is a noise and a tone")
+                }
+            }
+        }
+        #expect(pitches.count >= 5)
+    }
+
+    /// REVIEW-6 #8: the heartbeat and the wake sting live in the phone speaker's band, and the Stirring beat is felt.
+    @Test func theTensionCuesReachThePhoneSpeakerAndTheHand() {
+        for fast in [false, true] {
+            let beat = FeelSoundBook.heartbeat(fast: fast)
+            var tones = 0
+            for command in beat {
+                switch command {
+                case .tone(let tone):
+                    tones += 1
+                    #expect(tone.end >= 75)
+                    #expect(tone.harmonics == 8)
+                case .noise(let noise):
+                    #expect(noise.mode == .bandPass)
+                    #expect(noise.cutoff >= 450)
+                default:
+                    Issue.record("a heartbeat is tones and noise")
+                }
+            }
+            #expect(tones == 2)
+            // The haptic beat lands on the sound's second beat.
+            let gap = FeelSoundBook.heartGap(fast: fast)
+            #expect(beat.contains { abs(Double($0.delay) - gap) < 1e-6 })
+            let cue = fast ? FeelHapticBook.heartbeat : FeelHapticBook.heartbeatSoft
+            #expect(cue.notes.count == 2)
+            #expect(abs((cue.notes.last?.time ?? 0) - gap) < 1e-9)
+        }
+        // Soft at Stirring (felt, ≥ 0.25 on a Duo), firm at Waking.
+        let soft = FeelHapticBook.heartbeatSoft.notes.map { $0.intensity }.max() ?? 0
+        let firm = FeelHapticBook.heartbeat.notes.map { $0.intensity }.max() ?? 0
+        #expect(soft >= 0.25 && soft < firm)
+        // The wake sting's sour second is at D4/D♯4.
+        var sour: [Float] = []
+        for command in FeelSoundBook.wakeSting() {
+            if case .tone(let tone) = command, tone.start == tone.end { sour.append(tone.start) }
+        }
+        #expect(sour.count == 2)
+        #expect(sour.allSatisfy { $0 >= 290 })
+        // Through the director (sound and haptics off): Stirring and Waking frames keep the beat without trouble.
+        let director = FeedbackDirector()
+        director.soundOn = false
+        director.hapticsOn = false
+        for frame in 0..<240 {
+            director.handle([], telemetry: play(speed: 5, noise: frame < 120 ? 0.5 : 0.85,
+                                                stage: frame < 120 ? .stirring : .waking))
+        }
+        director.silence()
+        #expect(director.hapticsOn == false)
+    }
+
+    /// REVIEW-6 #9: a CHOMP that wins on the speaker (less sub, a mid crunch), the creak ducked under it, and the bite
+    /// haptic's second snap on the last tooth-clack (B5).
+    @Test func theChompOwnsTheBite() {
+        var dice = FeelDice(seed: 43)
+        let chomp = FeelSoundBook.chomp(dice: &dice)
+        var crunch = false
+        var lastClack: Float = 0
+        for command in chomp {
+            switch command {
+            case .tone(let tone) where tone.delay == 0:
+                #expect(tone.end >= 70)
+                #expect(tone.gain <= 0.2)
+            case .noise(let noise) where noise.mode == .lowPass && noise.delay == 0:
+                #expect(noise.gain <= 0.2)
+            case .noise(let noise) where noise.mode == .bandPass:
+                crunch = crunch || (noise.cutoff >= 600 && noise.cutoff <= 900)
+            case .ring(let ring) where ring.fundamental >= 1800:
+                lastClack = max(lastClack, ring.delay)
+            default:
+                break
+            }
+        }
+        #expect(crunch)
+        #expect(lastClack == FeelSoundBook.chompSecondClack)
+        let snaps = FeelHapticBook.bite.notes.filter { $0.kind == .transient && $0.time > 0 }
+        #expect(snaps.count == 1)
+        #expect(abs((snaps.first?.time ?? 1) - Double(FeelSoundBook.chompSecondClack)) < 1e-9)
+        // The creak gets out of the jaw's way: the resting share is low, and the bite's duck is fast.
+        #expect(FeelSoundBook.restingCreakShare <= 0.4)
+        #expect(FeelSoundBook.duckGlide < FeelSoundBook.fadeGlide)
+        #expect(FeelSoundBook.duckHold > 0.05 && FeelSoundBook.duckHold < 0.5)
+        let live = FeelSoundBook.heistBed(telemetry: play(speed: 45, noise: 0.98, stage: .waking),
+                                          master: FeelAudioEngine.masterGain, ambience: 1)
+        let bitten = FeelSoundBook.heistBed(telemetry: play(speed: 45, noise: 1, stage: .biting, playing: false),
+                                            master: FeelAudioEngine.masterGain, ambience: 1)
+        #expect(bitten.creak > 0)
+        #expect(bitten.creak < live.creak * 0.5)
+        // Through the director: the bite frame (with its duck) and the moment after it.
+        let director = FeedbackDirector()
+        director.soundOn = false
+        director.hapticsOn = false
+        director.handle([], telemetry: play(speed: 45, noise: 0.98, stage: .waking))
+        director.handle([.bitten(lostValue: 120), .biteCost(lostValue: 120, seconds: 10)],
+                        telemetry: play(speed: 45, noise: 1, stage: .biting, playing: false))
+        for _ in 0..<30 {
+            director.handle([], telemetry: play(speed: 30, noise: 1, stage: .biting, playing: false))
+        }
+        director.silence()
+        #expect(director.soundOn == false)
+    }
+
+    /// REVIEW-6 #6, #7: Strong keeps each event's own transient (so a coin tick, a bank thunk, a crack and the bite
+    /// feel different) with a short burst under it; the creak texture is felt from just above the quiet line.
+    @Test func strongHapticsKeepTheVocabularyAndTheCreakIsFeltEarly() {
+        let cues = [FeelHapticBook.coinTick, FeelHapticBook.creakAccent, FeelHapticBook.bite,
+                    FeelHapticBook.bank(cascade: FeelSoundBook.cascadeTimes(count: 14)), FeelHapticBook.quietTick]
+        var firstSharpness: [Float] = []
+        for cue in cues {
+            let strong = FeelHapticBook.adapt(cue, to: .strong)
+            let taps = cue.notes.filter { $0.kind == .transient }
+            let kept = strong.notes.filter { $0.kind == .transient }
+            #expect(kept.count == taps.count)
+            for (tap, adapted) in zip(taps, kept) {
+                #expect(adapted.time == tap.time)
+                #expect(adapted.sharpness == tap.sharpness)
+                #expect(adapted.intensity >= tap.intensity && adapted.intensity <= 1)
+            }
+            #expect(strong.notes.filter { $0.kind == .continuous }.count
+                    == taps.count + cue.notes.filter { $0.kind == .continuous }.count)
+            for note in strong.notes {
+                #expect(note.intensity >= 0 && note.intensity <= 1)
+                #expect(note.sharpness >= 0 && note.sharpness <= 1)
+            }
+            firstSharpness.append(kept.first?.sharpness ?? -1)
+        }
+        // The coin tick, the crack and the bank thunk stay distinct on Strong.
+        #expect(Set(firstSharpness.prefix(2)).count == 2)
+        #expect(firstSharpness[3] < 0.3 && firstSharpness[0] > 0.8)
+        #expect(FeelHapticBook.strongBurst <= 0.04 + 1e-9)
+        // The creak texture: felt (≥ 0.25 on Strong) by 16°/s, over 0.5 by 20, still full by +30°/s.
+        let q = Tuning.quietSpeed
+        #expect(FeelHapticBook.creakLevel(speed: q + 2, profile: .strong) >= 0.25)
+        #expect(FeelHapticBook.creakLevel(speed: q + 6, profile: .strong) >= 0.5)
+        #expect(FeelHapticBook.creakLevel(speed: q + 30, profile: .normal) == 1)
+        #expect(FeelHapticBook.creakIntensityJitter >= 0.3 - 1e-6)
+    }
+
+    /// The founder's robbed chest (R12): while a robbed chest waits for the lid to close after a bite, the snore and
+    /// the tiptoe are muted and a low, slow grumble breathes instead, quiet and under the bed; off restores the bed.
+    @Test func aRobbedChestGrumblesInsteadOfSnoring() {
+        let master = FeelAudioEngine.masterGain
+        let asleep = play(speed: 4, noise: 0.1, stage: .asleep)
+        let normal = FeelSoundBook.heistBed(telemetry: asleep, master: master, ambience: 1)
+        let robbed = FeelSoundBook.heistBed(telemetry: asleep, master: master, ambience: 1, robbed: true)
+        #expect(normal.snore > 0)
+        #expect(normal.motif > 0)
+        #expect(normal.grumble == 0)
+        #expect(robbed.snore == 0)
+        #expect(robbed.motif == 0)
+        #expect(robbed.grumble == FeelSoundBook.robbedGrumble)
+        #expect(robbed.hasLayers)
+        // Everything else is untouched; out of play (the bite's moment) it grumbles too.
+        #expect(robbed.drone == normal.drone)
+        #expect(robbed.creak == normal.creak)
+        let resting = FeelSoundBook.heistBed(telemetry: play(speed: 0, noise: 1, stage: .biting, playing: false),
+                                             master: master, ambience: 1, robbed: true)
+        #expect(resting.grumble > 0)
+        #expect(resting.snore == 0 && resting.motif == 0)
+        // It renders cleanly and audibly, under the dungeon bed and under the snore it replaces (Node port: −38.3
+        // dBFS RMS vs −34.1 and −34.1).
+        func layerRMS(_ set: (inout FeelBed) -> Void) -> (rms: Double, peak: Float, finite: Bool) {
+            var bed = FeelSoundBook.idleBed(master: master, glide: 0.01)
+            set(&bed)
+            let synth = FeelSynth(sampleRate: 48_000)
+            synth.send(.bed(bed))
+            let result = feelRender(synth, seconds: 5.5)
+            return (result.rms, result.peak, result.finite)
+        }
+        let grumble = layerRMS { $0.grumble = FeelSoundBook.robbedGrumble }
+        let dungeon = layerRMS { bed in
+            bed.drone = 1
+            bed.dripRate = 0.5
+            bed.crackle = 0.4
+            bed.crackleRate = 4
+        }
+        let snore = layerRMS { $0.snore = 0.78 }
+        #expect(grumble.finite)
+        #expect(grumble.rms > 0.003)
+        #expect(grumble.peak < 0.5)
+        #expect(grumble.rms < dungeon.rms)
+        #expect(grumble.rms < snore.rms)
+        // The director: on, repeats ignored, frames take it, off restores (sound and haptics off: nothing starts).
+        let director = FeedbackDirector()
+        director.soundOn = false
+        director.hapticsOn = false
+        #expect(director.robbed == false)
+        director.setRobbed(true)
+        director.setRobbed(true)
+        #expect(director.robbed)
+        for frame in 0..<90 {
+            let events: [HeistEvent] = frame == 0 ? [.bitten(lostValue: 40)] : []
+            director.handle(events, telemetry: play(speed: 10, noise: 1, stage: .biting, playing: false))
+        }
+        director.setRobbed(false)
+        #expect(director.robbed == false)
+        for _ in 0..<10 { director.handle([], telemetry: play(speed: 4)) }
+        director.silence()
+        #expect(director.robbed == false)
     }
 
     // MARK: - Logging

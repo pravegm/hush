@@ -55,20 +55,28 @@ enum FeelSoundBook {
     static let fullSpeed = 50.0
     static let squealStart = 25.0
     static let squealFull = 45.0
-    /// The creak's level at `softTop` and at `loudSpeed` (0…1 of full).
+    /// The creak's level at `softTop` and at `loudSpeed` (0…1 of full), and at `fullSpeed` and above (`topLevel`).
+    /// R12: loud 0.8 → 0.68 and top 1.0 → 0.7. The woodier voicing (REVIEW-6 #2) is peakier (the grains) and the
+    /// master is +3.2 dB, so the old curve put a 45°/s creak in the limiter 46 % of the time (60°/s: 81 %), where it
+    /// squashed everything and out-shouted the CHOMP. With this trim the creak is a uniform ~+3 dB over R11 from 16 to
+    /// 60°/s (soft creaks +3–4 dB, untouched below 20°/s), the limiter rests (45°/s: 7 %), and the bite wins on the
+    /// speaker at 30 and 45°/s. Node port numbers in design/notes/feel-R12.md.
     static let softLevel = 0.4
-    static let loudLevel = 0.8
+    static let loudLevel = 0.68
+    static let topLevel = 0.7
     /// The groan's pitch range (Hz) and the speed at which it tops out: real stick-slip runs faster the faster the
     /// wood slides.
     static let groanLowHz = 140.0
     static let groanHighHz = 420.0
     static let groanTopSpeed = 60.0
-    /// Friction grains per second at the quiet speed and the extra at `groanTopSpeed`.
-    static let grainBase = 12.0
+    /// Friction grains per second at the quiet speed and the extra at `groanTopSpeed`. R12 (REVIEW-6 #2): the base
+    /// 12 → 30, so even a slow creak has fibre crackle in it, not just the groan.
+    static let grainBase = 30.0
     static let grainSpan = 240.0
 
-    /// 0…1 creak level for a lid speed: 0 at ≤ `quietSpeed`; a soft ease-in to 0.4 at 20; up to 0.8 at 30; 1.0 at 50.
-    /// Continuous and monotonic, so the creak swells and fades with the hand and never switches on with a click.
+    /// 0…1 creak level for a lid speed: 0 at ≤ `quietSpeed`; a soft ease-in to 0.4 at 20; up to `loudLevel` at 30;
+    /// `topLevel` at 50. Continuous and monotonic, so the creak swells and fades with the hand and never switches on
+    /// with a click.
     static func creakLevel(speed: Double) -> Double {
         guard speed.isFinite, speed > quietSpeed else { return 0 }
         if speed <= softTop {
@@ -79,7 +87,7 @@ enum FeelSoundBook {
             let v = (speed - softTop) / (loudSpeed - softTop)
             return softLevel + (loudLevel - softLevel) * v
         }
-        return loudLevel + (1 - loudLevel) * smoothstep((speed - loudSpeed) / (fullSpeed - loudSpeed))
+        return loudLevel + (topLevel - loudLevel) * smoothstep((speed - loudSpeed) / (fullSpeed - loudSpeed))
     }
 
     /// R2 (REVIEW-1-feel #2): while the lid is *closing* it is silent up to this speed (°/s, 18), so the creak (sound
@@ -129,8 +137,14 @@ enum FeelSoundBook {
     /// Glide (s) of the frame-by-frame bed, and of a fade to quiet (pause, menus).
     static let frameGlide: Float = 0.05
     static let fadeGlide: Float = 0.35
-    /// The creak's share while the game isn't stepping (result moments): it still follows the hinge, a little softer.
-    static let restingCreakShare = 0.8
+    /// The creak's share while the game isn't stepping (result moments): it still follows the hinge, softer.
+    /// R12 (REVIEW-6 #9): 0.8 → 0.35, so the creak gets out of the jaw's way when a bite stops play (the bank's slow
+    /// close is barely creaking anyway).
+    static let restingCreakShare = 0.35
+    /// R12: the bite's duck. On the frame a bite leaves play the bed glides this fast (s), for `duckHold` s, instead of
+    /// the 0.35 s `fadeGlide`, so the creak drops to its resting share under the CHOMP's first teeth, not after them.
+    static let duckGlide: Float = 0.03
+    static let duckHold = 0.12
     /// The Home chest's creak share.
     static let homeCreakShare = 0.85
     /// The snore: muffled by a shut lid (this share at openness 0), lighter as the noise rises.
@@ -164,9 +178,15 @@ enum FeelSoundBook {
         return bed
     }
 
+    /// R12 (founder): the robbed chest's grumble level (`FeelBed.grumble`): about −37 LUFS, ~3 dB under the dungeon bed.
+    static let robbedGrumble: Float = 0.6
+
     /// The continuous layers for one game frame. `ambience` (0…1) is the dungeon's level: the App's frames keep it up
-    /// through the result moments and let it fade in menus (the director decides).
-    static func heistBed(telemetry: HeistTelemetry, master: Float, ambience: Double) -> FeelBed {
+    /// through the result moments and let it fade in menus (the director decides). `robbed` (R12, founder: after a
+    /// bite, while the robbed chest waits for the lid to close) mutes the snore and the tiptoe and plays the grumble
+    /// instead, in or out of play.
+    static func heistBed(telemetry: HeistTelemetry, master: Float, ambience: Double,
+                         robbed: Bool = false) -> FeelBed {
         var bed = idleBed(master: master, glide: frameGlide)
         let playing = telemetry.playing
         applyCreak(to: &bed, speed: telemetry.lidSpeed, share: playing ? 1 : restingCreakShare)
@@ -193,6 +213,11 @@ enum FeelSoundBook {
                 bed.rattle = Float(0.35 + 0.65 * level)
                 bed.rattleRate = Float(12 + 38 * level)
             }
+        }
+        if robbed {
+            bed.snore = 0
+            bed.motif = 0
+            bed.grumble = robbedGrumble
         }
 
         let air = clamp01(ambience)
@@ -224,20 +249,25 @@ enum FeelSoundBook {
         }
     }
 
-    /// One heartbeat. The body sits at 120 → 62 Hz with harmonics, so a phone speaker carries it.
+    /// One heartbeat. R12 (REVIEW-6 #8, B3): the body 120 → 62 Hz with 4 harmonics lost 15 dB on a phone speaker (the
+    /// slow Stirring beat sat under the bed), so it is now 150 → 80 Hz with 8 harmonics, and the "thock" is a 500 Hz
+    /// band instead of a 260 Hz low-pass. Node port, speaker proxy: slow −43.5 → −33.0, fast −41.2 → −30.7 LUFS.
     static func heartbeat(fast: Bool) -> [FeelSynthCommand] {
         let k: Float = fast ? 1 : 0.75
         let gap: Float = fast ? 0.14 : 0.18
         return [
-            .tone(FeelToneSpec(start: 120, end: 62, glide: 0.06, duration: 0.16, attack: 0.004, decay: 0.05,
-                               gain: 0.2 * k, harmonics: 4)),
-            .noise(FeelNoiseSpec(.lowPass, cutoff: 260, q: 0.9, attack: 0.002, decay: 0.03, gain: 0.1 * k)),
-            .tone(FeelToneSpec(start: 110, end: 60, glide: 0.06, duration: 0.14, attack: 0.004, decay: 0.045,
-                               gain: 0.13 * k, harmonics: 4, delay: gap)),
-            .noise(FeelNoiseSpec(.lowPass, cutoff: 240, q: 0.9, attack: 0.002, decay: 0.025, gain: 0.06 * k,
+            .tone(FeelToneSpec(start: 150, end: 80, glide: 0.06, duration: 0.16, attack: 0.004, decay: 0.05,
+                               gain: 0.2 * k, harmonics: 8)),
+            .noise(FeelNoiseSpec(.bandPass, cutoff: 500, q: 0.9, attack: 0.002, decay: 0.03, gain: 0.1 * k)),
+            .tone(FeelToneSpec(start: 140, end: 78, glide: 0.06, duration: 0.14, attack: 0.004, decay: 0.045,
+                               gain: 0.13 * k, harmonics: 8, delay: gap)),
+            .noise(FeelNoiseSpec(.bandPass, cutoff: 480, q: 0.9, attack: 0.002, decay: 0.025, gain: 0.06 * k,
                                  delay: gap)),
         ]
     }
+
+    /// The second beat ("dub") of `heartbeat(fast:)` lands here (s); the haptic heartbeats use the same gaps.
+    static func heartGap(fast: Bool) -> Double { fast ? 0.14 : 0.18 }
 
     /// The mimic stirs: the snore catches in a snort ("snrk!").
     static func snort(dice: inout FeelDice) -> [FeelSynthCommand] {
@@ -250,15 +280,16 @@ enum FeelSoundBook {
         ]
     }
 
-    /// The mimic wakes: a growl swells in under a low, sour two-note sting.
+    /// The mimic wakes: a growl swells in under a sour two-note sting. R12 (REVIEW-6 #8): the minor second up an octave
+    /// (D4/D♯4, 5 harmonics, 0.05 → 0.06), so the phone speaker plays it (speaker proxy −33.5 → −25.5 LUFS).
     static func wakeSting() -> [FeelSynthCommand] {
         [
             .tone(FeelToneSpec(start: 72, end: 86, glide: 0.5, duration: 0.8, attack: 0.08, decay: 0.3, gain: 0.16,
                                harmonics: 6, vibratoRate: 21, vibratoDepth: 0.05)),
             .noise(FeelNoiseSpec(.lowPass, cutoff: 200, to: 420, sweep: 0.5, q: 2.5, attack: 0.1, decay: 0.25,
                                  gain: 0.18)),
-            .tone(FeelToneSpec(start: 146.83, duration: 0.7, attack: 0.02, decay: 0.3, gain: 0.05, harmonics: 3)),
-            .tone(FeelToneSpec(start: 155.56, duration: 0.7, attack: 0.02, decay: 0.3, gain: 0.05, harmonics: 3)),
+            .tone(FeelToneSpec(start: 293.66, duration: 0.7, attack: 0.02, decay: 0.3, gain: 0.06, harmonics: 5)),
+            .tone(FeelToneSpec(start: 311.13, duration: 0.7, attack: 0.02, decay: 0.3, gain: 0.06, harmonics: 5)),
         ]
     }
 
@@ -310,23 +341,39 @@ enum FeelSoundBook {
         ]
     }
 
-    /// CHOMP (the bite): a low thump, a wooden crack, the teeth clack, then a burp-y growl. The biggest sound.
+    /// When the CHOMP's last tooth-clack lands (s); the bite haptic's second snap lands with it.
+    static let chompSecondClack: Float = 0.06
+
+    /// CHOMP (the bite): a thump, a wooden crack and a mid crunch, the teeth clack, then a burp-y growl. The biggest
+    /// sound.
+    ///
+    /// R12 (REVIEW-6 #9): 73 % of the old CHOMP was a 150 → 48 Hz thump a phone speaker can't play, which also pumped
+    /// the limiter, so on the speaker the bite was no louder than the slam that caused it. Now: much less sub (thump
+    /// 0.36 → 0.14 ending at 70 Hz with 8 harmonics; the low noise 0.34 → 0.12), and longer, brighter mids that the
+    /// speaker does play: the crack 0.26 → 0.4 (20 → 50 ms), the 340 Hz jaw 0.26 → 0.4 (5 partials, 50 → 80 ms), a new
+    /// 750 → 450 Hz crunch, and the teeth 0.2/0.17 → 0.3/0.26. This goes past the review's #9 values on purpose: with
+    /// the woodier creak and the +3.2 dB master, those still lost the bite to a 45°/s creak by 2.2 dB on the speaker.
+    /// Node port, speaker proxy, loudest 50 ms: alone −15.8 → −10.9 LUFS; landing on a 45°/s slam it beats the creak
+    /// by 1.5 dB (R11: 0.8), on a 30°/s one by 5.2.
     static func chomp(dice: inout FeelDice) -> [FeelSynthCommand] {
         [
             // Thump.
-            .tone(FeelToneSpec(start: 150, end: 48, glide: 0.12, duration: 0.3, attack: 0.002, decay: 0.09,
-                               gain: 0.36, harmonics: 6)),
+            .tone(FeelToneSpec(start: 150, end: 70, glide: 0.12, duration: 0.3, attack: 0.002, decay: 0.09,
+                               gain: 0.14, harmonics: 8)),
             .noise(FeelNoiseSpec(.lowPass, cutoff: 520, to: 180, sweep: 0.1, q: 1.1, attack: 0.001, decay: 0.07,
-                                 gain: 0.34)),
+                                 gain: 0.12)),
             // Wooden crack.
-            .noise(FeelNoiseSpec(.highPass, cutoff: 1800, q: 0.7, attack: 0.0005, decay: 0.02, gain: 0.26)),
-            .ring(FeelRingSpec(.wood, fundamental: 340, partials: 4, decay: 0.05, brightness: 0.5, gain: 0.26,
+            .noise(FeelNoiseSpec(.highPass, cutoff: 1800, q: 0.7, attack: 0.0005, decay: 0.05, gain: 0.4)),
+            .ring(FeelRingSpec(.wood, fundamental: 340, partials: 5, decay: 0.08, brightness: 0.5, gain: 0.4,
                                seed: dice.seed32())),
+            // The crunch: the jaw biting through (the mids a phone speaker plays).
+            .noise(FeelNoiseSpec(.bandPass, cutoff: 750, to: 450, sweep: 0.08, q: 1.2, attack: 0.001, decay: 0.08,
+                                 gain: 0.4)),
             // Teeth clack.
-            .ring(FeelRingSpec(.wood, fundamental: 1850, partials: 3, decay: 0.012, brightness: 0.5, gain: 0.2,
+            .ring(FeelRingSpec(.wood, fundamental: 1850, partials: 3, decay: 0.018, brightness: 0.5, gain: 0.3,
                                delay: 0.035, seed: dice.seed32())),
-            .ring(FeelRingSpec(.wood, fundamental: 2400, partials: 3, decay: 0.01, brightness: 0.5, gain: 0.17,
-                               delay: 0.06, seed: dice.seed32())),
+            .ring(FeelRingSpec(.wood, fundamental: 2400, partials: 3, decay: 0.018, brightness: 0.5, gain: 0.26,
+                               delay: chompSecondClack, seed: dice.seed32())),
             // Burp-y growl.
             .tone(FeelToneSpec(start: 95, end: 70, glide: 0.4, duration: 0.55, attack: 0.04, decay: 0.2, gain: 0.2,
                                harmonics: 7, vibratoRate: 22, vibratoDepth: 0.07, delay: 0.16)),
@@ -337,18 +384,28 @@ enum FeelSoundBook {
 
     // MARK: Loot
 
-    /// Copper coins: 2–3 inharmonic FM partials, bright and short, then a second smaller knock.
+    /// Copper coins: 3 inharmonic FM partials, bright and short, then a second smaller knock.
+    ///
+    /// R12 (REVIEW-6 #4): the most frequent reward was as quiet as a soft creak, and identical but for its pitch. The
+    /// gains are ×1.8 (0.09/0.06/0.035/0.045 → 0.16/0.11/0.065/0.08), and every hit draws each partial's gain
+    /// (×0.85…1.15) and its FM index (×0.8…1.2), so no two clinks match. Node port: −27.9 → −20.1 LUFS momentary.
+    /// The bank cascade and the celebrate shower inherit it.
     static func coinClink(dice: inout FeelDice, scale: Float = 1, delay: Float = 0) -> [FeelSynthCommand] {
         let d = dice.float(0.97, 1.03)
+        let g0 = dice.float(0.85, 1.15), g1 = dice.float(0.85, 1.15)
+        let g2 = dice.float(0.85, 1.15), g3 = dice.float(0.85, 1.15)
+        let i0 = dice.float(0.8, 1.2), i1 = dice.float(0.8, 1.2)
+        let i2 = dice.float(0.8, 1.2), i3 = dice.float(0.8, 1.2)
+        let knock = dice.float(0.03, 0.05)
         return [
-            .fm(FeelFMSpec(carrier: 2300 * d, ratio: 1.41, index: 1.6, indexDecay: 0.02, decay: 0.07,
-                           gain: 0.09 * scale, delay: delay)),
-            .fm(FeelFMSpec(carrier: 3650 * d, ratio: 2.17, index: 0.9, indexDecay: 0.015, decay: 0.05,
-                           gain: 0.06 * scale, delay: delay + 0.002)),
-            .fm(FeelFMSpec(carrier: 5200 * d, ratio: 1.13, index: 0.5, indexDecay: 0.01, decay: 0.035,
-                           gain: 0.035 * scale, delay: delay + 0.004)),
-            .fm(FeelFMSpec(carrier: 2650 * d, ratio: 1.41, index: 1.0, indexDecay: 0.015, decay: 0.045,
-                           gain: 0.045 * scale, delay: delay + dice.float(0.03, 0.05))),
+            .fm(FeelFMSpec(carrier: 2300 * d, ratio: 1.41, index: 1.6 * i0, indexDecay: 0.02, decay: 0.07,
+                           gain: 0.16 * g0 * scale, delay: delay)),
+            .fm(FeelFMSpec(carrier: 3650 * d, ratio: 2.17, index: 0.9 * i1, indexDecay: 0.015, decay: 0.05,
+                           gain: 0.11 * g1 * scale, delay: delay + 0.002)),
+            .fm(FeelFMSpec(carrier: 5200 * d, ratio: 1.13, index: 0.5 * i2, indexDecay: 0.01, decay: 0.035,
+                           gain: 0.065 * g2 * scale, delay: delay + 0.004)),
+            .fm(FeelFMSpec(carrier: 2650 * d, ratio: 1.41, index: 1.0 * i3, indexDecay: 0.015, decay: 0.045,
+                           gain: 0.08 * g3 * scale, delay: delay + knock)),
         ]
     }
 
@@ -466,12 +523,15 @@ enum FeelSoundBook {
         ]
     }
 
-    /// Into the bag: a soft leather thump, then the item's clink.
+    /// Into the bag: a soft leather thump, then the item's clink. R12 (REVIEW-6 #10): the thump's pitch (138…165 Hz)
+    /// and its noise's cutoff (330…430 Hz) vary per item, so the thirtieth coin doesn't land like the first.
     static func itemBagged(_ kind: LootKind, dice: inout FeelDice) -> [FeelSynthCommand] {
+        let cutoff = dice.float(330, 430)
+        let pitch = dice.float(138, 165)
         var commands: [FeelSynthCommand] = [
-            .noise(FeelNoiseSpec(.lowPass, cutoff: 380, to: 160, sweep: 0.06, q: 0.9, attack: 0.002, decay: 0.045,
+            .noise(FeelNoiseSpec(.lowPass, cutoff: cutoff, to: 160, sweep: 0.06, q: 0.9, attack: 0.002, decay: 0.045,
                                  gain: 0.18)),
-            .tone(FeelToneSpec(start: 150, end: 95, glide: 0.05, duration: 0.12, attack: 0.003, decay: 0.04,
+            .tone(FeelToneSpec(start: pitch, end: 95, glide: 0.05, duration: 0.12, attack: 0.003, decay: 0.04,
                                gain: 0.12, harmonics: 3)),
         ]
         commands.append(contentsOf: lootVoice(kind, dice: &dice, scale: 0.85, delay: 0.03))
@@ -563,8 +623,12 @@ enum FeelSoundBook {
     /// The bank's ka-ching lands here (s).
     static let kaChingAt: Float = 1.0
 
+    /// The ka-ching's bell chord: D5 F♯5 A5. R12 (REVIEW-6 #5): up an octave from D4 F♯4 A4, whose bell "hum"
+    /// partials (×0.5, 147–220 Hz) a phone speaker drops, so it read as a dull bong. Speaker proxy −24.0 → −16.4 LUFS.
+    static let kaChingChord: [Float] = [587.33, 739.99, 880]
+
     /// Banking (GAME-DESIGN §4): a heavy lid thunk, a cascade of clinks over 0.8 s (more for a bigger haul), then a
-    /// low "ka-ching" chord. A hushed bank (the mimic never stirred) adds a tiny proud sparkle.
+    /// bright "ka-ching" chord. A hushed bank (the mimic never stirred) adds a tiny proud sparkle.
     static func bank(value: Int, hushed: Bool, dice: inout FeelDice) -> [FeelSynthCommand] {
         var commands: [FeelSynthCommand] = [
             // The lid thunk: wood, weight, a knock.
@@ -580,17 +644,16 @@ enum FeelSoundBook {
             let fade = Float(1 - 0.4 * Double(index) / Double(max(times.count - 1, 1)))
             commands.append(contentsOf: coinClink(dice: &dice, scale: 0.7 * fade, delay: Float(time)))
         }
-        // Ka-ching: a short metal "ka", then a low bell chord.
+        // Ka-ching: a short metal "ka", then a bright bell chord and its glint.
         commands.append(.noise(FeelNoiseSpec(.highPass, cutoff: 2500, q: 0.7, attack: 0.0005, decay: 0.012,
                                              gain: 0.1, delay: kaChingAt)))
-        let chord: [Float] = [293.66, 369.99, 440.0]
-        for (index, f) in chord.enumerated() {
+        for (index, f) in kaChingChord.enumerated() {
             commands.append(.ring(FeelRingSpec(.bell, fundamental: f, partials: 5, decay: 0.9, brightness: 0.45,
                                                gain: 0.075, delay: kaChingAt + 0.03 + 0.012 * Float(index),
                                                seed: dice.seed32())))
         }
         commands.append(.ring(FeelRingSpec(.glass, fundamental: 2349.3, partials: 2, decay: 0.35, brightness: 0.3,
-                                           gain: 0.04, delay: kaChingAt + 0.06, seed: dice.seed32())))
+                                           gain: 0.07, delay: kaChingAt + 0.06, seed: dice.seed32())))
         if hushed {
             commands.append(.ring(FeelRingSpec(.chime, fundamental: 1174.66, partials: 3, decay: 0.6,
                                                brightness: 0.3, gain: 0.05, delay: kaChingAt + 0.3,

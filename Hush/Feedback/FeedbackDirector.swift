@@ -8,8 +8,8 @@ import UIKit
 ///
 /// Per frame it builds one small value (`FeelBed`: the creak, the snore, the growl, the tiptoe motif, the dungeon, the
 /// loot rattle), pushes it into a lock-free queue (≤ 60 Hz) and steers the two looping haptic players (≤ 30 Hz: the
-/// creak texture and the rattle). It also keeps the beat for the heartbeat (sound and, at Waking, haptic together)
-/// and the last-15-seconds torch tick. Events map to short recipes from `FeelSoundBook` and `FeelHapticBook`.
+/// creak texture and the rattle). It also keeps the beat for the heartbeat (sound and haptic together: soft at
+/// Stirring, firm at Waking) and the last-15-seconds torch tick. Events map to short recipes from `FeelSoundBook` and `FeelHapticBook`.
 ///
 /// Battery: with `idle` set (menus), or after `idleDelay` s with no play and no events, the engines idle by themselves
 /// (the haptic players stop, the audio engine naps once quiet). A playing frame, an event, a menu sound or the Home
@@ -124,6 +124,11 @@ final class FeedbackDirector: FeedbackSink {
     private var nextRevealSlot: CFTimeInterval = -Double.infinity
     private var lastPick: CFTimeInterval = -Double.infinity
     private var lastDrop: CFTimeInterval = -Double.infinity
+    /// R12: the bite's creak duck runs until this time.
+    private var duckUntil: CFTimeInterval = -Double.infinity
+
+    /// R12 (founder): the robbed chest is waiting for the lid to close after a bite (`setRobbed`).
+    private(set) var robbed = false
 
     /// R2: the lid's direction (the closing creak allowance) and the frozen-speed guard (QA-1 P1-1).
     private var lidDirection = FeelLidDirection()
@@ -247,20 +252,34 @@ final class FeedbackDirector: FeedbackSink {
         var heard = telemetry
         heard.lidSpeed = FeelSoundBook.creakSpeed(telemetry.playing ? telemetry.lidSpeed : unfrozen, closing: closing)
         let creaking = FeelSoundBook.creakLevel(speed: heard.lidSpeed) > 0
-        if telemetry.playing || !events.isEmpty || creaking {
+        if telemetry.playing || !events.isEmpty || creaking || robbed {
             lastActive = now
         }
         if telemetry.playing { lastPlaying = now }
         refreshIdle(now: now)
         heal(now: now)
 
-        // The continuous layers. Leaving play glides slowly instead of cutting.
+        var banking = false
+        var biting = false
+        for event in events {
+            switch event {
+            case .banked: banking = true
+            case .bitten: biting = true
+            default: break
+            }
+        }
+        // R12: a bite ducks the creak fast (to its resting share) for `duckHold` s, under the CHOMP's first teeth.
+        if biting { duckUntil = now + FeelSoundBook.duckHold }
+
+        // The continuous layers. Leaving play glides slowly instead of cutting (except the bite's duck).
         let leavingPlay = wasPlaying && !telemetry.playing
-        if now - lastBedSend >= 1.0 / 60 || leavingPlay {
+        if now - lastBedSend >= 1.0 / 60 || leavingPlay || biting {
             lastBedSend = now
             let ambience = now - lastPlaying <= Self.ambienceHold ? 1.0 : 0.0
-            var bed = FeelSoundBook.heistBed(telemetry: heard, master: master, ambience: ambience)
-            if !telemetry.playing { bed.glide = FeelSoundBook.fadeGlide }
+            var bed = FeelSoundBook.heistBed(telemetry: heard, master: master, ambience: ambience, robbed: robbed)
+            if !telemetry.playing {
+                bed.glide = now < duckUntil ? FeelSoundBook.duckGlide : FeelSoundBook.fadeGlide
+            }
             audio.setBed(bed)
             continuousLive = true
         }
@@ -275,15 +294,6 @@ final class FeedbackDirector: FeedbackSink {
         tickTheTorch(telemetry: telemetry)
         shimmer(telemetry: telemetry, now: now)
 
-        var banking = false
-        var biting = false
-        for event in events {
-            switch event {
-            case .banked: banking = true
-            case .bitten: biting = true
-            default: break
-            }
-        }
         // R3 CREAK (the live path): the noise jumped by > 0.25 within 0.3 s while the lid (or a drag) was loud. A bite
         // on the same frame has its own crack in the CHOMP, so it stays the one big sound.
         let slammed = creakDetector.update(noise: telemetry.noise, lidSpeed: telemetry.lidSpeed,
@@ -319,6 +329,20 @@ final class FeedbackDirector: FeedbackSink {
         wasPlaying = false
         haptics.update(lidSpeed: heard, dragSpeed: 0, now: now)
         scheduleWatchdog()
+    }
+
+    /// R12 (founder): the robbed chest. Call with `session.awaitingClose` (every frame is fine; repeats are ignored).
+    /// While on (after a bite, until the lid closes) the game frames' bed mutes the snore and the tiptoe motif and
+    /// plays a low, slow grumbling breath instead, quiet and under the bed (`FeelSoundBook.robbedGrumble`), in or out
+    /// of play. Off restores the normal bed on the next frame. It is only a bed value (`FeelBed.grumble`, glided per
+    /// sample on the audio thread), so it is render-safe; Home, menus, `silence()` and the watchdog never grumble.
+    func setRobbed(_ on: Bool) {
+        guard on != robbed else { return }
+        robbed = on
+        if on {
+            lastActive = CACurrentMediaTime()
+            refreshIdle(now: lastActive)
+        }
     }
 
     /// R2 relic glimmer: a faint, high shimmer while the "Something glints deeper…" hint (`.relicDeeper`) shows. Call
@@ -415,7 +439,7 @@ final class FeedbackDirector: FeedbackSink {
 
     // MARK: - The beat and the torch
 
-    /// The heartbeat: slow at Stirring (sound), fast at Waking (sound and haptic, in step).
+    /// The heartbeat: slow at Stirring, fast at Waking, sound and haptic in step (R12: Stirring's soft haptic beat).
     private func keepTheBeat(telemetry: HeistTelemetry, now: CFTimeInterval) {
         guard telemetry.playing, let interval = FeelSoundBook.heartInterval(stage: telemetry.stage) else {
             nextBeat = -Double.infinity
@@ -434,7 +458,7 @@ final class FeedbackDirector: FeedbackSink {
         if nextBeat < now { nextBeat = now + interval }
         let fast = telemetry.stage == .waking
         audio.play(FeelSoundBook.heartbeat(fast: fast))
-        if fast { playHaptic(FeelHapticBook.heartbeat) }
+        playHaptic(fast ? FeelHapticBook.heartbeat : FeelHapticBook.heartbeatSoft)
     }
 
     /// The candle clock: a dry tick-tock on each whole second of the last 15, twice a second (higher, keener) in the

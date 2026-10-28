@@ -98,24 +98,34 @@ enum HapticStrength: String, Codable, CaseIterable, Sendable {
 enum FeelHapticBook {
     // MARK: The Strong profile
 
-    /// Strong: continuous intensity × 1.4 (clamped). Every transient becomes a continuous burst this long, at this
-    /// sharpness (rounder = more energy on a small actuator), with its intensity × `strongTapGain` (clamped).
+    /// Strong: continuous intensity × 1.4 (clamped). Every transient **keeps** its own tap (intensity ×
+    /// `strongTapGain`, clamped, its own sharpness and its crisp leading edge) and gets a short continuous burst under
+    /// it for energy: `strongBurst` long, intensity × `strongBurstGain`, sharpness at most `strongBurstSharpness`
+    /// (rounder = more energy on a small actuator).
+    ///
+    /// R12 (REVIEW-6 #6, B2): Strong used to *replace* every tap with the same 55 ms, sharpness-0.4 burst, so the coin
+    /// tick (0.9), the bank thunk (0.2), the creak crack (1.0) and the bite slam (0.7) all felt alike. Layering keeps
+    /// the vocabulary, and the 40 ms burst (was 55) no longer smears the bank cascade's 19–27 ms gaps into a buzz.
     static let strongContinuousGain: Float = 1.4
-    static let strongBurst: Double = 0.055
-    static let strongBurstSharpness: Float = 0.4
+    static let strongBurst: Double = 0.04
+    static let strongBurstSharpness: Float = 0.5
+    static let strongBurstGain: Float = 0.7
     static let strongTapGain: Float = 1.15
 
     /// A cue in the given profile: Normal (and Off, which never plays) unchanged; Strong as above. The curve is kept.
     static func adapt(_ cue: FeelHapticCue, to profile: FeelHapticProfile) -> FeelHapticCue {
         guard profile == .strong else { return cue }
-        let notes: [FeelHapticNote] = cue.notes.map { (note: FeelHapticNote) -> FeelHapticNote in
+        var notes: [FeelHapticNote] = []
+        notes.reserveCapacity(cue.notes.count * 2)
+        for note in cue.notes {
             switch note.kind {
             case .transient:
-                return .buzz(min(note.intensity * strongTapGain, 1), strongBurstSharpness, at: note.time,
-                             duration: strongBurst)
+                notes.append(.tap(min(note.intensity * strongTapGain, 1), note.sharpness, at: note.time))
+                notes.append(.buzz(min(note.intensity * strongBurstGain, 1), min(note.sharpness, strongBurstSharpness),
+                                   at: note.time, duration: strongBurst))
             case .continuous:
-                return .buzz(min(note.intensity * strongContinuousGain, 1), note.sharpness, at: note.time,
-                             duration: note.duration)
+                notes.append(.buzz(min(note.intensity * strongContinuousGain, 1), note.sharpness, at: note.time,
+                                   duration: note.duration))
             }
         }
         return FeelHapticCue(notes: notes, curve: cue.curve)
@@ -123,13 +133,18 @@ enum FeelHapticBook {
 
     // MARK: The continuous creak texture (the hinge you can feel)
 
-    /// Creak intensity (0…1) for a lid speed: ∝ (speed − quiet) / 30 in the creak zone, 0 at or below
+    /// Creak intensity (0…1) for a lid speed: ((speed − quiet) / 30)^0.6 in the creak zone, 0 at or below
     /// `Tuning.quietSpeed`. The director passes `FeelSoundBook.creakSpeed(_:closing:)`, so a closing lid is silent up to
     /// `FeelSoundBook.closeQuietSpeed` here too.
+    ///
+    /// R12 (REVIEW-6 #7, B4): the curve was linear, so on Strong the texture stayed under ~0.25 (near threshold) until
+    /// about 18°/s, just as the quiet ticks stopped: the moment you started making noise you felt *less*. The 0.6 power
+    /// lifts the onset (Strong at 16/20/25°/s: 0.09/0.28/0.51 → 0.28/0.53/0.77) and still reaches 1 at +30°/s.
     static let creakSpan = 30.0
+    static let creakOnsetPower = 0.6
     static func creakLevel(speed: Double) -> Float {
         guard speed.isFinite, speed > Tuning.quietSpeed else { return 0 }
-        return Float(FeelMath.clamp01((speed - Tuning.quietSpeed) / creakSpan))
+        return Float(pow(FeelMath.clamp01((speed - Tuning.quietSpeed) / creakSpan), creakOnsetPower))
     }
 
     /// The creak for a profile (Strong × 1.4).
@@ -146,9 +161,10 @@ enum FeelHapticBook {
     static let creakSharpnessLow: Float = 0.3
     static let creakSharpnessHigh: Float = 0.6
     /// Jitter (±) added to the creak's sharpness and (as a fraction) to its intensity at every send: the stick-slip
-    /// grain you feel under your fingers.
+    /// grain you feel under your fingers. R12 (REVIEW-6 #7): intensity ±15 % → ±30 %; ±15 % of a 0.3 texture was
+    /// ±0.045, too subtle to read as stick-slip.
     static let creakSharpnessJitter: Float = 0.07
-    static let creakIntensityJitter: Float = 0.15
+    static let creakIntensityJitter: Float = 0.30
     static func creakSharpness(speed: Double) -> Float {
         let u = speed.isFinite ? FeelMath.clamp01((speed - Tuning.quietSpeed) / 40) : 0
         return creakSharpnessLow + (creakSharpnessHigh - creakSharpnessLow) * Float(u)
@@ -189,12 +205,18 @@ enum FeelHapticBook {
         return FeelHapticCue(notes: notes)
     }
 
-    /// The heartbeat at Waking: lub-dub, low and firm.
-    static let heartbeat = FeelHapticCue(notes: [.tap(0.75, 0.15), .tap(0.5, 0.15, at: 0.14)])
+    /// The heartbeat at Waking: lub-dub, low and firm (the sound's own 0.14 s gap).
+    static let heartbeat = FeelHapticCue(notes: [.tap(0.75, 0.15),
+                                                 .tap(0.5, 0.15, at: FeelSoundBook.heartGap(fast: true))])
+    /// R12 (REVIEW-6 #8, B3): the slow heartbeat at Stirring, felt too: a soft lub-dub on the sound's 0.18 s gap, so the
+    /// escalation reads in the hand as nothing → a soft slow beat → a firm fast beat → the slam.
+    static let heartbeatSoft = FeelHapticCue(notes: [.tap(0.4, 0.15),
+                                                     .tap(0.28, 0.15, at: FeelSoundBook.heartGap(fast: false))])
     /// The bite: the strongest moment of the game. A full-strength slam, a heavy shudder that fades, and the jaw's
-    /// second snap.
+    /// second snap, on the CHOMP's last tooth-clack (R12, REVIEW-6 B5: it was at 0.12 s, 60 ms after the clack).
     static let bite = FeelHapticCue(
-        notes: [.tap(1.0, 0.7), .buzz(1.0, 0.15, duration: 0.32), .tap(0.85, 0.4, at: 0.12)],
+        notes: [.tap(1.0, 0.7), .buzz(1.0, 0.15, duration: 0.32),
+                .tap(0.85, 0.4, at: Double(FeelSoundBook.chompSecondClack))],
         curve: [FeelHapticPoint(time: 0, value: 1), FeelHapticPoint(time: 0.12, value: 0.9),
                 FeelHapticPoint(time: 0.22, value: 0.5), FeelHapticPoint(time: 0.32, value: 0)]
     )
@@ -202,8 +224,10 @@ enum FeelHapticBook {
     /// wakes: a firm double.
     static let stirring = FeelHapticCue(notes: [.tap(0.5, 0.3)])
     /// R7 (ROUND-7 Feel 3): the faint "safe" grain of careful play, one per `FeelQuietTicker.degreesPerTick` (4°) of
-    /// quiet lid travel, so a slow, silent open still feels like a hinge. Strong-adapted like every cue.
-    static let quietTick = FeelHapticCue(notes: [.tap(0.18, 0.8)])
+    /// quiet lid travel, so a slow, silent open still feels like a hinge. Strong-adapted like every cue. R12 (REVIEW-6
+    /// #10): tap(0.18, 0.8) → tap(0.3, 0.7). 0.18 was at threshold on the Duo (felt as fuzz, not a tick); 0.3 is still
+    /// under every reward (0.45+) and the stirring nudge (0.5), at only 1–7 ticks a second.
+    static let quietTick = FeelHapticCue(notes: [.tap(0.3, 0.7)])
     static let waking = FeelHapticCue(notes: [.tap(0.8, 0.3), .tap(0.6, 0.3, at: 0.12)])
     /// A chest slides in and lands.
     static let chestArrived = FeelHapticCue(
@@ -598,10 +622,16 @@ final class FeelHaptics {
         fallbackHeavy?.prepare()
     }
 
-    /// Up to three notes of the cue as impacts (a buzz plays as one impact at its start).
+    /// Up to three notes of the cue as impacts (a buzz plays as one impact at its start). Notes within 5 ms of the one
+    /// before count once (Strong's tap-plus-burst pairs are one hit).
     private func playFallback(_ cue: FeelHapticCue) {
         prepareFallback()
-        let notes = Array(cue.notes.sorted { $0.time < $1.time }.prefix(3))
+        var notes: [FeelHapticNote] = []
+        for note in cue.notes.sorted(by: { $0.time < $1.time }) {
+            if let last = notes.last, note.time - last.time < 0.005 { continue }
+            notes.append(note)
+            if notes.count == 3 { break }
+        }
         for note in notes {
             let intensity = CGFloat(min(max(note.intensity, 0.05), 1))
             let generator: UIImpactFeedbackGenerator?

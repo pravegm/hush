@@ -186,7 +186,7 @@ final class SceneFloor {
         rootNode.addChild(tableNode)
         rootNode.addChild(coverNode)
         rootNode.addChild(coverOldNode)
-        cover = coverNode
+        self.cover = coverNode
         coverOld = coverOldNode
 
         root = rootNode
