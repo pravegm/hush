@@ -237,7 +237,9 @@ enum AppRules {
     }
 
     static func showsHint(_ hint: HeistHint, runs: Int) -> Bool {
-        !isTeaching(hint) || runs < teachingRuns
+        // R14 (founder: "super complicated"): a phone opened flat is fine; "That's wide enough" was one card too many.
+        if hint == .tooWide { return false }
+        return !isTeaching(hint) || runs < teachingRuns
     }
 
     /// R2: "Freeze!" (or any hint) never stays up under a bite or the candle's end. Pure; tested.
@@ -303,7 +305,7 @@ enum AppRules {
         }
         if r.gold <= 0 {
             return r.bites > 0 ? "The mimic kept every coin. Gentler next time." :
-                (slider ? "Nothing banked. Slide the lever down to bank." : "Nothing banked. Close the lid to bank your loot.")
+                (slider ? "Nothing banked. Slide the lever down to bank." : "Nothing banked. Close the phone to bank your loot.")
         }
         if outcome.showsNewBest { return "A new best haul. The mimics are whispering about you." }
         if r.goldenBanked > 0 { return "You robbed a golden mimic. It'll sulk for weeks." }

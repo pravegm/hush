@@ -4,7 +4,7 @@ import Foundation
 // MARK: - R12: the lid IS the chest (design/ROUND-12.md, App section; founder's real-Duo test of build 6)
 //
 // "The chest closed means lid closed, chest open means lid open." Nothing the App says may ask to open a lid that is
-// already open, and nothing says "Close the lid for the next chest" except over the robbed chest after a bite.
+// already open, and nothing says "Close the phone for the next chest" except over the robbed chest after a bite.
 
 extension AppRules {
     /// R12: the lid reads open past this openness: the shut zone's edge (θ 110° on the hinge, 0.15 on the lever).
@@ -17,7 +17,7 @@ extension AppRules {
         openness.isFinite && openness > lidOpenLine
     }
 
-    /// R12: a line asks to open the lid ("Open the lid… slowly", "Now open it… slowly", "Open it gently"). None of
+    /// R12: a line asks to open the lid ("Open the phone… slowly", "Now open it… slowly", "Open it gently"). None of
     /// these may show while `lidReadsOpen`. Pure; tested (the sweep in `R12Tests`).
     static func asksToOpen(_ line: String) -> Bool {
         line.lowercased().contains("open")

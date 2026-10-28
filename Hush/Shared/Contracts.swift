@@ -249,7 +249,7 @@ public struct LootState: Equatable, Sendable, Identifiable {
 /// One short instruction the HUD shows (Core decides which applies; UI owns the words).
 public enum HeistHint: String, Codable, Sendable {
     case easeLidDown      // ready but the lid is open: "Ease the lid down"
-    case openSlowly       // ready+shut, nothing opened yet this chest: "Open the lid… slowly"
+    case openSlowly       // ready+shut, nothing opened yet this chest: "Open the phone… slowly"
     case slower           // lid speed in the loud zone: "Slower…"
     case freeze           // stage ≥ waking: "Freeze!"
     case dragToBag        // something lit is grabbable and the bag is empty
@@ -258,7 +258,7 @@ public enum HeistHint: String, Codable, Sendable {
     case candleLow        // R2: ≤ 15 s of candle and loot in the bag: "Candle's low. Bank it!"
     case relicDeeper      // R2: a relic glimmers but isn't lit yet: "Something glints deeper…"
     /// R12 (founder, real Duo: "chest closed means lid closed, chest open means lid open"): the run needs the next
-    /// chest but the lid is open (after a bite): "Close the lid for the next chest". Never "open" an open lid.
+    /// chest but the lid is open (after a bite): "Close the phone for the next chest". Never "open" an open lid.
     case closeForNext
 }
 

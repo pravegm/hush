@@ -56,7 +56,7 @@ extension AppRules {
     // MARK: P1-C / P2-5: a silent hinge
 
     /// R8 (QA-5 P1-C, P2-5): no hinge report has arrived since `since` (the closing card went up): the subscription is
-    /// re-made and the card says "Move the lid a little" (the last angle can't be trusted). Pure; tested.
+    /// re-made and the card says "Move the phone a little" (the last angle can't be trusted). Pure; tested.
     static func hingeSilent(lastSample: TimeInterval?, since: TimeInterval) -> Bool {
         guard let last = lastSample, last.isFinite else { return true }
         return last < since

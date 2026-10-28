@@ -194,7 +194,7 @@ struct LessonScript: Equatable {
     /// R11 (UX P1-2): a first lesson's Skip jumped straight to the stakes card.
     private(set) var skippedToGist = false
 
-    init(start: Step = .pose, replay: Bool = false) {
+    init(start: Step = .open, replay: Bool = false) {
         self.step = start
         self.replay = replay
     }
@@ -354,7 +354,7 @@ struct LessonScript: Equatable {
     enum LiftCue: Equatable {
         /// Flat (≥ 168°) or no angle yet: "↑ Lift this half".
         case lift
-        /// Open past the window (> 150°): "↓ Close the lid a little" (R12; was "Lower this half a little").
+        /// Open past the window (> 150°): "↓ Close the phone a little" (R12; was "Lower this half a little").
         case lower
         /// Under the window (< 45°): "↑ Lift this half".
         case liftMore
@@ -366,7 +366,7 @@ struct LessonScript: Equatable {
             switch self {
             case .lift, .liftMore: return "Lift this half"
             // R12 rule 7: chest words.
-            case .lower: return "Close the lid a little"
+            case .lower: return "Close the phone a little"
             case .hold: return "Hold it there…"
             }
         }
@@ -404,11 +404,13 @@ struct LessonScript: Equatable {
             switch Self.liftCue(angle: angle) {
             case .lift: return "Stand your Duo like a little laptop."
             // R13: wider than the window: a little lower (the chest stays open).
-            case .lower: return "Close the lid a little"
+            case .lower: return "Close the phone a little"
             case .liftMore: return "Lift it a little more…"
             case .hold: return "Hold it there…"
             }
         case .open:
+            // R14: every chest starts closed, the lesson's too: with the lid up at the start, close it first.
+            if hint == .easeLidDown { return slider ? "Slide the lever down to start." : "Close the phone to start." }
             if slider { return "Slide the lever up… slowly. Watch the noise." }
             // R12 rule 7: "Now open it… slowly." while it is closed; once it is up, only "keep going".
             return lidOpen ? "Keep going… slowly. Watch the noise." : "Now open it… slowly. Watch the noise."
@@ -420,14 +422,14 @@ struct LessonScript: Equatable {
             return movedDuringFreeze ? "Freeze! Not a twitch." : "It's stirring. Freeze!"
         case .bank:
             // R7 (DEVICE-RISKS-1 item 3): never "shut". R12 rule 3 (founder): bank = close the lid.
-            return slider ? "Slide the lever down to bank it." : "Close the lid to bank it."
+            return slider ? "Slide the lever down to bank it." : "Close the phone to bank it."
         case .done:
             return "Candle out = run over"
         }
     }
 
     /// R12 rule 7: step 1 with the lid open.
-    static let closeToStart = "Close the lid to start"
+    static let closeToStart = "Close the phone to start"
 
     func display(slider: Bool, angle: Double?, hint: HeistHint?, openness: Double? = nil) -> LessonDisplay {
         let warning = praiseLine == nil && (isSlower || (step == .freeze && stirred))

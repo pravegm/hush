@@ -84,6 +84,12 @@ struct SessionOptions: Equatable {
 //     After a BANK (founder refinement) the next chest is always dealt at the end of the 1.4 s moment, "seen shut",
 //     whatever the lid is doing: the lid was closed to bank, so a quick reopen simply opens it (never `.closeForNext`).
 //   - `.easeLidDown` is only produced by the lesson.
+// - R14 (design/ROUND-14.md, founder: "playing starts with the chest closed right? so ask the user to close the phone
+//   if it is not to start playing, then the chest should open as the phone opens"): EVERY chest starts closed. The
+//   first one waits for the lid to be seen shut (`sawShut`; the hint `.easeLidDown`, "Close the phone to start", while
+//   it is open), and the candle doesn't burn until it is opened. Every later chest is dealt under a closed lid (after
+//   a bank, or after a bite once the lid comes down). `noteLidShut()` counts as seen shut. No mode is special
+//   (R1–R12's lesson-only `shutGate` is gone).
 // - R2: the lid is "closing" in a step when its openness fell since the previous step; it is then silent below
 //   Tuning.closeQuietSpeed instead of Tuning.quietSpeed.
 // - R2 Hush Chain: a Hushed bank adds 1 and pays ×Noise.chainMultiplier(chain). The chain breaks (to 0) the moment the
@@ -165,10 +171,8 @@ final class HeistSession {
     private var touches: [TouchTrack] = []
     private var pending: [HeistEvent] = []
 
+    /// R14: the lid has been seen shut over the current chest (false only for a run's first chest, until it is).
     private var sawShut: Bool = false
-    /// R12: only the lesson keeps the R1–R11 gate (a chest waits until the lid has been in the shut zone, with
-    /// `.easeLidDown` meanwhile, and the lid is heard in `.ready`). Every other mode: the lid IS the chest.
-    private let shutGate: Bool
     /// R12 rule 4 (ROUND-12 Core): the bite moment ended with the lid open, so the robbed chest waits,
     /// open and empty (`.ready`, no loot, `hint == .closeForNext`), until the lid enters the shut zone; then the next
     /// chest is dealt. Never true in the lesson.
@@ -190,12 +194,8 @@ final class HeistSession {
         self.bestRun = bestRun
         self.options = options
         self.found = foundRelics
-        // R13 (founder, build 7: "open means open and closed means closed"): the lesson drops the R1–R12 shut-first
-        // gate too. Its chest opens with the lid like every other; `shutGate` is never on.
-        let gate: Bool = false
-        self.shutGate = gate
-        // R12 rule 2: outside the lesson every chest counts as "seen shut", so a run started with the lid up opens at once.
-        self.sawShut = !gate
+        // R14: play starts with the chest closed: the first chest waits for the lid to be seen shut.
+        self.sawShut = false
         let first: ChestSpec = HeistSession.makeChest(seed: seed, index: 0, found: foundRelics, options: options)
         self.chest = first
         self.loot = HeistSession.lootStates(for: first)
@@ -227,8 +227,8 @@ final class HeistSession {
         if phase == .looting {
             return revealed.isEmpty && touches.isEmpty && peakOpenness <= Tuning.freshChestOpenness
         }
-        guard phase == .ready else { return false }
-        return !shutGate || peakOpenness <= Tuning.freshChestOpenness
+        // R14: a `.ready` chest is closed and untouched (the lid is silent there).
+        return phase == .ready
     }
 
     /// Fastest held-item drag speed right now (pt/s), for telemetry.
@@ -332,6 +332,8 @@ final class HeistSession {
     @discardableResult
     func noteLidShut() -> [HeistEvent] {
         guard !isFinished else { return [] }
+        // R14: the first chest's close (the cover display took over, or the closing pause): it now opens with the phone.
+        if phase == .ready && !sawShut { sawShut = true }
         var ev: [HeistEvent] = []
         if awaitingClose {
             nextChest(&ev)
@@ -346,7 +348,7 @@ final class HeistSession {
 
     /// R12b: a chest being looted with loot in the bag: `noteLidShut()` would bank it. (R13: the lesson too; its
     /// script hears the `.banked` through the App's `deliver`.)
-    var canBankOnShut: Bool { !shutGate && !isFinished && isLooting && bagCount > 0 }
+    var canBankOnShut: Bool { !isFinished && isLooting && bagCount > 0 }
 
     private func tick(_ h: Double, _ ev: inout [HeistEvent]) {
         time += h
@@ -390,9 +392,9 @@ final class HeistSession {
         peakOpenness = max(peakOpenness, o)
         if phase == .ready {
             if lid.inShutZone { sawShut = true }
-            // R12 rules 1–2: the chest opens with the lid; outside the lesson, not while the lid is still coming down
+            // R12 rules 1–2: the chest opens with the phone; outside the lesson, not while the lid is still coming down
             // onto a chest just dealt in the shut zone (that lid is closing it, not opening it).
-            if sawShut && o > Tuning.lootingStartOpenness && (shutGate || !closing) {
+            if sawShut && o > Tuning.lootingStartOpenness && !closing {
                 phase = .looting
                 chestsOpened += 1
                 chestTime = 0
@@ -444,8 +446,8 @@ final class HeistSession {
             shutHold = 0
         }
 
-        // Torch.
-        if burnTorch(h, &ev) { return }
+        // Torch. R14: not while the run's first chest still waits to be opened ("Your candle waits").
+        if !(phase == .ready && chestsOpened == 0) && burnTorch(h, &ev) { return }
 
         // The Dreamer's harmless fake twitches.
         if chest.mimic == .dreamer {
@@ -473,8 +475,8 @@ final class HeistSession {
         return false
     }
 
-    /// R12: the lid makes noise in `.looting`, and in the lesson's `.ready` too (its R1–R11 gate).
-    private var lidCounts: Bool { return shutGate || isLooting }
+    /// R12: the lid makes noise in `.looting` only (R14: in every mode).
+    private var lidCounts: Bool { return isLooting }
 
     /// A held item that gets no touch moves is still: its speed decays.
     private func settleTouches(_ h: Double) {
@@ -676,7 +678,7 @@ final class HeistSession {
     /// shut zone the robbed chest waits for the close (the lesson deals at once, as in R1–R11). A bank always deals at
     /// once (the lid was closed to bank).
     private func dealOrAwaitClose(_ ev: inout [HeistEvent]) {
-        if shutGate || lid.inShutZone {
+        if lid.inShutZone {
             nextChest(&ev)
         } else {
             awaitClose(&ev)
@@ -714,8 +716,8 @@ final class HeistSession {
         loot = HeistSession.lootStates(for: spec)
         if ChestFactory.rank(spec.tier) > ChestFactory.rank(highestTier) { highestTier = spec.tier }
         phase = .ready
-        // R12: outside the lesson every chest arrives "seen shut" (it is dealt under a closed lid).
-        sawShut = !shutGate
+        // R12/R14: every later chest arrives "seen shut" (it is dealt under a closed lid).
+        sawShut = true
         cracked = false
         chestTime = 0
         shutHold = 0
@@ -865,9 +867,10 @@ final class HeistSession {
         // During a resume grace the lid makes no noise, so it isn't "too fast" either; nor at a closed chest (R12).
         if lidGrace <= 0 && lidCounts && lid.speed > Tuning.loudSpeed { return .slower }
         if options.torch && isLooting && bagCount > 0 && torch <= Tuning.torchLowSeconds { return .candleLow }
+        // R14: the run's first chest waits for a closed lid: "Close the phone to start" (before "too wide": a flat
+        // phone at the start is asked to close, nothing else).
+        if phase == .ready && !sawShut && !lid.inShutZone { return .easeLidDown }
         if lid.tooWide { return .tooWide }
-        // R12: only the lesson keeps its shut-first gate (and this prompt); a run never asks to lower an open lid.
-        if shutGate && phase == .ready && !lid.inShutZone { return .easeLidDown }
         if isLooting && bagCount > 0 { return .shutToBank }
         var anyGrabbable: Bool = false
         var glimmer: Bool = false

@@ -62,7 +62,7 @@ extension AppRules {
 
     // MARK: Item 8: QA-6 P2s
 
-    /// QA-6 P2-2: the closing card re-subscribes a silent hinge at 3 s, but only says "Move the lid a little" if
+    /// QA-6 P2-2: the closing card re-subscribes a silent hinge at 3 s, but only says "Move the phone a little" if
     /// nothing has arrived this long AFTER that refresh (a healthy hinge at rest re-delivers at once: no flicker).
     static let closingCopyCheckDelay: Double = 1
 

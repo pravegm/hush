@@ -70,7 +70,7 @@ final class GameController: ObservableObject, SceneDriver {
     @Published private(set) var isClosingPaused = false
     /// The lid is back up (≥ the resume angle) but not yet still: the closing card says "Hold still…".
     @Published private(set) var closingLifted = false
-    /// R3 (P1-4): no hinge report yet this run: the closing card says "Move the lid a little".
+    /// R3 (P1-4): no hinge report yet this run: the closing card says "Move the phone a little".
     @Published private(set) var closingAwaitsHinge = false
     @Published private(set) var summary: ResultSummary?
     @Published private(set) var lessonDisplay: LessonDisplay?
@@ -110,6 +110,12 @@ final class GameController: ObservableObject, SceneDriver {
     @Published private(set) var pauseNeedsHold = false
     /// R7 (ROUND-7 App 1): the closing card is over a fresh chest (`HeistSession.isFreshChest`): lifting is enough.
     @Published private(set) var closingFresh = false
+    /// R14: the closing card is over the run's first chest, closed to start (not yet opened).
+    var closingFirstChest: Bool {
+        guard let session else { return false }
+        let s = session.snapshot
+        return session.isFreshChest && s.chest?.index == 0 && s.chestsBanked == 0 && s.bites == 0
+    }
     /// R8 (QA-5 P1-A): bumped on every mask the app hands iOS; RootView re-reads the interface orientation on it (a
     /// hold let go can make iOS rotate with no size, inset or device change).
     @Published private(set) var orientationEpoch = 0
@@ -755,7 +761,7 @@ final class GameController: ObservableObject, SceneDriver {
     }
 
     /// R3 (REVIEW-2-duo P1-4): on a Duo (a hinge seen, or a fold layout) a run never plays on the lever. Before the
-    /// first hinge report it waits in the closing pause ("Move the lid a little"); demo runs without a hinge hold a
+    /// first hinge report it waits in the closing pause ("Move the phone a little"); demo runs without a hinge hold a
     /// shut lid instead (`.fixed`), so CI's fold frames still draw. R6: "Play anyway" is gone; a Duo always uses the
     /// hinge, in every orientation, and a nil hinge context (fully open) never hands it to the lever.
     private func chooseInput() -> AppInputKind {
@@ -815,12 +821,10 @@ final class GameController: ObservableObject, SceneDriver {
         // P0-1: on a Duo's inner display, ask iOS for portrait at launch (a Duo lying flat never rotates by itself).
         // R3 (P1-2): not while it is held landscape, like a book: then the card speaks.
         if hingeSeen || OrientationLock.looksLikeDuo(OrientationLock.screenSize()) { autoAskPortrait(reason: "launch") }
-        if store.data.lessonDone {
-            goHome()
-        } else {
-            // First launch: the First Chest (GAME-DESIGN §8).
-            startLesson(replay: false)
-        }
+        // R14 (founder: "the game also feels super complicated"): first launch opens on Home like every other; Play is
+        // a real run that teaches itself with its hints (close the phone to start, open it slowly, drag the loot in,
+        // close it to bank). The First Chest stays as an optional replay (Settings).
+        goHome()
     }
 
     /// R2-compatible form (tests): `turned` is k = 2.
@@ -1357,7 +1361,7 @@ final class GameController: ObservableObject, SceneDriver {
                                            canvas: canvasClass)
         switch closingPause.update(angle: angle, gateClosing: hinge.isClosing, isShut: isShut,
                                    canResume: resumable, now: now) {
-        case .resumed? where fresh && !still:
+        case .resumed? where !still:
             setClosing(false)
             session?.resumeGrace(seconds: AppRules.freshResumeGrace)
             AppTrace.t("HUSH-T fresh chest resume angle=\(angle.map { AppTrace.fixed($0, 1) } ?? "-")")
@@ -1416,7 +1420,8 @@ final class GameController: ObservableObject, SceneDriver {
             if on {
                 postAccessibility(.screenChanged, ClosingCard.title(lifted: closingLifted,
                                                                     awaitingHinge: closingAwaitsHinge,
-                                                                    fresh: closingFresh))
+                                                                    fresh: closingFresh,
+                                                                    first: closingFirstChest))
             }
         }
     }
@@ -1497,7 +1502,7 @@ final class GameController: ObservableObject, SceneDriver {
     }
 
     /// R8 (QA-5 P1-C, P2-5): 3 s on the closing card with no hinge report since it went up: re-subscribe the hinge
-    /// (iOS may have gone silent after a hand-off), and say "Move the lid a little" (the last angle can't be trusted:
+    /// (iOS may have gone silent after a hand-off), and say "Move the phone a little" (the last angle can't be trusted:
     /// it may say "Lift the lid" on a flat Duo). The next report puts the true words back. Internal for the tests.
     @discardableResult
     func closingSilenceCheck() -> Bool {
@@ -1515,7 +1520,7 @@ final class GameController: ObservableObject, SceneDriver {
         return true
     }
 
-    /// R11 (QA-6 P2-2): the 4 s half: still nothing → "Move the lid a little". Internal for the tests.
+    /// R11 (QA-6 P2-2): the 4 s half: still nothing → "Move the phone a little". Internal for the tests.
     @discardableResult
     func closingSilenceCopy() -> Bool {
         guard closingHingeSilent else { return false }
@@ -1757,7 +1762,8 @@ final class GameController: ObservableObject, SceneDriver {
 
     // MARK: - The First Chest lesson
 
-    func startLesson(replay: Bool, at step: LessonScript.Step = .pose) {
+    /// R14: the lesson starts at "open" (its pose step, "Stand your Duo like a little laptop", is gone: any pose plays).
+    func startLesson(replay: Bool, at step: LessonScript.Step = .open) {
         lessonReplay = replay
         start(.lesson)
         lessonSpeech = LessonSpeechGate()
@@ -1931,7 +1937,8 @@ final class GameController: ObservableObject, SceneDriver {
     /// it up, rule 2) it never says "open": "Candle lit. Gently does it."
     nonisolated static func startBanner(_ mode: RunMode, lidOpen: Bool = false) -> String? {
         switch mode {
-        case .run: return lidOpen ? "Candle lit. Gently does it." : "Candle lit. Open it gently."
+        // R14: with the phone open at the start the chest waits for a close (the hint says so), so no "candle lit".
+        case .run: return lidOpen ? "Shh… a sleeping mimic." : "Candle lit. Open it gently."
         case let .daily(day, scored):
             return scored ? "Daily Dungeon · " + AppRules.dailyDate(day: day) : "Practice: no score today"
         case .attract, .lesson: return nil
@@ -2081,7 +2088,7 @@ final class GameController: ObservableObject, SceneDriver {
         // R12: the lid as the chest sees it now (the words never ask to open an open lid).
         let lidOpen = AppRules.lidReadsOpen(s.openness)
         var wanted = s.hint
-        // R12 (founder via CI): "Close the lid for the next chest" belongs to the robbed chest alone, never after a bank.
+        // R12 (founder via CI): "Close the phone for the next chest" belongs to the robbed chest alone, never after a bank.
         if !AppRules.allowsCloseForNext(wanted, awaitingClose: session?.awaitingClose ?? false) { wanted = nil }
         if let h = wanted, !AppRules.showsHint(h, runs: store.data.runs) { wanted = nil }
         if route == .lesson || isPaused { wanted = nil }

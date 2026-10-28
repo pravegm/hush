@@ -10,8 +10,10 @@ extension AppRules {
     /// line in force, `hinge.effectiveResumeAngle`), with no "Hold still…" wait. Nothing can be lost: the lid is silent
     /// under 97° and looting needs ≤ 110° first. A pause over a chest in play keeps the full rule (`canResume`: lifted
     /// AND still). Pure; tested.
+    /// R14 (founder: "super complicated"): every closing pause resumes on the lift, with no "Hold still…" wait: closing
+    /// always banks the bag (R12b), so nothing is at stake, and the resume grace keeps the lift silent.
     static func closingResumes(canResume: Bool, freshChest: Bool, lifted: Bool) -> Bool {
-        canResume || (freshChest && lifted)
+        canResume || lifted
     }
 
     /// Silent lid after a fresh-chest resume (s), like "Carry on" (DEVICE-RISKS-1 item 3: `resumeGrace(0.8)`).

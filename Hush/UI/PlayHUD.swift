@@ -8,13 +8,13 @@ enum HushCopy {
     /// still holds a hint Core has just stopped wanting.
     static func hint(_ hint: HeistHint, slider: Bool, lidOpen: Bool = false) -> String {
         switch hint {
-        // R11 (UX P2-2): "Ease the lid down" was the bank's phrase. R12: the lesson's chest words, "Close the lid…"
+        // R11 (UX P2-2): "Ease the lid down" was the bank's phrase. R12: the lesson's chest words, "Close the phone…"
         // (Core produces it only in the lesson now).
-        case .easeLidDown: return slider ? "Slide the lever down first" : "Close the lid a little first"
+        case .easeLidDown: return slider ? "Slide the lever down first" : "Close the phone to start"
         case .openSlowly:
             // R12: Core still asks while nothing is lit yet; with the lid already up, it only needs to go wider.
             if lidOpen { return "A little wider… slowly" }
-            return slider ? "Slide the lever up… slowly" : "Open the lid… slowly"
+            return slider ? "Slide the lever up… slowly" : "Open the phone… slowly"
         case .slower: return "Slower…"
         case .freeze: return "Freeze!"
         case .dragToBag: return "Drag the loot into your bag"
@@ -31,11 +31,11 @@ enum HushCopy {
 
     /// R7 (ROUND-7 App 1): "down", never "shut". R12 rule 3 (founder): bank = close the lid ("closing it all the way is
     /// fine: the bank fires on the way down").
-    static let bankLid = "Close the lid to bank"
+    static let bankLid = "Close the phone to bank"
     /// R12: the stakes card's bank row on a fold.
-    static let bankStakeLid = "Close the lid to bank it"
+    static let bankStakeLid = "Close the phone to bank it"
     /// R12 rule 4 (`HeistHint.closeForNext`).
-    static let closeForNextLid = "Close the lid for the next chest"
+    static let closeForNextLid = "Close the phone for the next chest"
     /// R13 (phone QA P1-1): the lever named ("it" had no subject on the plate). Shorter than before.
     static let closeForNextLever = "Lever down for the next chest"
 
@@ -62,7 +62,7 @@ enum HushCopy {
     /// R11 (ROUND-11 App 2, UX P2-5): the stakes card's fourth row, how to pause: closing the lid on a fold (the
     /// closing pause), the coin on a phone. ≤ 6 words; tested.
     static func pauseStake(slider: Bool) -> StakeRow {
-        StakeRow(icon: .pause, text: slider ? "Tap the coin to pause" : "Close the lid to pause")
+        StakeRow(icon: .pause, text: slider ? "Tap the coin to pause" : "Close the phone to pause")
     }
 
     /// R3 (UX P1-9): what VoiceOver hears as it happens (nil: nothing to say). Pure; tested.
@@ -345,18 +345,20 @@ struct PauseMenu: View {
 
 /// The closing pause: "Lift the lid a little to carry on", then, once it's back up, "Hold still…" until Feel says it
 /// is still (R2 P0-2: never resumes mid-motion). R3: one plate, one prompt, between the noise meter and the fold
-/// (never over the meter), with "Move the lid a little" before the first hinge report (P1-4).
+/// (never over the meter), with "Move the phone a little" before the first hinge report (P1-4).
 struct ClosingCard: View {
     @ObservedObject var controller: GameController
     let info: AppCanvas
 
     /// Pure; tested. R7 (ROUND-7 App 1): over a fresh chest (`HeistSession.isFreshChest`) lifting the lid is enough,
     /// so the card never says "Hold still…" there.
-    static func title(lifted: Bool, awaitingHinge: Bool = false, fresh: Bool = false) -> String {
-        if awaitingHinge { return "Move the lid a little" }
-        // R13: the lid is shut, so is the chest; it opens with the lid, from the first degree.
-        if fresh { return "Open the lid slowly for the next chest" }
-        return lifted ? "Hold still…" : "Open the lid slowly to carry on"
+    static func title(lifted: Bool, awaitingHinge: Bool = false, fresh: Bool = false, first: Bool = false) -> String {
+        if awaitingHinge { return "Move the phone a little" }
+        // R13: the lid is shut, so is the chest; it opens with the phone, from the first degree. R14: the run's first
+        // chest (closed to start) says "start".
+        if fresh && first { return "Open the phone slowly to start" }
+        if fresh { return "Open the phone slowly for the next chest" }
+        return lifted ? "Hold still…" : "Open the phone slowly to carry on"
     }
 
     /// R6: the escape hatch's words.
@@ -416,7 +418,8 @@ struct ClosingCard: View {
                         .frame(width: 96, height: 62)
                 }
                 VStack(alignment: .leading, spacing: 4) {
-                    Text(Self.title(lifted: lifted, awaitingHinge: waiting, fresh: fresh))
+                    Text(Self.title(lifted: lifted, awaitingHinge: waiting, fresh: fresh,
+                                    first: controller.closingFirstChest))
                         .font(HushType.headline(c))
                         .foregroundStyle(HushTheme.parchment)
                         .fixedSize(horizontal: false, vertical: true)
@@ -655,7 +658,7 @@ struct LessonStepCard: View {
 }
 
 /// Step 6 (UX P0-3): the stakes, three drawn icon rows, then "Got it" (the first run). R3: the leather plate, the
-/// layout's words (R12: "Close the lid to bank it" on a fold, the lever otherwise).
+/// layout's words (R12: "Close the phone to bank it" on a fold, the lever otherwise).
 struct LessonFinalCard: View {
     @ObservedObject var controller: GameController
     let compact: Bool
@@ -668,7 +671,7 @@ struct LessonFinalCard: View {
     static func width(_ info: AppCanvas) -> CGFloat { min(info.size.width - 32, 400) }
 
     /// R11 (ROUND-11 App 2, UX P2-5): the stakes rows: the candle, the bite, the bank, then, on a Duo's full floor, how
-    /// to pause ("Close the lid to pause"). Not on a short fold floor (`tight`) or a phone (its pause is the plain tap
+    /// to pause ("Close the phone to pause"). Not on a short fold floor (`tight`) or a phone (its pause is the plain tap
     /// coin, and the card must fit its floor half at the default size). Pure; tested.
     static func rows(slider: Bool, tight: Bool) -> [StakeRow] {
         HushCopy.stakes(slider: slider) + (slider || tight ? [] : [HushCopy.pauseStake(slider: slider)])

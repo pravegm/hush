@@ -285,10 +285,10 @@ struct CoverCard: View {
     /// Pure; tested.
     /// R13 (founder: "for the next chest to open, open lid slowly, even 1 degree open lid means chest is opening"):
     /// the lid is shut, so is the chest; the card says how the next one opens.
-    static func title(midRun: Bool) -> String { midRun ? "Open the lid slowly" : "Open me… gently" }
+    static func title(midRun: Bool) -> String { midRun ? "Open the phone slowly" : "Open me… gently" }
     static func detail(midRun: Bool) -> String {
-        midRun ? "The chest opens with the lid, from the very first degree. Your candle waits."
-            : "The chest opens with the lid, from the very first degree. There's gold in here."
+        midRun ? "The chest opens with the phone, from the very first degree. Your candle waits."
+            : "The chest opens with the phone, from the very first degree. There's gold in here."
     }
     /// R8: the escape plate's line and buttons. Pure; tested.
     static let escapeLine = "Already open?"

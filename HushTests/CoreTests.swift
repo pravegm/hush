@@ -507,7 +507,7 @@ struct CoreTests {
     // MARK: Session: the chest loop
 
     /// R12: only the lesson kept the shut-first gate. R13 (founder: "open means open and closed means closed"): the gate
-    /// is gone. The lesson's chest opens with the lid like a run's: no "Ease the lid down first", no wait for the shut
+    /// is gone. The lesson's chest opens with the phone like a run's: no "Ease the lid down first", no wait for the shut
     /// zone, and from shut it opens on the first opening.
     @Test func theLessonChestOpensWithTheLid() {
         let s: HeistSession = newSession(mode: .lesson)
@@ -522,7 +522,7 @@ struct CoreTests {
         #expect(s.snapshot.loot.contains { (l: LootState) -> Bool in l.light > 0 })
         let ev1: [HeistEvent] = s.step(dt: 1.0 / 60.0, lid: lidAt(0.6))
         #expect(count(ev1, isCracked) == 0)
-        // Lid shut at the start: closed and dark, "Open the lid… slowly", then it opens with the lid.
+        // Lid shut at the start: closed and dark, "Open the phone… slowly", then it opens with the phone.
         let t: HeistSession = newSession(mode: .lesson)
         _ = t.step(dt: 1.0 / 60.0, lid: lidAt(0.0))
         #expect(t.snapshot.phase == .ready)
@@ -1885,7 +1885,7 @@ struct CoreTests {
     private func isCloseForNext(_ s: HeistSession) -> Bool { return s.snapshot.hint == HeistHint.closeForNext }
 
     /// Rules 1–2: a run started with the lid up is simply open: looting on the first step, cracked, the loot lit at the
-    /// current openness, and never "lower the lid". With the lid shut it arrives closed and opens with the lid.
+    /// current openness, and never "lower the lid". With the lid shut it arrives closed and opens with the phone.
     /// R13: the lesson too (its shut-first gate is gone).
     @Test func r12FirstChestOpensAtOnceWithTheLidUp() {
         for mode in [RunMode.run, RunMode.daily(day: 300, scored: true), RunMode.attract, RunMode.lesson] {
@@ -1905,7 +1905,7 @@ struct CoreTests {
             #expect(lit)
             #expect(s.snapshot.loot.contains { (l: LootState) -> Bool in l.grabbable })
         }
-        // Lid shut at the start: the chest arrives closed (dark, "Open the lid… slowly"), then opens with the lid.
+        // Lid shut at the start: the chest arrives closed (dark, "Open the phone… slowly"), then opens with the phone.
         let c: HeistSession = newSession(seed: 7)
         _ = c.step(dt: 1.0 / 60.0, lid: lidAt(0))
         #expect(c.snapshot.phase == .ready)
@@ -1914,7 +1914,7 @@ struct CoreTests {
         let ev2: [HeistEvent] = c.step(dt: 1.0 / 60.0, lid: lidAt(0.1))
         #expect(c.snapshot.phase == .looting)
         #expect(count(ev2, isCracked) == 1)
-        // R13: the lesson's chest is the same: shut, it arrives closed and opens with the lid.
+        // R13: the lesson's chest is the same: shut, it arrives closed and opens with the phone.
         let l: HeistSession = newSession(mode: .lesson)
         _ = l.step(dt: 1.0 / 60.0, lid: lidAt(0))
         #expect(l.snapshot.phase == .ready)
@@ -1924,7 +1924,7 @@ struct CoreTests {
         #expect(count(ev3, isCracked) == 1)
     }
 
-    /// Rule 4, after a bite: the robbed chest stays open and empty with only "Close the lid for the next chest" (the
+    /// Rule 4, after a bite: the robbed chest stays open and empty with only "Close the phone for the next chest" (the
     /// candle burning on), however long the lid stays up; the next chest is dealt the step the lid enters the shut zone.
     @Test func r12AfterABiteTheRobbedChestWaitsForTheClose() {
         let (s, _) = lootingSession(seed: 71)

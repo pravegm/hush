@@ -318,7 +318,7 @@ struct ThiefPilot {
             return PilotOutput(lid: lidOutput, touches: touches)
         }
 
-        // R12 rule 4: the robbed chest waits, open and empty, for the lid ("Close the lid for the next chest"). Close
+        // R12 rule 4: the robbed chest waits, open and empty, for the lid ("Close the phone for the next chest"). Close
         // it at this chest's closing speed; the next chest is dealt in the shut zone and rolls its own speeds.
         if snap.hint == .closeForNext {
             if let d = drag {

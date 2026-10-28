@@ -161,7 +161,7 @@ final class SceneMoments {
 
     /// Set by the scene before every frame: the robbed chest (after a bite, the lid still open, the next chest only
     /// once it closes). It stays OPEN and EMPTY: the bite's end doesn't dim its interior or say "Next chest…" (the
-    /// App's "Close the lid for the next chest" is the one prompt).
+    /// App's "Close the phone for the next chest" is the one prompt).
     var robbed = false
     /// Set by the scene before every frame: how much of the closed chest's cover is drawn (0…1). The bite's throat and
     /// lower fangs (at the back wall, drawn over the cover's layer) give way to a shut lid.

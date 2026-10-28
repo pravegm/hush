@@ -135,9 +135,9 @@ extension AppRules {
         guard !cardUp else { return false }
         let place = route == .home || (route == .lesson && (lessonStep ?? 1) <= 1)
         guard place else { return false }
-        if forced { return true }
-        guard duo, !dismissed else { return false }
-        return device == .landscapeLeft || device == .landscapeRight
+        // R14 (founder: "it asks me to open the phone… in that open state it still asks me"): any pose plays, so
+        // the "Stand it up like a little laptop" tip never shows on its own (a demo may still force it for CI).
+        return forced
     }
 
     /// Clockwise quarter turns (in the WINDOW's frame) that draw the tip upright to gravity: the device's physical
