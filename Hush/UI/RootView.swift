@@ -132,7 +132,9 @@ struct RootView: View {
                 CoverCard(midRun: controller.isLiveRun, portrait: controller.portraits.cover,
                           reduceMotion: controller.reduceMotion, escape: controller.coverEscape,
                           onCarryOn: { controller.coverCarryOn() }, onHome: { controller.coverHome() },
-                          onPlay: { controller.coverPlay() })
+                          onPlay: { controller.coverPlay() }, lastRun: controller.coverLastRun,
+                          banked: controller.bankedSoFar,
+                          onEndRun: { controller.coverEndRun() })
                     .transition(.opacity)
             }
             if tipOn {

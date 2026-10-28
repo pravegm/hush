@@ -771,7 +771,11 @@ final class GameController: ObservableObject, SceneDriver {
         if demo?.pilot != nil { return .pilot }
         if demo?.lid != nil { return .fixed }
         if hinge.hasHinge { return .hinge }
-        if hingeSeen || layoutHasFold { return isDemo ? .fixed : .hinge }
+        // R15 (walkthrough P1-1): Play on a fresh install's cover intro: the cover display's shape is a Duo (the hinge
+        // will report as the phone opens), never the lever.
+        if hingeSeen || layoutHasFold || OrientationLock.looksLikeDuoCover(lastCanvasSize) {
+            return isDemo ? .fixed : .hinge
+        }
         return .slider
     }
 
@@ -828,6 +832,9 @@ final class GameController: ObservableObject, SceneDriver {
         // a real run that teaches itself with its hints (close the phone to start, open it slowly, drag the loot in,
         // close it to bank). The First Chest stays as an optional replay (Settings).
         goHome()
+        // R15 (walkthrough P1-1): ask for the hinge at launch, so a Duo (even a fresh install, launched shut and
+        // still) knows its angle before Play.
+        refreshHinge("launch")
     }
 
     /// R2-compatible form (tests): `turned` is k = 2.
@@ -1092,6 +1099,25 @@ final class GameController: ObservableObject, SceneDriver {
         AppTrace.t("HUSH-T cover play")
         note("cover play")
         play()
+    }
+
+    /// R15 (walkthrough P1-3): "End run" on the mid-run cover card. The banked gold is kept (as the pause menu's
+    /// Home); the cover then shows the intro again.
+    func coverEndRun() {
+        guard isLiveRun else { return }
+        AppTrace.t("HUSH-T cover end run")
+        note("cover end run")
+        goHome()
+    }
+
+    /// R15: the gold banked so far, for the mid-run cover card.
+    var bankedSoFar: Int { session?.snapshot.banked ?? 0 }
+
+    /// R15 (walkthrough P2-4): on Results, the cover intro says how the run went (it may have ended with the phone
+    /// shut, so the inner Results were never seen).
+    var coverLastRun: String? {
+        guard route == .results, let s = summary else { return nil }
+        return CoverCard.lastRunLine(gold: s.result.gold)
     }
 
     /// The cover card's "Home": Home, drawn in play pose (until the display changes or the Duo is shut).
@@ -1481,6 +1507,23 @@ final class GameController: ObservableObject, SceneDriver {
         resumeGuardStamp = refreshGrace > 0 ? max(last, CACurrentMediaTime() + refreshGrace) : last
         if let session { session.resumeGrace(seconds: AppRules.carryOnGrace) }
     }
+
+    /// R15 (walkthrough P1-2): re-subscribe the hinge at once and then every second (5 tries) while a run waits for
+    /// its first report.
+    private func askForTheHinge() {
+        refreshHinge("play")
+        hingeAskTask?.cancel()
+        hingeAskTask = Task { [weak self] in
+            for _ in 0..<5 {
+                try? await Task.sleep(nanoseconds: 1_000_000_000)
+                guard !Task.isCancelled, let self else { return }
+                guard self.closingAwaitsHinge, !self.hinge.hasHinge else { return }
+                self.refreshHinge("play wait")
+            }
+        }
+    }
+
+    private var hingeAskTask: Task<Void, Never>?
 
     /// R8 (QA-5 P1-C): make `HingeReader` re-subscribe (it delivers the current hinge state). Logged.
     func refreshHinge(_ reason: String) {
@@ -1936,7 +1979,9 @@ final class GameController: ObservableObject, SceneDriver {
         }
         // R12 rule 2: Play pressed with the lid up goes straight into an open first chest, so the first frame's
         // banner already follows the lid (the HUD follows it every frame after).
-        let startOpen = input == .hinge && hinge.hasHinge && AppRules.lidReadsOpen(hinge.lastLid.openness)
+        // R15 (walkthrough P2-3): the hinge's angle, not `lastLid` (Home never asks it for a frame, so it is stale).
+        let startOpen = input == .hinge && hinge.hasHinge
+            && (hinge.angle.map { AppRules.lidReadsOpen(Lid.hingeOpenness(angle: $0)) } ?? false)
         hud.update(hint: nil, banner: Self.startBanner(m, lidOpen: startOpen) ?? bannerText, stage: .asleep,
                    bagCount: 0, debugLoot: nil, spoken: SpokenHUD(), biting: false, lidOpen: startOpen)
         setRoute(m == .lesson ? .lesson : .playing)
@@ -1945,6 +1990,9 @@ final class GameController: ObservableObject, SceneDriver {
             closingAwaitsHinge = true
             closingPause.hold()
             setClosing(true)
+            // R15 (walkthrough P1-2): a still phone may send nothing, so ask for the angle now and every second
+            // until it comes (`HingeReader` re-subscribes and delivers the current state).
+            askForTheHinge()
         }
         lockForLiveRun(true)
         refreshIdleTimer()

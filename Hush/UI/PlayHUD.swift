@@ -180,8 +180,11 @@ struct PlayLayer: View {
                 PauseMenu(controller: controller, info: info)
                     .transition(.opacity)
             } else if controller.isClosingPaused {
+                // R15 (walkthrough P2-2): fades in after 0.25 s, so a relight that resumes at once (an open phone
+                // over a fresh chest) never flashes the card; it goes at once.
                 ClosingCard(controller: controller, info: info)
-                    .transition(.opacity)
+                    .transition(.asymmetric(insertion: .opacity.animation(.easeIn(duration: 0.15).delay(0.25)),
+                                            removal: .identity))
             }
         }
         .frame(width: info.size.width, height: info.size.height)
@@ -359,7 +362,9 @@ struct ClosingCard: View {
         // chest (closed to start) says "start".
         if fresh && first { return "Open slowly. Don't wake it." }
         if fresh { return "Open the phone slowly for the next chest" }
-        return lifted ? "Hold still…" : "Open the phone slowly to carry on"
+        // R15 (walkthrough P2-1): no "Hold still…" any more (R14: the lift alone carries on).
+        _ = lifted
+        return "Open the phone slowly to carry on"
     }
 
     /// R6: the escape hatch's words.
@@ -370,7 +375,8 @@ struct ClosingCard: View {
         // R14 (UX audit E): the run's first chest gives the three rules (the lesson no longer runs first).
         if fresh && first { return "Drag loot to your bag. Close the phone to bank. Your candle is the clock." }
         if fresh { return "The mimic waits. Your candle does too." }
-        return lifted ? "Then we tiptoe on." : "The mimic waits. Your candle does too."
+        _ = lifted
+        return "The mimic waits. Your candle does too."
     }
 
     @Environment(\.dynamicTypeSize) private var typeSize
@@ -443,7 +449,9 @@ struct ClosingCard: View {
             }
             // R6 (ROUND-6 App 6, never stuck): after 3 s, a big "Carry on" that resumes at once, whatever the
             // hinge says (the watchdog does the same by itself after 6 s with the lid open).
-            if controller.closingEscape {
+            // R15 (walkthrough P1-2): never with no hinge report yet: it would play a lid at 0 (a closed chest on an
+            // open phone). The card says "Move the phone a little" then, and Home is always there.
+            if controller.closingEscape && (controller.hasHinge || controller.input != .hinge) {
                 HushButton(kind: .primary, height: c ? 56 : HushTheme.primaryHeight, compact: c, confirm: true,
                            action: { controller.carryOn() }) {
                     Text(Self.carryOn)

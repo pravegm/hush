@@ -322,6 +322,11 @@ struct CoverCard: View {
     var onHome: () -> Void = {}
     /// R15: the intro's Play (outside a run).
     var onPlay: () -> Void = {}
+    /// R15 (walkthrough P2-4): "Run over · 340 gold" when the run just ended (the inner Results may be unseen).
+    var lastRun: String? = nil
+    /// R15 (walkthrough P1-3): mid-run, the gold banked so far and a way to end the run from the outer screen.
+    var banked: Int = 0
+    var onEndRun: () -> Void = {}
     /// R11 (QA-6 P2-10, UX P2-1): VoiceOver moves to the escape's first button when the plate appears.
     @AccessibilityFocusState private var escapeFocused: Bool
 
@@ -334,6 +339,10 @@ struct CoverCard: View {
         midRun ? "The chest opens with the phone. Your candle waits." : "Press Play, then open the phone slowly."
     }
     static let playLabel = "Play"
+    /// R15: mid-run on the outer screen.
+    static let endRunLabel = "End run"
+    static func bankedLine(_ gold: Int) -> String { "Banked so far: \(gold.formatted()) gold" }
+    static func lastRunLine(gold: Int) -> String { "Run over · \(gold.formatted()) gold" }
     /// R8: the escape plate's line and buttons. Pure; tested.
     static let escapeLine = "Already open?"
     static let carryOnLabel = "Carry on"
@@ -362,8 +371,20 @@ struct CoverCard: View {
                                     .foregroundStyle(HushTheme.mist)
                                     .multilineTextAlignment(.center)
                                     .fixedSize(horizontal: false, vertical: true)
+                                if banked > 0 {
+                                    Text(Self.bankedLine(banked))
+                                        .font(HushType.headline(true))
+                                        .foregroundStyle(HushTheme.goldLight)
+                                }
                             }
                             .accessibilityElement(children: .combine)
+                            if !escape {
+                                HushButton(kind: .leather, height: HushTheme.minTap, compact: true, action: onEndRun) {
+                                    Text(Self.endRunLabel)
+                                }
+                                .frame(maxWidth: 260)
+                                .accessibilityHint("Ends the run and keeps the gold you've banked")
+                            }
                         } else {
                             intro(width: geo.size.width)
                         }
@@ -400,6 +421,11 @@ struct CoverCard: View {
     private func intro(width: CGFloat) -> some View {
         VStack(spacing: 14) {
             HushWordmark(size: 48)
+            if let lastRun {
+                Text(lastRun)
+                    .font(HushType.headline(true))
+                    .foregroundStyle(HushTheme.goldLight)
+            }
             MimicPortraitView(scene: portrait, fps: 30)
                 .frame(width: min(width * 0.46, 220))
             Text(Self.title(midRun: false))

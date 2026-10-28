@@ -75,7 +75,9 @@ enum AppRules {
         let long = max(canvas.width, canvas.height)
         // Shut, iOS moves the app to the cover display (a small canvas). A stale "shut" latch never covers the lit
         // inner display (Swoop Duo R3 P2-7): there the closing card speaks instead.
-        if hingeSeen && long < coverMaxSide { return .cover }
+        // R15 (walkthrough P1-1): a fresh install launched shut has no hinge report yet; the Duo's cover display shape
+        // (no other iPhone has it) is enough, so a new buyer sees the cover intro, never Home on the outer screen.
+        if (hingeSeen || OrientationLock.looksLikeDuoCover(canvas)) && long < coverMaxSide { return .cover }
         _ = isShut
         return .play
     }
