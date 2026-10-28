@@ -483,15 +483,23 @@ bad_hints() {
 # sim hands the app to its cover display at 62–92°; opening, it relights at ~22°, duo run 40725260104). Before a launch.
 open_from_below() { hinge_sweep 5 6; hinge_wiggle 5 1; hinge_sweep "$1" 2; hinge_set "$1"; }
 # slam_ready <log> (R15b): 0 once the launched run's first chest is open (lidCracked within 5 s) at SLAM_FROM; if the
-# sim's cover display still holds the launch (`cover_up`), up to 60° for the relight (SLAM_FROM=60) and wait again.
+# sim's cover display still holds the launch (`cover_up`), the relight is redone with THIS app running: down to 5° and
+# back up to SLAM_FROM (run 40781291081: a fresh launch at 40° and a plain raise to 60° stayed on the cover, while in-app
+# reopens from 5° relit at ~22–33°), then once more up to 60° (SLAM_FROM=60). A close of the open first chest under
+# the cover may end it (R14b, empty bag) and deal the next: either chest's lidCracked counts.
 SLAM_FROM=40
 slam_ready() {
+  local try
   hinge_wiggle "$SLAM_FROM" 1
   wait_for "$1" "HUSH-T event lidCracked" 5 && return 0
-  cover_up "$1" || return 1
-  log "the sim's cover display held the launch at ${SLAM_FROM}°: up to 60° for the relight"
-  SLAM_FROM=60; hinge_sweep 60 1.5; hinge_wiggle 60 1
-  wait_for "$1" "HUSH-T event lidCracked" 5
+  for try in 1 2; do
+    cover_up "$1" || return 1
+    (( try == 2 )) && SLAM_FROM=60
+    log "the sim's cover display holds the run at the slam start: down to 5° and up to ${SLAM_FROM}° in-app (try $try/2)"
+    hinge_sweep 5 3; hinge_wiggle 5 1; hinge_sweep "$SLAM_FROM" 3; hinge_wiggle "$SLAM_FROM" 1
+    wait_for "$1" "HUSH-T event lidCracked" 5 && return 0
+  done
+  return 1
 }
 # dt_lines <log> <l1> <l2>: seconds from line l1 to line l2 by the line clock, or "none".
 dt_lines() {
