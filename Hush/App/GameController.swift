@@ -504,13 +504,25 @@ final class GameController: ObservableObject, SceneDriver {
                                  frozen: frozen, sceneSize: scene?.size, viewSize: scene?.view?.bounds.size,
                                  scaleMode: scene?.scaleMode)
             // R9b: every touch the scene got, wherever it landed (raw=0 means nothing reached the SKView at all).
-            + " raw=\(scene?.rawTouchesBegan ?? -1) rawAt=\(scene?.lastRawTouch ?? "-")"
+            + " raw=\(scene?.rawTouchesBegan ?? -1) rawAt=\(scene?.lastRawTouch ?? "-")" + Self.windowTouchSummary
+    }
+
+    /// R9c: window-level touch counts (DEBUG demo runs only; empty in Release).
+    private static var windowTouchSummary: String {
+        #if DEBUG
+        return " " + DebugWindowTouchCounter.summary
+        #else
+        return ""
+        #endif
     }
 
     /// Demo runs: republish `debug.state` (at most 4 times a second unless `force`).
     func refreshDebugState(now: TimeInterval, force: Bool = false) {
         guard isDemo, force || now - lastDebugState >= 0.25 || now < lastDebugState else { return }
         lastDebugState = now
+        #if DEBUG
+        DebugWindowTouchCounter.install()
+        #endif
         debugState.set(debugStateLine)
     }
 
