@@ -186,6 +186,14 @@ struct HingePredictor {
 /// - **Decay**: with no sample for more than `hold` s the speed decays towards 0 (time constant `decayTau`).
 /// - At display rate the reported speed follows the per-sample estimate with a `followTau` one-pole, so it never
 ///   steps at the report rate (the creak audio and haptics read it every frame).
+/// - **R7 input hygiene** (`FeelSpeedHygiene.hinge`, ROUND-7 / DEVICE-RISKS-1 item 2, D2; the hinge only, the slider
+///   keeps `.plain`):
+///   - *Breakaway floor:* once a move starts after a silence longer than `hold` (0.12 s), the speed is divided by at
+///     least `breakaway` (0.10 s) until the move is that old. A free-stop hinge breaks away with a small jump 20–40 ms
+///     after its first report, and dividing that by 0.03 s read 25–30°/s for a careful hand.
+///   - *Deadband:* a reported value within `deadband` (0.4°) of the last accepted one is read as that value
+///     (backlash), so report jitter and tremor don't count as path. A steady move still reads exactly.
+///   - *Rebase* (`rebase(_:at:)`): the hinge settling (a snap near flat) starts a fresh base and credits no speed.
 struct FeelSpeedEstimator {
     /// The smoothing window (s).
     static let window = 0.25
@@ -204,6 +212,9 @@ struct FeelSpeedEstimator {
     /// No lid moves faster than this (°/s); a sanity cap.
     static let maxSpeed = 720.0
 
+    /// R7: the input hygiene in use (`.plain` unless the owner asks for `.hinge`).
+    let hygiene: FeelSpeedHygiene
+
     private var smoother: OneEuroSmoother
     private var times: [Double] = []
     private var values: [Double] = []
@@ -213,9 +224,15 @@ struct FeelSpeedEstimator {
     private(set) var speed: Double = 0
     private(set) var lastSampleTime: Double?
     private var lastFrame: Double?
+    /// R7 deadband: the last accepted (raw) value.
+    private var anchor: Double?
+    /// R7 breakaway: when the current move began (the first sample after a silence longer than `hold`).
+    private var moveStart = -Double.infinity
 
-    init(smoother: OneEuroSmoother = OneEuroSmoother(minCutoff: 2.0, beta: 0.12, dCutoff: 1.5)) {
+    init(smoother: OneEuroSmoother = OneEuroSmoother(minCutoff: 2.0, beta: 0.12, dCutoff: 1.5),
+         hygiene: FeelSpeedHygiene = .plain) {
         self.smoother = smoother
+        self.hygiene = hygiene
         times.reserveCapacity(Self.capacity + 1)
         values.reserveCapacity(Self.capacity + 1)
     }
@@ -229,6 +246,8 @@ struct FeelSpeedEstimator {
         speed = 0
         lastSampleTime = nil
         lastFrame = nil
+        anchor = nil
+        moveStart = -Double.infinity
     }
 
     /// The One-Euro-filtered position as of the last sample.
@@ -238,32 +257,56 @@ struct FeelSpeedEstimator {
     mutating func sample(_ x: Double, at time: Double) {
         guard x.isFinite, time.isFinite else { return }
         let stamp = max(time, lastSampleTime ?? time)
-        if let last = lastSampleTime, stamp - last <= Self.restartGap {
-            let filtered = smoother.filter(x, at: stamp)
-            times.append(stamp)
-            values.append(filtered)
-            if times.count > Self.capacity {
-                times.removeFirst(times.count - Self.capacity)
-                values.removeFirst(values.count - Self.capacity)
-            }
-            lastSampleTime = stamp
-            sampleSpeed = windowSpeed()
-        } else {
-            // First sample, or the first after a silence: a new base. If no frame decayed the speed through the
-            // silence (frames stopped), decay it here so the next frame can't start from a stale value.
-            if let last = lastSampleTime {
-                let quiet = max(stamp - last - Self.hold, 0)
-                speed = min(speed, sampleSpeed * exp(-quiet / Self.decayTau))
-            }
-            smoother.reset()
-            let filtered = smoother.filter(x, at: stamp)
-            times.removeAll(keepingCapacity: true)
-            values.removeAll(keepingCapacity: true)
-            times.append(stamp)
-            values.append(filtered)
-            lastSampleTime = stamp
-            sampleSpeed = 0
+        guard let last = lastSampleTime, stamp - last <= Self.restartGap else {
+            restart(x, at: stamp)
+            return
         }
+        // R7 breakaway: a report after a silence longer than `hold` starts a new move (the Duo sends nothing while
+        // still, so a silence is a still hinge).
+        if stamp - last > Self.hold { moveStart = stamp }
+        var value = x
+        if hygiene.deadband > 0 {
+            if let held = anchor, abs(x - held) < hygiene.deadband {
+                value = held
+            } else {
+                anchor = x
+            }
+        }
+        let filtered = smoother.filter(value, at: stamp)
+        times.append(stamp)
+        values.append(filtered)
+        if times.count > Self.capacity {
+            times.removeFirst(times.count - Self.capacity)
+            values.removeFirst(values.count - Self.capacity)
+        }
+        lastSampleTime = stamp
+        sampleSpeed = windowSpeed()
+    }
+
+    /// R7: a sample that must credit no speed (the hinge settling, a snap near flat): it becomes a fresh base, exactly
+    /// like the first sample after a silence. The display speed then follows down to the new estimate.
+    mutating func rebase(_ x: Double, at time: Double) {
+        guard x.isFinite, time.isFinite else { return }
+        restart(x, at: max(time, lastSampleTime ?? time))
+    }
+
+    /// First sample, or the first after a silence (or a rebase): a new base. If no frame decayed the speed through the
+    /// silence (frames stopped), decay it here so the next frame can't start from a stale value.
+    private mutating func restart(_ x: Double, at stamp: Double) {
+        if let last = lastSampleTime {
+            let quiet = max(stamp - last - Self.hold, 0)
+            speed = min(speed, sampleSpeed * exp(-quiet / Self.decayTau))
+        }
+        smoother.reset()
+        let filtered = smoother.filter(x, at: stamp)
+        times.removeAll(keepingCapacity: true)
+        values.removeAll(keepingCapacity: true)
+        times.append(stamp)
+        values.append(filtered)
+        lastSampleTime = stamp
+        sampleSpeed = 0
+        anchor = x
+        moveStart = stamp
     }
 
     /// The speed over the window ending at the newest sample.
@@ -288,7 +331,11 @@ struct FeelSpeedEstimator {
             k += 1
         }
         let net = abs(values[count - 1] - values[base])
-        let elapsed = max(newest - times[base], Self.minElapsed)
+        var shortest = Self.minElapsed
+        if hygiene.breakaway > 0 && newest - moveStart < hygiene.breakaway {
+            shortest = max(shortest, hygiene.breakaway)
+        }
+        let elapsed = max(newest - times[base], shortest)
         return FeelMath.positive(0.5 * (net + path) / elapsed, cap: Self.maxSpeed)
     }
 
@@ -324,13 +371,125 @@ struct FeelSpeedEstimator {
     }
 }
 
+/// R7 (ROUND-7 Feel 1, DEVICE-RISKS-1 item 2 / D2): the input hygiene of a `FeelSpeedEstimator`.
+struct FeelSpeedHygiene: Equatable, Sendable {
+    /// Reported values within this many degrees of the last accepted one read as that value (0: off).
+    var deadband: Double
+    /// After a silence longer than `FeelSpeedEstimator.hold`, the speed is divided by at least this long (s) until the
+    /// move is this old (0: off).
+    var breakaway: Double
+
+    /// The R3 estimator, unchanged (the lid slider: touches at 120 Hz, no breakaway).
+    static let plain = FeelSpeedHygiene(deadband: 0, breakaway: 0)
+    /// The Duo hinge: a 0.4° deadband and a 0.10 s breakaway floor.
+    static let hinge = FeelSpeedHygiene(deadband: 0.4, breakaway: 0.10)
+}
+
+/// R7 (ROUND-7 Feel 4, DEVICE-RISKS-1 D4): the hinge flight recorder. The last `span` seconds of raw hinge reports
+/// (time, angle) in a fixed ring (no allocation per report), and a compact text block for the Diagnostics Copy log.
+/// Pure, with explicit times.
+struct FeelHingeTrace {
+    struct Report: Equatable, Sendable {
+        var time: Double
+        var angle: Double
+    }
+
+    /// Seconds kept (counted back from the newest report).
+    static let span = 10.0
+    /// Ring size: 10 s at up to ~100 Hz.
+    static let capacity = 1_024
+    /// Reports per text line.
+    static let perLine = 8
+
+    private var times: [Double]
+    private var angles: [Double]
+    private var head = 0
+    private(set) var count = 0
+
+    init() {
+        times = Array(repeating: 0, count: Self.capacity)
+        angles = Array(repeating: 0, count: Self.capacity)
+    }
+
+    /// Keep one raw report (non-finite values are skipped).
+    mutating func record(angle: Double, at time: Double) {
+        guard angle.isFinite, time.isFinite else { return }
+        times[head] = time
+        angles[head] = angle
+        head = (head + 1) % Self.capacity
+        count = min(count + 1, Self.capacity)
+    }
+
+    mutating func removeAll() {
+        head = 0
+        count = 0
+    }
+
+    /// The kept reports, oldest first, within `span` s of the newest.
+    var reports: [Report] {
+        guard count > 0 else { return [] }
+        var all: [Report] = []
+        all.reserveCapacity(count)
+        let first = (head - count + Self.capacity) % Self.capacity
+        for k in 0..<count {
+            let i = (first + k) % Self.capacity
+            all.append(Report(time: times[i], angle: angles[i]))
+        }
+        let newest = all[all.count - 1].time
+        return all.filter { $0.time >= newest - Self.span }
+    }
+
+    /// The Diagnostics block: a summary line (count, span, rate, gaps, steps), then `+ms:angle` pairs, times relative to
+    /// the oldest kept report. `now` (the same clock) says how long ago the newest report came; `snaps` is shown too.
+    func text(now: Double?, snaps: Int = 0) -> String {
+        let kept = reports
+        guard let oldest = kept.first, let newest = kept.last else {
+            return "Hinge trace (raw, last 10 s): no reports"
+        }
+        var gaps: [Double] = []
+        var smallest = Double.infinity
+        var largest = 0.0
+        var index = 1
+        while index < kept.count {
+            gaps.append(kept[index].time - kept[index - 1].time)
+            let step = abs(kept[index].angle - kept[index - 1].angle)
+            if step > 0 { smallest = min(smallest, step) }
+            largest = max(largest, step)
+            index += 1
+        }
+        let spanSeconds = newest.time - oldest.time
+        var lines: [String] = []
+        var summary = String(format: "Hinge trace (raw, last 10 s): %ld reports over %.2f s", kept.count, spanSeconds)
+        if let now, now.isFinite { summary += String(format: ", newest %.2f s ago", max(now - newest.time, 0)) }
+        lines.append(summary)
+        if !gaps.isEmpty {
+            let sorted = gaps.sorted()
+            let median = sorted[sorted.count / 2]
+            let rate = spanSeconds > 0 ? Double(gaps.count) / spanSeconds : 0
+            lines.append(String(format: "rate %.1f Hz; gap median %.0f ms, max %.0f ms; step min %.2f, max %.2f deg; snaps %ld",
+                                rate, median * 1_000, (sorted.last ?? 0) * 1_000,
+                                smallest.isFinite ? smallest : 0, largest, snaps))
+        }
+        var line: [String] = []
+        for report in kept {
+            line.append(String(format: "%.0f:%.2f", (report.time - oldest.time) * 1_000, report.angle))
+            if line.count == Self.perLine {
+                lines.append(line.joined(separator: " "))
+                line.removeAll(keepingCapacity: true)
+            }
+        }
+        if !line.isEmpty { lines.append(line.joined(separator: " ")) }
+        return lines.joined(separator: "\n")
+    }
+}
+
 /// The "lid is closing" gate (GAME-DESIGN §3): closed when the angle stays under `closingAngle` (70°) for
 /// `Tuning.closingDwell` (0.4 s); it opens again above `closingAngle + reopenMargin` (78°), so ±1° jitter at 70° can't
 /// flicker the pause card. Pure, with explicit times; `isClosing(at:)` lets the dwell mature with time alone.
 ///
 /// R2 (REVIEW-1-duo P1-4): the line is **70°** (R1's 85° sat inside the natural upright 90° rest, within the Duo's ±5°
 /// accuracy) and it unlatches above **78°**. Unlatching is not resuming: the run resumes only on
-/// `HingeLidSource.canResume` (≥ 95°, held still).
+/// `HingeLidSource.canResume` (R7: ≥ 92° with hysteresis, held still).
 struct FeelClosingGate {
     /// θ under this for `dwell` s pauses the game (`Tuning.closingAngle`, 70° from R2).
     static var closingAngle: Double { Tuning.closingAngle }

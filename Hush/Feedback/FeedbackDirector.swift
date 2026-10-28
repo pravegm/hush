@@ -61,6 +61,18 @@ final class FeedbackDirector: FeedbackSink {
         }
     }
 
+    /// R7 (ROUND-7 Feel 3): the Settings "Vibration" row (Off / Normal / Strong). Until the player sets it, it follows
+    /// the device: `.strong` on a Duo (`deviceHasFold`), `.normal` elsewhere. Setting it counts as the player's choice
+    /// (the same state as `hapticProfile`; `.off` is `hapticsOn = false`, and `hapticsOn = true` restores the last
+    /// on-strength).
+    var hapticStrength: HapticStrength {
+        get { HapticStrength(profile: profile) }
+        set {
+            profileChosen = true
+            applyProfile(newValue.profile)
+        }
+    }
+
     /// Additive: the App sets this once a hinge has been seen (a Duo). It moves an unchosen profile to Strong.
     var deviceHasFold: Bool = false {
         didSet {
@@ -116,6 +128,8 @@ final class FeedbackDirector: FeedbackSink {
     /// R2: the lid's direction (the closing creak allowance) and the frozen-speed guard (QA-1 P1-1).
     private var lidDirection = FeelLidDirection()
     private var frozenSpeed = FeelFrozenSpeedGuard()
+    /// R7: the faint tick per 4° of quiet lid travel (careful play still feels the hinge).
+    private var quietTicker = FeelQuietTicker()
     /// R2: the relic glimmer (`glimmer(on:)`).
     private(set) var glimmering = false
     private var nextGlimmer: CFTimeInterval = -Double.infinity
@@ -252,6 +266,10 @@ final class FeedbackDirector: FeedbackSink {
         }
         wasPlaying = telemetry.playing
         haptics.update(lidSpeed: heard.lidSpeed, dragSpeed: telemetry.playing ? telemetry.dragSpeed : 0, now: now)
+        // R7: while the creak is silent, a faint tick every 4° of lid travel (at most 20 a second).
+        let ticked = quietTicker.update(speed: telemetry.lidSpeed, quiet: !creaking, playing: telemetry.playing,
+                                        at: now)
+        if ticked && profile != .off { playHaptic(FeelHapticBook.quietTick) }
 
         keepTheBeat(telemetry: telemetry, now: now)
         tickTheTorch(telemetry: telemetry)
@@ -367,6 +385,7 @@ final class FeedbackDirector: FeedbackSink {
         glimmering = false
         lastTorchSlot = nil
         creakDetector.forgetHistory()
+        quietTicker.reset()
         // Count the quiet from now (a pause right after a game frame still waits the full delay).
         lastActive = now
         lastPlaying = -Double.infinity
@@ -790,5 +809,57 @@ struct FeelFrameRate {
         }
         guard time.isFinite, lastBusy.isFinite else { return idle }
         return time - lastBusy <= Self.hold ? cap : idle
+    }
+}
+
+/// R7 (ROUND-7 Feel 3, DEVICE-RISKS-1 item 6): the "safe" grain of careful play. While the lid moves in play and the
+/// creak is silent (at or under its quiet line), one faint tick per `degreesPerTick` of travel (the lid speed
+/// integrated over time), at most `maxRate` a second, so a slow, silent open still feels like a hinge. A creak (loud
+/// lid) takes over and restarts the count; leaving play forgets it. Pure, with explicit times.
+struct FeelQuietTicker {
+    /// Degrees of quiet travel per tick.
+    static let degreesPerTick = 4.0
+    /// No two ticks closer than this (s): at most 20 Hz.
+    static let minInterval = 0.05
+    static var maxRate: Double { 1 / minInterval }
+    /// Below this lid speed (°/s) the lid isn't moving (tremor, the speed's decay tail): no travel.
+    static let minSpeed = 2.0
+    /// The longest frame gap (s) credited as travel (a hitch never makes a burst).
+    static let maxStep = 0.1
+
+    /// Quiet travel (degrees) since the last tick.
+    private(set) var travel = 0.0
+    /// When the last tick played (−∞: never).
+    private(set) var lastTick = -Double.infinity
+    private var lastTime: Double?
+
+    init() {}
+
+    /// Feed one frame: the lid speed (°/s), whether the creak is silent, whether the game is playing. Returns true
+    /// when a tick should play now.
+    mutating func update(speed: Double, quiet: Bool, playing: Bool, at time: Double) -> Bool {
+        guard time.isFinite else { return false }
+        let dt = lastTime.map { min(max(time - $0, 0), Self.maxStep) } ?? 0
+        lastTime = time
+        guard playing else {
+            travel = 0
+            return false
+        }
+        guard quiet else {
+            travel = 0
+            return false
+        }
+        guard speed.isFinite, speed > Self.minSpeed else { return false }
+        travel = min(travel + speed * dt, 2 * Self.degreesPerTick)
+        guard travel >= Self.degreesPerTick, time - lastTick >= Self.minInterval else { return false }
+        travel -= Self.degreesPerTick
+        lastTick = time
+        return true
+    }
+
+    /// Forget the travel (a pause, a silence).
+    mutating func reset() {
+        travel = 0
+        lastTime = nil
     }
 }

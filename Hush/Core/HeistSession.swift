@@ -1,6 +1,30 @@
 import CoreGraphics
 import Foundation
 
+// MARK: - Lid sensitivity (R7, ROUND-7 Core item 3)
+
+/// Settings › Lid sensitivity: a whole-session noise scale for a stiff, jerky or unknown hinge (forgiving 0.75,
+/// normal 1, careful 1.2). The scored Daily always plays `.normal` (`effective(_:for:)`), so everyone's counted try
+/// is the same game. The App stores the choice and passes it to `SessionOptions.for(_:sensitivity:)`.
+enum LidSensitivity: String, Codable, CaseIterable, Sendable {
+    case forgiving, normal, careful
+
+    /// Multiplies every noise source (the lid, drags and the one-off sounds).
+    var noiseScale: Double {
+        switch self {
+        case .forgiving: return Tuning.forgivingNoiseScale
+        case .normal: return Tuning.normalNoiseScale
+        case .careful: return Tuning.carefulNoiseScale
+        }
+    }
+
+    /// The sensitivity `mode` actually plays at: `.normal` for the scored Daily, else `chosen`.
+    static func effective(_ chosen: LidSensitivity, for mode: RunMode) -> LidSensitivity {
+        if case .daily(_, let scored) = mode, scored { return .normal }
+        return chosen
+    }
+}
+
 // MARK: - Session options per mode
 
 struct SessionOptions: Equatable {
@@ -8,22 +32,29 @@ struct SessionOptions: Equatable {
     var torch: Bool = true
     /// false: noise caps at Tuning.noBiteCap (attract, lesson).
     var bites: Bool = true
-    /// Scales every noise source (the lesson uses Tuning.lessonNoiseScale, 0.6).
+    /// Scales every noise source (the lesson uses Tuning.lessonNoiseScale, 0.6). R7: the sensitivity's scale is
+    /// already folded in (`init` multiplies the two).
     var noiseScale: Double = 1
     /// The lesson's scripted chest (repeats after each bank).
     var fixedChest: ChestSpec? = nil
+    /// R7: the lid sensitivity this session plays at (its scale is in `noiseScale`).
+    private(set) var sensitivity: LidSensitivity = .normal
 
-    init(torch: Bool = true, bites: Bool = true, noiseScale: Double = 1, fixedChest: ChestSpec? = nil) {
+    init(torch: Bool = true, bites: Bool = true, noiseScale: Double = 1, fixedChest: ChestSpec? = nil,
+         sensitivity: LidSensitivity = .normal) {
         self.torch = torch
         self.bites = bites
-        self.noiseScale = noiseScale
+        self.noiseScale = noiseScale * sensitivity.noiseScale
         self.fixedChest = fixedChest
+        self.sensitivity = sensitivity
     }
 
-    static func `for`(_ mode: RunMode) -> SessionOptions {
+    /// The options for `mode`. R7: `sensitivity` (the player's Settings choice) applies to runs and the unscored
+    /// Daily; the scored Daily is forced to `.normal` (`LidSensitivity.effective`); attract and the lesson ignore it.
+    static func `for`(_ mode: RunMode, sensitivity: LidSensitivity = .normal) -> SessionOptions {
         switch mode {
         case .run, .daily:
-            return SessionOptions()
+            return SessionOptions(sensitivity: LidSensitivity.effective(sensitivity, for: mode))
         case .attract:
             return SessionOptions(torch: false, bites: false)
         case .lesson:
@@ -50,6 +81,10 @@ struct SessionOptions: Equatable {
 // - R3 pause (ROUND-3 decision 2): a pause is simply no stepping, so the noise, the stage, the candle and the clock
 //   all stay frozen. `resumeGrace(seconds:)` on resume (slow lid noise ignored; a sustained loud lid ends it, QA-2
 //   P2-9). `rest(dt:)` (decay only) stays in the API but the App no longer calls it for pauses.
+// - R7 loud onset (ROUND-7 Core item 1): lid noise only counts once the lid has been above its quiet line for
+//   Tuning.loudOnsetSeconds (Noise.onsetShare), so a stick-slip blip is free: it adds nothing and doesn't stop the decay.
+// - R7 fresh chest (item 2): `isFreshChest` (.ready, openness never past Tuning.freshChestOpenness, empty bag) lets the
+//   App resume an untouched chest without the stillness wait.
 // Mirrored by HeistSession in tools/balance-sim.js (minus hints, rest/resumeGrace and cosmetic snapshot fields).
 
 final class HeistSession {
@@ -83,6 +118,10 @@ final class HeistSession {
     private var lidGrace: Double = 0
     /// R3 (QA-2 P2-9): seconds of this grace spent with the lid above `Tuning.loudSpeed`.
     private var graceLoudFor: Double = 0
+    /// R7: seconds the lid has been above its quiet line without a break (the loud onset).
+    private var loudFor: Double = 0
+    /// R7: the widest openness played in this chest (`isFreshChest`).
+    private var peakOpenness: Double = 0
 
     private var noise: Double = 0
     private var stage: MimicStage = .asleep
@@ -150,6 +189,13 @@ final class HeistSession {
         return false
     }
 
+    /// R7 (ROUND-7 Core item 2): the chest is `.ready` and untouched: its openness has never passed
+    /// `Tuning.freshChestOpenness` (0.05) and nothing is in the bag. Nothing is lit or revealed and the lid is silent
+    /// below the speedometer, so reopening it is no resume hazard: the App skips the stillness wait for it.
+    var isFreshChest: Bool {
+        return phase == .ready && bagCount == 0 && peakOpenness <= Tuning.freshChestOpenness
+    }
+
     /// Fastest held-item drag speed right now (pt/s), for telemetry.
     var dragSpeed: Double {
         var best: Double = 0
@@ -213,6 +259,7 @@ final class HeistSession {
         guard isPlaying else { return [] }
         let d: Double = dt.isFinite ? max(0, dt) : 0
         lid.speed = 0
+        loudFor = 0
         guard d > 0 else { return [] }
         var ev: [HeistEvent] = []
         let n: Int = max(1, Int((d / Tuning.maxSubstep - 1e-9).rounded(.up)))
@@ -267,6 +314,7 @@ final class HeistSession {
 
     private func play(_ h: Double, _ ev: inout [HeistEvent]) {
         let o: Double = lid.openness
+        peakOpenness = max(peakOpenness, o)
         if phase == .ready {
             if lid.inShutZone { sawShut = true }
             if sawShut && o > Tuning.lootingStartOpenness {
@@ -285,7 +333,10 @@ final class HeistSession {
         updateLight(&ev)
         settleTouches(h)
 
-        // Noise.
+        // Noise. R7: the lid's loud onset (a blip shorter than Tuning.loudOnsetSeconds is free).
+        let loudBefore: Double = loudFor
+        if lid.speed > Noise.quietSpeed(closing: closing) { loudFor += h } else { loudFor = 0 }
+        let lidShare: Double = Noise.onsetShare(loudBefore: loudBefore, loudAfter: loudFor, step: h)
         var raw: Double = 0
         var lidHeard: Bool = lidGrace <= 0
         if !lidHeard {
@@ -297,7 +348,7 @@ final class HeistSession {
                 lidGrace = max(0, lidGrace - h)
             }
         }
-        if lidHeard { raw = Noise.lidRate(speed: lid.speed, closing: closing) }
+        if lidHeard { raw = Noise.lidRate(speed: lid.speed, closing: closing) * lidShare }
         for t in touches { raw += Noise.dragRate(speed: t.speed) }
         let rate: Double = raw * noiseMultiplier
         noise += rate * h
@@ -559,6 +610,8 @@ final class HeistSession {
         touches.removeAll(keepingCapacity: true)
         noise = 0
         quietFor = 0
+        loudFor = 0
+        peakOpenness = lid.openness
         twitchRng = SeededRandom(seed: HeistSession.twitchSeed(seed: seed, index: chestIndex))
         twitchIn = twitchRng.range(Tuning.dreamTwitchMin...Tuning.dreamTwitchMax)
         ev.append(.chestArrived(index: spec.index, tier: spec.tier, mimic: spec.mimic, name: spec.mimicName))

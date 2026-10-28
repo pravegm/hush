@@ -6,7 +6,8 @@ import Foundation
 // Nothing in Core (or elsewhere) hard-codes a rule number: it reads it from here. tools/balance-sim.js mirrors the
 // values that matter for balance (keep the two in sync). Round 1 kept every GAME-DESIGN starting value. Round 2 takes
 // REVIEW-1-feel §5 (changes 1–10 and features A, B, D) plus the Duo relic depth (REVIEW-1-duo P1-9); the R2 table is in
-// design/notes/core-R2.md.
+// design/notes/core-R2.md. Round 7 ("real hands", design/ROUND-7.md) forgives a real hand on unknown hardware:
+// quietSpeed 14, closeQuietSpeed 28, the loud onset and LidSensitivity (design/notes/core-R7.md).
 
 enum Tuning {
 
@@ -35,15 +36,20 @@ enum Tuning {
     // MARK: Noise from the lid (GAME-DESIGN §5)
 
     /// Below this lid speed (°/s) the hinge is silent. The creak starts here. R2: 8 → 12 (out of the hinge's jitter band).
-    static let quietSpeed: Double = 12
+    /// R7: 12 → 14 (ROUND-7 "real hands": a careful human's slow open swings ±30–50 % with stick-slip).
+    static let quietSpeed: Double = 14
     /// R2: while the lid is CLOSING (openness falling since the last step) it is silent below this instead, so the
-    /// cash-out is the quickest careful move.
-    static let closeQuietSpeed: Double = 18
+    /// cash-out is the quickest careful move. R7: 18 → 28 (a real slow close runs at 25–60°/s; DEVICE-RISKS-1 item 1).
+    static let closeQuietSpeed: Double = 28
+    /// R7: lid noise only counts once the lid has been above its quiet line (`Noise.quietSpeed(closing:)`) for this
+    /// long (s), so a stick-slip breakaway blip is free (`Noise.onsetShare`). Hints, creak and haptics still react at
+    /// once. A real slam (≥ 0.25 s) still bites.
+    static let loudOnsetSeconds: Double = 0.08
     /// Above this lid speed (°/s) the hint says "Slower…" (and the lesson's mimic grumbles).
     static let loudSpeed: Double = 30
     /// lidRate = lidRateLinear·(ω−q) + lidRateQuadratic·(ω−q)² per second, for ω > q (q = quietSpeed, or
-    /// closeQuietSpeed while closing). Opening: 20°/s → 0.09/s, 40°/s → 0.55/s, a 45°/s open bites, a 120°/s slam for
-    /// 0.4 s → +2.2.
+    /// closeQuietSpeed while closing). R7 (q = 14) opening: 20°/s → 0.062/s, 40°/s → 0.48/s, a 50°/s full open bites
+    /// (45°/s no longer does), a 120°/s slam for 0.4 s → +2.1.
     static let lidRateLinear: Double = 0.008
     static let lidRateQuadratic: Double = 0.0004
 
@@ -191,6 +197,9 @@ enum Tuning {
     static let lootingStartOpenness: Double = 0.02
     /// `lidCracked` fires the first time openness passes this in a chest.
     static let lidCrackedOpenness: Double = 0.05
+    /// R7 `HeistSession.isFreshChest`: a `.ready` chest whose openness has never passed this (and an empty bag) is
+    /// untouched, so the App may resume it without the stillness wait.
+    static let freshChestOpenness: Double = 0.05
     /// A touch picks an item within radius + this (pt).
     static let grabSlop: Double = 14
 
@@ -237,6 +246,10 @@ enum Tuning {
     static let maxSubstep: Double = 1.0 / 120.0
     /// The First Chest lesson's noise scale.
     static let lessonNoiseScale: Double = 0.6
+    /// R7 `LidSensitivity` noise scales (Settings › Lid sensitivity; the scored Daily always plays Normal).
+    static let forgivingNoiseScale: Double = 0.75
+    static let normalNoiseScale: Double = 1.0
+    static let carefulNoiseScale: Double = 1.2
 
     // MARK: Lesson (GAME-DESIGN §8)
 

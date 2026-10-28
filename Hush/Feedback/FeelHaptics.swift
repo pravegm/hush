@@ -57,6 +57,43 @@ enum FeelHapticProfile: String, Codable, CaseIterable, Sendable {
     }
 }
 
+/// R7 (ROUND-7 Feel 3, DEVICE-RISKS-1 item 6): the Settings "Vibration" choice, `FeedbackDirector.hapticStrength`.
+/// Before the player chooses it follows the device: Strong on a Duo (`deviceHasFold`), Normal elsewhere.
+enum HapticStrength: String, Codable, CaseIterable, Sendable {
+    case off, normal, strong
+
+    /// The default before the player chooses: Strong on a phone with a fold, Normal elsewhere.
+    static func defaultFor(hasFold: Bool) -> HapticStrength {
+        hasFold ? .strong : .normal
+    }
+
+    /// The row's label.
+    var title: String {
+        switch self {
+        case .off: return "Off"
+        case .normal: return "Normal"
+        case .strong: return "Strong"
+        }
+    }
+
+    /// The haptic profile it plays.
+    var profile: FeelHapticProfile {
+        switch self {
+        case .off: return .off
+        case .normal: return .normal
+        case .strong: return .strong
+        }
+    }
+
+    init(profile: FeelHapticProfile) {
+        switch profile {
+        case .off: self = .off
+        case .normal: self = .normal
+        case .strong: self = .strong
+        }
+    }
+}
+
 /// The haptic vocabulary of Hush (GAME-DESIGN §10). Pure data, so it is testable.
 enum FeelHapticBook {
     // MARK: The Strong profile
@@ -161,8 +198,12 @@ enum FeelHapticBook {
         curve: [FeelHapticPoint(time: 0, value: 1), FeelHapticPoint(time: 0.12, value: 0.9),
                 FeelHapticPoint(time: 0.22, value: 0.5), FeelHapticPoint(time: 0.32, value: 0)]
     )
-    /// The mimic stirs: one soft nudge. It wakes: a firm double.
-    static let stirring = FeelHapticCue(notes: [.tap(0.35, 0.3)])
+    /// The mimic stirs: one soft nudge (R7, DEVICE-RISKS-1 item 6: 0.35 → 0.5, the tells were too faint on a Duo). It
+    /// wakes: a firm double.
+    static let stirring = FeelHapticCue(notes: [.tap(0.5, 0.3)])
+    /// R7 (ROUND-7 Feel 3): the faint "safe" grain of careful play, one per `FeelQuietTicker.degreesPerTick` (4°) of
+    /// quiet lid travel, so a slow, silent open still feels like a hinge. Strong-adapted like every cue.
+    static let quietTick = FeelHapticCue(notes: [.tap(0.18, 0.8)])
     static let waking = FeelHapticCue(notes: [.tap(0.8, 0.3), .tap(0.6, 0.3, at: 0.12)])
     /// A chest slides in and lands.
     static let chestArrived = FeelHapticCue(

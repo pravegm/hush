@@ -98,6 +98,45 @@ private func feelHold(_ hinge: FakeHinge, _ angle: Double, frames: Bool = true) 
     return hinge.source.canResume
 }
 
+/// R7: a stick-slip hinge under a steady 10°/s hand (DEVICE-RISKS-1 item 2), from 110°: silent for `stick` s, then
+/// (optionally a `creep`° report and, one report later) a 2° jump, then 0.5° steps at the hand's 10°/s for 0.3 s;
+/// repeated. The Node-port numbers for these traces are in `design/notes/feel-R7.md`.
+private func feelStickSlip(stick: Double, creep: Double = 0, rate: Double = 30) -> (Double) -> Double {
+    let hand = 10.0
+    let slide = 0.3
+    let travel = creep + 2 + hand * slide
+    let period = stick + (creep > 0 ? 1 / rate : 0) + slide
+    return { t in
+        let k = (t / period).rounded(.down)
+        var a = 110 + k * travel
+        var u = t - k * period
+        if u < stick { return a }
+        u -= stick
+        if creep > 0 {
+            a += creep
+            if u < 1 / rate { return a }
+            u -= 1 / rate
+        }
+        a += 2 + 0.5 * (u * 20 + 1e-9).rounded(.down)
+        return min(a, 110 + (k + 1) * travel)
+    }
+}
+
+/// R7: the lid noise (before any mimic multiplier) Core's rule adds for these 120 Hz frame speeds while opening, with
+/// the loud onset: only once the lid has been over the quiet line for `Tuning.loudOnsetSeconds`.
+private func feelLidNoise(_ speeds: [Double]) -> Double {
+    let dt = 1.0 / 120
+    var noise = 0.0
+    var loud = 0.0
+    for speed in speeds {
+        let before = loud
+        loud = speed > Tuning.quietSpeed ? loud + dt : 0
+        let share = min(max((loud - max(before, Tuning.loudOnsetSeconds)) / dt, 0), 1)
+        noise += Noise.lidRate(speed: speed) * share * dt
+    }
+    return noise
+}
+
 /// Every heist event, once.
 private let everyEvent: [HeistEvent] = [
     .chestArrived(index: 0, tier: .wooden, mimic: .snorer, name: "Snoring Sam"),
@@ -424,7 +463,7 @@ struct FeelTests {
             #expect(bed.grainRate == 0)
             speed += 0.25
         }
-        #expect(FeelSoundBook.creakLevel(speed: 14) > 0)
+        #expect(FeelSoundBook.creakLevel(speed: Tuning.quietSpeed + 2) > 0)
         #expect(FeelSoundBook.creakLevel(speed: 20) <= FeelSoundBook.softLevel + 1e-9)
         #expect(FeelSoundBook.creakLevel(speed: Tuning.loudSpeed) >= FeelSoundBook.loudLevel - 1e-9)
         #expect(FeelSoundBook.creakLevel(speed: 200) <= 1)
@@ -458,7 +497,7 @@ struct FeelTests {
         #expect(quiet.peak == 0)
 
         var levels: [Double] = []
-        for speed in [15.0, 30.0, 60.0] {
+        for speed in [Tuning.quietSpeed + 3, 30.0, 60.0] {
             let synth = FeelSynth(sampleRate: 48_000)
             var bed = FeelSoundBook.homeBed(speed: speed, openness: 0.5, master: FeelAudioEngine.masterGain)
             bed.glide = 0.005
@@ -852,7 +891,7 @@ struct FeelTests {
             FeelHapticBook.chainBroken(), FeelHapticBook.chainBroken(delay: 1.1), FeelHapticBook.goldenArrived(),
             FeelHapticBook.coinSpill(times: FeelSoundBook.spillTimes(count: 10)),
             FeelHapticBook.candleTick(urgent: false), FeelHapticBook.candleTick(urgent: true),
-            FeelHapticBook.creakAccent,
+            FeelHapticBook.creakAccent, FeelHapticBook.quietTick,
         ]
         let bitePeak = FeelHapticBook.bite.notes.map { $0.intensity }.max() ?? 0
         #expect(bitePeak == 1)
@@ -992,27 +1031,75 @@ struct FeelTests {
         #expect(hinge.source.lid(at: hinge.time + 0.001).speed < 0.5)
     }
 
-    @Test func resumeNeedsNinetyFiveDegrees() {
+    /// R7 (DEVICE-RISKS-1 item 7): resume is lifted from 92° and stays lifted down to 88°, so a lid resting near the
+    /// line (±5° accuracy) never flickers "Lift the lid" ↔ "Hold still…"; `effectiveResumeAngle` is the line in force.
+    @Test func resumeHasHysteresisAtNinetyTwoAndEightyEight() {
+        #expect(HingeLidSource.resumeAngle == 92)
+        #expect(HingeLidSource.resumeSpeed == 6)
         let hinge = FakeHinge(source: HingeLidSource())
         hinge.run(0.5) { _ in 120 }
         hinge.run(0.4) { t in 120 - 60 * min(t / 0.3, 1) }
         hinge.run(0.6) { _ in 60 }
-        hinge.run(0.4) { t in 60 + 33 * min(t / 0.3, 1) }
-        // Held perfectly still at 93°: closing has cleared (> 78°) but the run must not resume.
-        var resumed = false
+        // Eased up to 89.5° and held perfectly still: closing has cleared (> 78°) but it isn't lifted yet.
+        hinge.run(1.3) { t in 60 + 29.5 * min(t / 1.2, 1) }
+        var below = false
         for _ in 0..<240 {
-            if feelHold(hinge, 93) { resumed = true }
+            if feelHold(hinge, 89.5) { below = true }
         }
         #expect(hinge.source.isClosing == false)
-        #expect(resumed == false)
-        hinge.run(0.2) { t in 93 + 4 * min(t / 0.1, 1) }
-        var later = false
+        #expect(below == false)
+        #expect(hinge.source.effectiveResumeAngle == HingeLidSource.resumeAngle)
+        // Up to 93°: lifted, and it resumes once still.
+        hinge.run(0.3) { t in 89.5 + 3.5 * min(t / 0.2, 1) }
+        var lifted = false
         for _ in 0..<180 {
-            if feelHold(hinge, 97) { later = true }
+            if feelHold(hinge, 93) { lifted = true }
         }
-        #expect(later)
-        #expect(HingeLidSource.resumeAngle == 95)
-        #expect(HingeLidSource.resumeSpeed == 6)
+        #expect(lifted)
+        #expect(hinge.source.effectiveResumeAngle == HingeLidSource.resumeAngle - 4)
+        // Sinking back to 89° keeps it lifted (88° is the line now).
+        hinge.run(0.5) { t in 93 - 4 * min(t / 0.4, 1) }
+        var stillLifted = false
+        for _ in 0..<180 {
+            if feelHold(hinge, 89) { stillLifted = true }
+        }
+        #expect(stillLifted)
+        #expect(hinge.source.canResume)
+        // Under 88°: not lifted any more, and the line is 92° again.
+        hinge.run(0.4) { t in 89 - 3 * min(t / 0.3, 1) }
+        var dropped = false
+        for _ in 0..<180 {
+            if feelHold(hinge, 86) { dropped = true }
+        }
+        #expect(dropped == false)
+        #expect(hinge.source.effectiveResumeAngle == HingeLidSource.resumeAngle)
+    }
+
+    /// R7 (DEVICE-RISKS-1 item 7): above 100° a hand resting on the lid may drift under 10°/s and still resume; under
+    /// 100° the line stays 6°/s. A lid hovering at 95° with ±1° wiggles at 10 Hz (CI's HOVER-95) resumes within 2 s.
+    @Test func aHandRestingOnTheLidStillResumes() {
+        let wide = HingeLidSource()
+        let w = FakeHinge(source: wide)
+        w.run(0.5) { _ in 120 }
+        w.run(1.0) { t in 120 + 8 * t }
+        #expect(wide.canResume)
+        let narrow = HingeLidSource()
+        let n = FakeHinge(source: narrow)
+        n.run(0.5) { _ in 92.5 }
+        n.run(0.8) { t in 92.5 + 8 * t }
+        #expect(narrow.canResume == false)
+        let hover = FakeHinge(source: HingeLidSource())
+        hover.run(0.5) { _ in 120 }
+        hover.run(0.4) { t in 120 - 60 * min(t / 0.3, 1) }
+        hover.run(0.6) { _ in 60 }
+        hover.run(0.4) { t in 60 + 35 * min(t / 0.3, 1) }
+        var resumedAt: Int?
+        for frame in 1...240 where resumedAt == nil {
+            let wiggle = 95 + sin(2 * Double.pi * 10 * (Double(frame) / 120))
+            hover.run(FakeHinge.frame) { _ in wiggle }
+            if hover.source.canResume { resumedAt = frame }
+        }
+        #expect(resumedAt != nil)
     }
 
     /// The App runs frames while paused, but the rule must not depend on them (the game can pause its frames).
@@ -1056,8 +1143,10 @@ struct FeelTests {
 
     @Test func motionOutsideThePlayRangeIsSilent() {
         #expect(HingeLidSource.speedAngleRange.lowerBound == Tuning.shutAngle - 3)
-        #expect(HingeLidSource.speedAngleRange.upperBound == Tuning.wideAngle + 3)
-        #expect(HingeLidSource.speedAngle(180) == Tuning.wideAngle + 3)
+        // R7 (DEVICE-RISKS-1 item 10): the top is capped at 162° (relics need ≤ 161°; the last degrees may snap).
+        let top: Double = min(Tuning.wideAngle + 3, 162)
+        #expect(HingeLidSource.speedAngleRange.upperBound == top)
+        #expect(HingeLidSource.speedAngle(180) == top)
         #expect(HingeLidSource.speedAngle(40) == Tuning.shutAngle - 3)
         #expect(HingeLidSource.speedAngle(130) == 130)
         // Near flat: a 180 → 170 snap (40°/s) makes no noise, though the hinge really moved.
@@ -1553,40 +1642,272 @@ struct FeelTests {
     // MARK: - R3: the resume angle after a cover trip (REVIEW-2-duo P1-3)
 
     @Test func aCoverTripCanLowerTheResumeAngle() {
-        #expect(HingeLidSource.coverResumeAngle(relight: nil) == 95)
-        #expect(HingeLidSource.coverResumeAngle(relight: Double.nan) == 95)
+        // R7: the usual angle is 92° (`resumeAngle`).
+        #expect(HingeLidSource.coverResumeAngle(relight: nil) == HingeLidSource.resumeAngle)
+        #expect(HingeLidSource.coverResumeAngle(relight: Double.nan) == HingeLidSource.resumeAngle)
         #expect(HingeLidSource.coverResumeAngle(relight: 80) == 90)
         #expect(HingeLidSource.coverResumeAngle(relight: 88) == 91)
-        #expect(HingeLidSource.coverResumeAngle(relight: 100) == 95)
+        #expect(HingeLidSource.coverResumeAngle(relight: 100) == HingeLidSource.resumeAngle)
         let source = HingeLidSource()
         #expect(source.requiredResumeAngle == HingeLidSource.resumeAngle)
         source.requiredResumeAngle = Double.nan
-        #expect(source.effectiveResumeAngle == 95)
+        #expect(source.effectiveResumeAngle == HingeLidSource.resumeAngle)
         source.requiredResumeAngle = 10
         #expect(source.effectiveResumeAngle == 90)
         source.requiredResumeAngle = 500
         #expect(source.effectiveResumeAngle == 150)
-        // Held still at 92°: not resumable at 95°, resumable once the App lowers the angle to 91°.
-        source.requiredResumeAngle = HingeLidSource.resumeAngle
+        // Held still at 110°: not resumable while the App asks for 120°, resumable once it lowers the angle to 91°.
+        source.requiredResumeAngle = 120
         let hinge = FakeHinge(source: source)
-        hinge.run(0.5) { _ in 120 }
-        hinge.run(0.4) { t in 120 - 60 * min(t / 0.3, 1) }
-        hinge.run(0.6) { _ in 60 }
-        hinge.run(0.4) { t in 60 + 32 * min(t / 0.3, 1) }
+        hinge.run(0.5) { _ in 110 }
         var resumed = false
         for _ in 0..<180 {
-            if feelHold(hinge, 92) { resumed = true }
+            if feelHold(hinge, 110) { resumed = true }
         }
         #expect(resumed == false)
         source.requiredResumeAngle = HingeLidSource.coverResumeAngle(relight: 88)
         var lowered = false
         for _ in 0..<120 {
-            if feelHold(hinge, 92) { lowered = true }
+            if feelHold(hinge, 110) { lowered = true }
         }
         #expect(lowered)
         // `reset()` leaves the App's angle alone.
         source.reset()
         #expect(source.requiredResumeAngle == 91)
+    }
+
+    // MARK: - R7: real hands (ROUND-7 Feel 1, DEVICE-RISKS-1 items 2 and 10)
+
+    /// A careful 10°/s open on a sticky hinge (2° slips, then 0.5° steps) reads as the slow open it is: never over 14°/s
+    /// after 0.15 s, and no noise. With a creep report before every slip (the worst hardware shape) a slip reads
+    /// briefly over the line, but Core's loud onset leaves ten seconds of it all but silent (R3's estimator: ~0.06).
+    @Test func aStickSlipSlowOpenReadsSlow() {
+        for stick in [0.2, 0.3] {
+            let hinge = FakeHinge(source: HingeLidSource())
+            hinge.run(0.5) { _ in 110 }
+            hinge.run(10, angle: feelStickSlip(stick: stick))
+            var late = 0.0
+            for (index, speed) in hinge.speeds.enumerated() where Double(index + 1) * FakeHinge.frame >= stick + 0.15 {
+                late = max(late, speed)
+            }
+            #expect(late <= 14)
+            #expect(late > 5)
+            #expect(feelLidNoise(hinge.speeds) < 0.001)
+        }
+        for rate in [30.0, 25.0] {
+            let hinge = FakeHinge(source: HingeLidSource())
+            hinge.run(0.5, rate: rate) { _ in 110 }
+            hinge.run(10, rate: rate, angle: feelStickSlip(stick: 0.3, creep: 0.3, rate: rate))
+            #expect((hinge.speeds.max() ?? 99) < 22)
+            #expect(feelLidNoise(hinge.speeds) < 0.03)
+        }
+    }
+
+    /// DEVICE-RISKS-1 item 2: a free-stop hinge breaks away with a tiny first report and a 2° jump 25–33 ms later. R3
+    /// read that as 25–29°/s ("Slower…" for a careful hand); the breakaway floor keeps it under 12.
+    @Test func aBreakawayFromStillDoesNotSpike() {
+        for rate in [50.0, 30.0] {
+            let hinge = FakeHinge(source: HingeLidSource())
+            hinge.run(0.5, rate: rate) { _ in 120 }
+            hinge.run(0.6, rate: rate) { t in t < 1 / rate ? 120.3 : 122.3 }
+            #expect((hinge.speeds.max() ?? 99) < 12)
+        }
+    }
+
+    /// The hygiene never hides a real move: 40°/s from still reads 36–44°/s from 0.32 s on (R3 itself only reached 36
+    /// at about 0.28 s: One-Euro start-up and the 0.25 s window) and never over 44; slams stay loud.
+    @Test func aRealMoveAndASlamStillReadTrue() {
+        for rate in [30.0, 25.0] {
+            let hinge = FakeHinge(source: HingeLidSource())
+            hinge.run(1.0, rate: rate) { _ in 110 }
+            hinge.run(1.0, rate: rate) { t in 110 + 40 * t }
+            var settled = 99.0
+            for (index, speed) in hinge.speeds.enumerated() where Double(index + 1) * FakeHinge.frame >= 0.32 {
+                settled = min(settled, speed)
+            }
+            #expect(settled >= 36)
+            #expect((hinge.speeds.max() ?? 99) <= 44)
+        }
+        let slam = FakeHinge(source: HingeLidSource())
+        slam.run(1.0) { _ in 150 }
+        slam.run(0.4) { t in 150 - 200 * min(t, 0.25) }
+        #expect((slam.speeds.max() ?? 0) > 80)
+        // A 470°/s fling down from 165°: 15° per report, but it leaves the snap zone at once, so it counts.
+        let fling = FakeHinge(source: HingeLidSource())
+        fling.run(1.0) { _ in 165 }
+        fling.run(0.4) { t in max(165 - 470 * t, 100) }
+        #expect((fling.speeds.max() ?? 0) > 80)
+    }
+
+    /// DEVICE-RISKS-1 item 10: one report jumping more than 8° with both ends at or above 150° is the hinge settling,
+    /// not a hand: no speed for the game or for the resume rule. A jump that starts under 150° still counts.
+    @Test func aSnapNearFlatCreditsNoSpeed() {
+        let hinge = FakeHinge(source: HingeLidSource())
+        hinge.run(0.5) { _ in 150 }
+        hinge.run(0.6) { t in 150 + 5 * t }
+        let creeping = hinge.speeds.max() ?? 0
+        #expect(creeping > 3 && creeping < 6)
+        var speedPeak = 0.0
+        var motionPeak = 0.0
+        for _ in 0..<60 {
+            hinge.run(FakeHinge.frame) { _ in 162 }
+            speedPeak = max(speedPeak, hinge.source.speed)
+            motionPeak = max(motionPeak, hinge.source.motionSpeed)
+        }
+        #expect(speedPeak < 6)
+        #expect(motionPeak < 1)
+        #expect(hinge.source.traceText().contains("snaps 1"))
+        // From still: nothing at all.
+        let still = FakeHinge(source: HingeLidSource())
+        still.run(0.5) { _ in 153 }
+        still.run(0.5) { _ in 162 }
+        #expect((still.speeds.max() ?? 99) < 0.5)
+        // Crossing up through 150° (149 → 158): a real move, loud.
+        let crossing = FakeHinge(source: HingeLidSource())
+        crossing.run(0.5) { _ in 140 }
+        crossing.run(0.3) { t in 140 + 30 * t }
+        crossing.run(0.3) { _ in 158 }
+        #expect((crossing.speeds.max() ?? 0) > Tuning.loudSpeed)
+        #expect(crossing.source.traceText().contains("snaps 0"))
+    }
+
+    // MARK: - R7: haptics for careful play (ROUND-7 Feel 3, DEVICE-RISKS-1 item 6)
+
+    @Test func carefulPlayTicksEveryFourDegrees() {
+        // 10°/s for 4 s of quiet play: a tick per 4° (0.4 s apart).
+        var ticker = FeelQuietTicker()
+        var t = 10.0
+        var ticks: [Double] = []
+        for _ in 0..<480 {
+            t += 1.0 / 120
+            let tick = ticker.update(speed: 10, quiet: true, playing: true, at: t)
+            if tick { ticks.append(t) }
+        }
+        #expect(ticks.count >= 9 && ticks.count <= 10)
+        for (a, b) in zip(ticks, ticks.dropFirst()) {
+            #expect(abs(b - a - 0.4) < 0.02)
+        }
+        // The creak takes over (loud): no ticks, and the count starts again.
+        var loudTicks = 0
+        for _ in 0..<240 {
+            t += 1.0 / 120
+            let tick = ticker.update(speed: 40, quiet: false, playing: true, at: t)
+            if tick { loudTicks += 1 }
+        }
+        #expect(loudTicks == 0)
+        #expect(ticker.travel == 0)
+        // Never more than 20 a second, however fast a "quiet" speed is.
+        var fast = FeelQuietTicker()
+        var u = 50.0
+        var fastTicks: [Double] = []
+        for _ in 0..<120 {
+            u += 1.0 / 120
+            let tick = fast.update(speed: 400, quiet: true, playing: true, at: u)
+            if tick { fastTicks.append(u) }
+        }
+        #expect(fastTicks.count >= 10 && fastTicks.count <= 21)
+        for (a, b) in zip(fastTicks, fastTicks.dropFirst()) {
+            #expect(b - a >= FeelQuietTicker.minInterval - 1e-9)
+        }
+        // Not playing, a still lid (tremor, decay tails) and garbage: nothing.
+        var other = FeelQuietTicker()
+        var v = 80.0
+        var otherTicks = 0
+        for k in 0..<480 {
+            v += 1.0 / 120
+            let paused = other.update(speed: 20, quiet: true, playing: false, at: v)
+            let tremor = other.update(speed: 1.5, quiet: true, playing: true, at: v + 0.001)
+            let weird = other.update(speed: k % 2 == 0 ? Double.nan : 10, quiet: true, playing: true,
+                                     at: k % 3 == 0 ? Double.nan : v + 0.002)
+            if paused || tremor || weird { otherTicks += 1 }
+        }
+        #expect(otherTicks == 0)
+        // The tick itself is faint (it must never compete with a creak), and Strong makes it a burst like every cue.
+        let tickCue = FeelHapticBook.quietTick
+        #expect((tickCue.notes.map { $0.intensity }.max() ?? 1) <= 0.25)
+        #expect(FeelHapticBook.adapt(tickCue, to: .strong).notes.allSatisfy { $0.kind == .continuous })
+        #expect(FeelHapticBook.stirring.notes.first?.intensity == 0.5)
+        // Through the director (haptics off, nothing starts): careful play takes frames without trouble.
+        let director = FeedbackDirector()
+        director.soundOn = false
+        director.hapticsOn = false
+        for frame in 0..<360 {
+            director.handle([], telemetry: play(speed: 10, openness: 0.3 + Double(frame) / 1_200))
+        }
+        director.silence()
+        #expect(director.hapticsOn == false)
+    }
+
+    @Test func vibrationStrengthFollowsTheDeviceUntilChosen() {
+        #expect(HapticStrength.allCases == [.off, .normal, .strong])
+        #expect(HapticStrength.defaultFor(hasFold: true) == .strong)
+        #expect(HapticStrength.defaultFor(hasFold: false) == .normal)
+        for strength in HapticStrength.allCases {
+            #expect(HapticStrength(profile: strength.profile) == strength)
+            #expect(strength.rawValue == strength.profile.rawValue)
+            #expect(!strength.title.isEmpty)
+        }
+        let director = FeedbackDirector()
+        director.soundOn = false
+        #expect(director.hapticStrength == .normal)
+        // A Duo: Strong until the player chooses.
+        director.deviceHasFold = true
+        #expect(director.hapticStrength == .strong)
+        director.hapticStrength = .normal
+        #expect(director.hapticProfile == .normal)
+        director.deviceHasFold = false
+        director.deviceHasFold = true
+        #expect(director.hapticStrength == .normal)
+        // Off is the haptics toggle; turning it back on restores the last strength.
+        director.hapticStrength = .off
+        #expect(director.hapticsOn == false)
+        director.hapticsOn = true
+        #expect(director.hapticStrength == .normal)
+        director.hapticStrength = .strong
+        #expect(director.hapticProfile == .strong)
+        #expect(director.hapticsOn)
+        director.hapticStrength = .off
+        #expect(director.hapticStrength == .off)
+    }
+
+    // MARK: - R7: the raw hinge trace (ROUND-7 Feel 4, DEVICE-RISKS-1 D4)
+
+    @Test func theHingeTraceKeepsTheLastTenSeconds() {
+        var trace = FeelHingeTrace()
+        #expect(trace.reports.isEmpty)
+        #expect(trace.text(now: nil).contains("no reports"))
+        // 20 s at 100 Hz overflows the ring; only the last 10 s are kept, oldest first.
+        for k in 0..<2_000 {
+            trace.record(angle: 100 + Double(k % 50), at: Double(k) / 100)
+        }
+        trace.record(angle: Double.nan, at: 30)
+        trace.record(angle: 120, at: Double.infinity)
+        let kept = trace.reports
+        #expect(kept.count >= 1_000 && kept.count <= 1_002)
+        #expect(kept.last == FeelHingeTrace.Report(time: Double(1_999) / 100, angle: 100 + Double(1_999 % 50)))
+        #expect((kept.first?.time ?? 0) >= Double(1_999) / 100 - FeelHingeTrace.span - 1e-9)
+        var ordered = true
+        for (a, b) in zip(kept, kept.dropFirst()) where b.time <= a.time { ordered = false }
+        #expect(ordered)
+        let text = trace.text(now: 20.5, snaps: 3)
+        let lines = text.split(separator: "\n")
+        #expect(lines.count == 2 + (kept.count + FeelHingeTrace.perLine - 1) / FeelHingeTrace.perLine)
+        #expect(text.hasPrefix("Hinge trace (raw, last 10 s): "))
+        #expect(text.contains("newest 0.51 s ago"))
+        #expect(text.contains("rate 100.0 Hz"))
+        #expect(text.contains("snaps 3"))
+        trace.removeAll()
+        #expect(trace.reports.isEmpty)
+        // Through the source: every raw report, unclamped, on the hinge clock.
+        let source = HingeLidSource()
+        #expect(source.traceText().contains("no reports"))
+        let hinge = FakeHinge(source: source)
+        hinge.run(0.5) { _ in 120 }
+        hinge.run(1.0) { t in 120 + 20 * t }
+        let live = source.traceText()
+        #expect(live.contains("reports over"))
+        #expect(live.contains("120.00"))
+        #expect(live.contains("snaps 0"))
     }
 
     // MARK: - Logging

@@ -5,7 +5,8 @@ import Testing
 
 // MARK: - Core rules (Round 1, updated for Round 2: R2 tuning, Hush Chain, golden mimic, relic glimmer, bag jingle,
 // rest / resumeGrace / partialResult, biteCost, chestLog, candleLow / relicDeeper hints; and Round 3: noise frozen
-// across a pause, the resume grace ends on a sustained loud lid)
+// across a pause, the resume grace ends on a sustained loud lid; and Round 7 "real hands": quiet 14 / close 28, the
+// loud onset, the fresh chest, LidSensitivity)
 
 struct CoreTests {
 
@@ -153,46 +154,48 @@ struct CoreTests {
     // MARK: Noise
 
     @Test func lidRateMatchesTheR2Curve() {
-        // R2 (REVIEW-1-feel #1): quiet up to 12 °/s, 0.008·x + 0.0004·x².
+        // R2 (REVIEW-1-feel #1): 0.008·x + 0.0004·x² above the quiet line; R7: the line is 14 °/s (R2: 12).
         #expect(Noise.lidRate(speed: 0) == 0)
         #expect(Noise.lidRate(speed: 10) == 0)
         #expect(Noise.lidRate(speed: 12) == 0)
-        #expect(Noise.lidRate(speed: 12.5) > 0)
-        #expect(abs(Noise.lidRate(speed: 20) - 0.0896) < 1e-9)
-        #expect(abs(Noise.lidRate(speed: 40) - 0.5376) < 1e-9)   // 0.008·28 + 0.0004·784
-        // A 45 °/s full open (65° in 1.44 s) bites a Snorer; 40 °/s doesn't.
-        #expect(Noise.lidRate(speed: 45) * (Tuning.lidTravel / 45) >= 1)
-        #expect(Noise.lidRate(speed: 40) * (Tuning.lidTravel / 40) < 1)
+        #expect(Noise.lidRate(speed: 14) == 0)
+        #expect(Noise.lidRate(speed: 14.5) > 0)
+        #expect(abs(Noise.lidRate(speed: 20) - 0.0624) < 1e-9)   // 0.008·6 + 0.0004·36
+        #expect(abs(Noise.lidRate(speed: 40) - 0.4784) < 1e-9)   // 0.008·26 + 0.0004·676
+        // R7: a 50 °/s full open (65° in 1.3 s) bites a Snorer; 45 °/s no longer does (R2: it did).
+        #expect(Noise.lidRate(speed: 50) * (Tuning.lidTravel / 50) >= 1)
+        #expect(Noise.lidRate(speed: 45) * (Tuning.lidTravel / 45) < 1)
         let slam: Double = Noise.lidRate(speed: 120) * 0.4
-        #expect(slam >= 2.2 && slam < 2.25)
+        #expect(slam >= 2.1 && slam < 2.15)
         #expect(Noise.lidRate(speed: 30) > Noise.lidRate(speed: 20))
         #expect(Noise.lidRate(speed: Double.nan) == 0)
         #expect(Noise.lidRate(speed: Double.nan, closing: true) == 0)
     }
 
     @Test func closingIsQuieterThanOpening() {
-        // R2 (REVIEW-1-feel #2): closing is silent below 18 °/s.
+        // R2 (REVIEW-1-feel #2): closing has its own, higher quiet line. R7: 28 °/s (R2: 18), since a real slow close
+        // runs at 25–60 °/s (DEVICE-RISKS-1 item 1).
         #expect(Noise.quietSpeed(closing: false) == Tuning.quietSpeed)
         #expect(Noise.quietSpeed(closing: true) == Tuning.closeQuietSpeed)
-        #expect(Noise.lidRate(speed: 16) > 0)
-        #expect(Noise.lidRate(speed: 16, closing: true) == 0)
-        #expect(Noise.lidRate(speed: 18, closing: true) == 0)
-        #expect(Noise.lidRate(speed: 25, closing: true) > 0)
-        #expect(Noise.lidRate(speed: 25, closing: true) < Noise.lidRate(speed: 25))
-        // In a session the direction comes from the openness: opening at 16 °/s is heard, closing at 16 °/s isn't.
+        #expect(Noise.lidRate(speed: 20) > 0)
+        #expect(Noise.lidRate(speed: 20, closing: true) == 0)
+        #expect(Noise.lidRate(speed: 28, closing: true) == 0)
+        #expect(Noise.lidRate(speed: 35, closing: true) > 0)
+        #expect(Noise.lidRate(speed: 35, closing: true) < Noise.lidRate(speed: 35))
+        // In a session the direction comes from the openness: opening at 20 °/s is heard, closing at 20 °/s isn't.
         let (a, _) = lootingSession(seed: 161)
         var o: Double = 0.06
         for _ in 0..<60 {
-            o += 16.0 / Tuning.lidTravel / 60.0
-            _ = a.step(dt: 1.0 / 60.0, lid: lidAt(o, speed: 16))
+            o += 20.0 / Tuning.lidTravel / 60.0
+            _ = a.step(dt: 1.0 / 60.0, lid: lidAt(o, speed: 20))
         }
         #expect(a.snapshot.noise > 0.02)
         let (b, _) = lootingSession(seed: 161)
         _ = b.step(dt: 1.0 / 120.0, lid: lidAt(0.9))
         var p: Double = 0.9
         for _ in 0..<60 {
-            p -= 16.0 / Tuning.lidTravel / 60.0
-            _ = b.step(dt: 1.0 / 60.0, lid: lidAt(p, speed: 16))
+            p -= 20.0 / Tuning.lidTravel / 60.0
+            _ = b.step(dt: 1.0 / 60.0, lid: lidAt(p, speed: 20))
         }
         #expect(b.snapshot.noise == 0)
     }
@@ -341,7 +344,10 @@ struct CoreTests {
     }
 
     @Test func r2TuningNumbers() {
-        #expect(Tuning.quietSpeed == 12 && Tuning.closeQuietSpeed == 18)
+        // R7 (ROUND-7 Core item 1): 12 → 14 and 18 → 28, with a 0.08 s loud onset.
+        #expect(Tuning.quietSpeed == 14 && Tuning.closeQuietSpeed == 28)
+        #expect(Tuning.loudOnsetSeconds == 0.08)
+        #expect(Tuning.loudSpeed == 30)
         #expect(Tuning.lidRateLinear == 0.008 && Tuning.lidRateQuadratic == 0.0004)
         #expect(Tuning.decayGrace == 0.3)
         #expect(Tuning.dragQuietSpeed == 350)
@@ -679,9 +685,9 @@ struct CoreTests {
         #expect(abs(s.snapshot.noise - 0.3) < 1e-9)
         _ = s.step(dt: 0.5, lid: still)
         #expect(s.snapshot.noise < 0.3)
-        // A loud lid stops the decay and adds noise.
+        // A loud lid stops the decay and adds noise (R7: once past its 0.08 s onset).
         let before: Double = s.snapshot.noise
-        _ = s.step(dt: 0.1, lid: lidAt(0.4, speed: 20))
+        _ = s.step(dt: 0.3, lid: lidAt(0.4, speed: 30))
         #expect(s.snapshot.noise > before)
     }
 
@@ -1560,5 +1566,259 @@ struct CoreTests {
             clearance(it) >= 0
         }
         #expect(lessonClear)
+    }
+
+    // MARK: R7 "real hands" (design/ROUND-7.md Core items 1–3)
+
+    @Test func onsetShareCountsOnlyPastTheOnset() {
+        #expect(Tuning.loudOnsetSeconds == 0.08)
+        #expect(Noise.onsetShare(loudBefore: 0, loudAfter: 0.05, step: 0.05) == 0)
+        #expect(Noise.onsetShare(loudBefore: 0.05, loudAfter: 0.08, step: 0.03) == 0)
+        #expect(abs(Noise.onsetShare(loudBefore: 0.06, loudAfter: 0.1, step: 0.04) - 0.5) < 1e-9)
+        #expect(abs(Noise.onsetShare(loudBefore: 0.2, loudAfter: 0.21, step: 0.01) - 1) < 1e-9)
+        #expect(Noise.onsetShare(loudBefore: 0, loudAfter: 0, step: 0.01) == 0)
+        #expect(Noise.onsetShare(loudBefore: 0, loudAfter: 0.01, step: 0) == 0)
+        #expect(Noise.onsetShare(loudBefore: Double.nan, loudAfter: 0.2, step: 0.01) == 0)
+        #expect(Noise.onsetShare(loudBefore: 0.1, loudAfter: 0.2, step: Double.infinity) == 0)
+    }
+
+    /// R7 (DEVICE-RISKS-1 item 2): a stick-slip blip shorter than the 0.08 s onset makes no noise and doesn't stop the
+    /// decay, so a slow, jerky open is exactly as quiet as a still lid.
+    @Test func loudOnsetForgivesAStickSlipBlip() {
+        let (s, _) = lootingSession(seed: 211)
+        _ = s.step(dt: 1.0 / 120.0, lid: lidAt(0.3))
+        // A 0.07 s breakaway at 120 °/s: nothing.
+        _ = s.step(dt: 0.07, lid: lidAt(0.4, speed: 120))
+        #expect(s.snapshot.noise == 0)
+        #expect(s.snapshot.stage == .asleep)
+        // Stick-slip: a 1° slip in one 60 Hz frame (60 °/s), then 0.3 s stuck, for 4 s, against a twin whose lid
+        // moves the same way but reads still. The noise decays identically.
+        let (slip, _) = lootingSession(seed: 211)
+        let (still, _) = lootingSession(seed: 211)
+        slip.nudgeNoise(to: 0.8)
+        still.nudgeNoise(to: 0.8)
+        var o: Double = 0.3
+        var t: Double = 0
+        while t < 4 {
+            o += 1.0 / Tuning.lidTravel
+            _ = slip.step(dt: 1.0 / 60.0, lid: lidAt(o, speed: 60))
+            _ = still.step(dt: 1.0 / 60.0, lid: lidAt(o))
+            var k: Int = 0
+            while k < 18 {
+                _ = slip.step(dt: 1.0 / 60.0, lid: lidAt(o))
+                _ = still.step(dt: 1.0 / 60.0, lid: lidAt(o))
+                k += 1
+            }
+            t += 19.0 / 60.0
+        }
+        let slipNoise: Double = slip.snapshot.noise
+        let stillNoise: Double = still.snapshot.noise
+        #expect(slipNoise == stillNoise)
+        #expect(slipNoise > 0 && slipNoise < 0.8)
+        #expect(slip.snapshot.bites == 0)
+    }
+
+    /// R7: the onset is time-based, not frame-based: 0.5 s at 40 °/s from still counts exactly its last 0.42 s at any
+    /// step size.
+    @Test func loudOnsetIsTheSameAtAnyFrameRate() {
+        let (ref, _) = lootingSession(seed: 221)
+        guard let chest = ref.snapshot.chest else {
+            Issue.record("no chest")
+            return
+        }
+        let expected: Double = Noise.lidRate(speed: 40) * Noise.multiplier(for: chest.mimic)
+            * (0.5 - Tuning.loudOnsetSeconds)
+        for dt in [1.0 / 120.0, 1.0 / 90.0, 1.0 / 50.0, 0.5] {
+            let (s, _) = lootingSession(seed: 221)
+            _ = s.step(dt: 1.0 / 120.0, lid: lidAt(0.5))
+            run(s, seconds: 0.5, dt: dt, lid: lidAt(0.5, speed: 40))
+            let n: Double = s.snapshot.noise
+            #expect(abs(n - expected) < 1e-9, "dt \(dt): noise \(n), expected \(expected)")
+        }
+    }
+
+    /// R7: the onset only forgives blips. A real slam from still (150° → 100° in 0.25 s) still bites before it banks;
+    /// a careful real close (25 °/s, under the R7 closing line) is silent all the way down and banks Hushed.
+    @Test func aRealSlamStillBitesThroughTheOnset() {
+        let (s, _) = lootingSession(seed: 71)
+        guard let k = shallowest(s.snapshot) else {
+            Issue.record("empty chest")
+            return
+        }
+        _ = bagItem(s, k)
+        _ = s.step(dt: 1.0 / 120.0, lid: lidAt(0.77))
+        var o: Double = 0.77
+        var ev: [HeistEvent] = []
+        var i: Int = 0
+        while i < 15 && count(ev, isBitten) == 0 {
+            o = max(0, o - 200.0 / Tuning.lidTravel / 60.0)
+            ev.append(contentsOf: s.step(dt: 1.0 / 60.0, lid: lidAt(o, speed: 200)))
+            i += 1
+        }
+        #expect(count(ev, isBitten) == 1)
+        #expect(count(ev, isBanked) == 0)
+        let (c, _) = lootingSession(seed: 71)
+        guard let kc = shallowest(c.snapshot) else { return }
+        _ = bagItem(c, kc)
+        _ = c.step(dt: 1.0 / 120.0, lid: lidAt(0.77))
+        let n0: Double = c.snapshot.noise
+        var p: Double = 0.77
+        var evc: [HeistEvent] = []
+        var j: Int = 0
+        while j < 240 && count(evc, isBanked) == 0 {
+            p = max(0.06, p - 25.0 / Tuning.lidTravel / 60.0)
+            let v: Double = p > 0.06 ? 25 : 0
+            evc.append(contentsOf: c.step(dt: 1.0 / 60.0, lid: lidAt(p, speed: v)))
+            j += 1
+        }
+        #expect(count(evc, isBanked) == 1)
+        let hushedBank: Bool = evc.contains { (e: HeistEvent) -> Bool in
+            if case .banked(_, _, let hushed) = e { return hushed }
+            return false
+        }
+        #expect(hushedBank)
+        let rose: Int = count(evc) { (e: HeistEvent) -> Bool in
+            if case .stageChanged(_, let to) = e { return to > .asleep }
+            return false
+        }
+        #expect(rose == 0, "noise before the close \(n0)")
+    }
+
+    /// R7 (ROUND-7 Core item 2): `isFreshChest` is a `.ready` chest whose openness never passed 0.05, with nothing in
+    /// the bag: after a bank with the lid carried on down to shut, the App may reopen it without the stillness wait.
+    @Test func aFreshChestIsReadyAndUntouched() {
+        #expect(Tuning.freshChestOpenness == 0.05)
+        // The run's first chest, lid shut: fresh.
+        let s: HeistSession = newSession(seed: 231)
+        #expect(s.isFreshChest)
+        _ = s.step(dt: 1.0 / 60.0, lid: lidAt(0))
+        #expect(s.snapshot.phase == .ready)
+        #expect(s.isFreshChest)
+        // Cracked open, it's looting: not fresh, and not again once shut.
+        _ = s.step(dt: 1.0 / 60.0, lid: lidAt(0.1))
+        #expect(s.snapshot.phase == .looting)
+        #expect(!s.isFreshChest)
+        _ = s.step(dt: 1.0 / 60.0, lid: lidAt(0))
+        #expect(!s.isFreshChest)
+        // Bank, then carry the lid on down to shut (the Duo folded): the next chest arrives fresh.
+        let (b, _) = lootingSession(seed: 231)
+        _ = bankOne(b)
+        #expect(!b.isFreshChest)
+        let ev: [HeistEvent] = run(b, seconds: 2.0, lid: lidAt(0))
+        #expect(count(ev, isArrived) == 1)
+        #expect(b.snapshot.phase == .ready)
+        #expect(b.snapshot.bagValue == 0)
+        #expect(b.isFreshChest)
+        // A hair of lid below the looting line keeps it fresh; opening it starts the chest.
+        _ = b.step(dt: 1.0 / 60.0, lid: lidAt(0.015))
+        #expect(b.isFreshChest)
+        _ = b.step(dt: 1.0 / 60.0, lid: lidAt(0.04))
+        #expect(b.snapshot.phase == .looting)
+        #expect(!b.isFreshChest)
+        // The next chest arriving with the lid still resting in the shut zone (0.06) is looted at once: not fresh.
+        let (c, _) = lootingSession(seed: 231)
+        _ = bankOne(c)
+        nextChestLooting(c)
+        #expect(c.snapshot.phase == .looting)
+        #expect(!c.isFreshChest)
+        // One arriving with the lid up waits in .ready, but it has been open: not fresh, even once eased down.
+        let (d, _) = lootingSession(seed: 231)
+        _ = bankOne(d)
+        run(d, seconds: 2.0, lid: lidAt(0.5))
+        #expect(d.snapshot.phase == .ready)
+        #expect(!d.isFreshChest)
+        _ = d.step(dt: 1.0 / 60.0, lid: lidAt(0))
+        #expect(d.snapshot.phase == .ready)
+        #expect(!d.isFreshChest)
+    }
+
+    /// R7 (ROUND-7 Core item 3): Lid sensitivity scales every noise source (forgiving 0.75, normal 1, careful 1.2), in
+    /// runs and the unscored Daily. The scored Daily is always Normal; attract and the lesson ignore it.
+    @Test func lidSensitivityScalesTheNoiseButNotTheScoredDaily() throws {
+        #expect(LidSensitivity.allCases == [.forgiving, .normal, .careful])
+        #expect(LidSensitivity.forgiving.rawValue == "forgiving")
+        #expect(LidSensitivity.normal.rawValue == "normal")
+        #expect(LidSensitivity.careful.rawValue == "careful")
+        #expect(LidSensitivity.forgiving.noiseScale == 0.75)
+        #expect(LidSensitivity.normal.noiseScale == 1)
+        #expect(LidSensitivity.careful.noiseScale == 1.2)
+        let data: Data = try JSONEncoder().encode(LidSensitivity.allCases)
+        let back: [LidSensitivity] = try JSONDecoder().decode([LidSensitivity].self, from: data)
+        #expect(back == LidSensitivity.allCases)
+        let json: Data = Data(#"["careful","forgiving"]"#.utf8)
+        let raw: [LidSensitivity] = try JSONDecoder().decode([LidSensitivity].self, from: json)
+        #expect(raw == [.careful, .forgiving])
+        // SessionOptions(sensitivity:).
+        let f: SessionOptions = SessionOptions(sensitivity: .forgiving)
+        #expect(f.noiseScale == 0.75)
+        #expect(f.sensitivity == .forgiving)
+        #expect(f.torch && f.bites && f.fixedChest == nil)
+        #expect(SessionOptions(sensitivity: .normal) == SessionOptions())
+        #expect(SessionOptions().sensitivity == .normal)
+        #expect(abs(SessionOptions(sensitivity: .careful).noiseScale - 1.2) < 1e-12)
+        // Per mode.
+        let runOptions: SessionOptions = SessionOptions.for(.run, sensitivity: .careful)
+        #expect(runOptions == SessionOptions(sensitivity: .careful))
+        let practice: SessionOptions = SessionOptions.for(.daily(day: 3, scored: false), sensitivity: .forgiving)
+        #expect(practice.noiseScale == 0.75)
+        let scored: SessionOptions = SessionOptions.for(.daily(day: 3, scored: true), sensitivity: .forgiving)
+        #expect(scored == SessionOptions())
+        #expect(scored.sensitivity == .normal)
+        #expect(LidSensitivity.effective(.careful, for: .daily(day: 9, scored: true)) == .normal)
+        #expect(LidSensitivity.effective(.careful, for: .daily(day: 9, scored: false)) == .careful)
+        #expect(LidSensitivity.effective(.forgiving, for: .run) == .forgiving)
+        #expect(SessionOptions.for(.attract, sensitivity: .careful) == SessionOptions.for(.attract))
+        #expect(SessionOptions.for(.lesson, sensitivity: .forgiving) == SessionOptions.for(.lesson))
+        // In a session every source is scaled: a pick adds pickNoise × the mimic × the sensitivity.
+        for sens in LidSensitivity.allCases {
+            let (s, _) = lootingSession(seed: 21, options: SessionOptions(sensitivity: sens))
+            guard let k = shallowest(s.snapshot), let chest = s.snapshot.chest else {
+                Issue.record("empty chest")
+                continue
+            }
+            _ = s.step(dt: 1.0 / 120.0, lid: lidAt(min(1, s.snapshot.loot[k].item.depth + 0.08)))
+            let picked: [HeistEvent] = s.touchBegan(id: 1, at: s.snapshot.loot[k].position, time: 0)
+            #expect(!picked.isEmpty)
+            let expected: Double = Tuning.pickNoise * Noise.multiplier(for: chest.mimic) * sens.noiseScale
+            #expect(abs(s.snapshot.noise - expected) < 1e-9, "\(sens.rawValue)")
+        }
+        // The scored Daily plays the same whatever the setting (everyone's counted try is the same game).
+        let day: RunMode = .daily(day: 300, scored: true)
+        let a = HeistSession(mode: day, seed: DailySeed.seed(day: 300), bestRun: 0, foundRelics: [],
+                             options: SessionOptions.for(day, sensitivity: .forgiving))
+        let b = HeistSession(mode: day, seed: DailySeed.seed(day: 300), bestRun: 0, foundRelics: [],
+                             options: SessionOptions.for(day, sensitivity: .careful))
+        var pa = ThiefPilot(skill: .casual, seed: 5)
+        var pb = ThiefPilot(skill: .casual, seed: 5)
+        var t: Double = 0
+        var frames: Int = 0
+        while frames < 60 * 30 {
+            let oa: PilotOutput = pa.step(dt: 1.0 / 60.0, snapshot: a.snapshot)
+            let ob: PilotOutput = pb.step(dt: 1.0 / 60.0, snapshot: b.snapshot)
+            for touch in oa.touches {
+                switch touch.phase {
+                case .began: _ = a.touchBegan(id: touch.id, at: touch.point, time: t)
+                case .moved: _ = a.touchMoved(id: touch.id, to: touch.point, time: t)
+                case .ended: _ = a.touchEnded(id: touch.id, at: touch.point, time: t)
+                }
+            }
+            for touch in ob.touches {
+                switch touch.phase {
+                case .began: _ = b.touchBegan(id: touch.id, at: touch.point, time: t)
+                case .moved: _ = b.touchMoved(id: touch.id, to: touch.point, time: t)
+                case .ended: _ = b.touchEnded(id: touch.id, at: touch.point, time: t)
+                }
+            }
+            _ = a.step(dt: 1.0 / 60.0, lid: oa.lid)
+            _ = b.step(dt: 1.0 / 60.0, lid: ob.lid)
+            t += 1.0 / 60.0
+            frames += 1
+        }
+        let sa: HeistSnapshot = a.snapshot
+        let sb: HeistSnapshot = b.snapshot
+        #expect(sa == sb)
+        let ra: RunResult = a.partialResult()
+        let rb: RunResult = b.partialResult()
+        #expect(ra == rb)
     }
 }

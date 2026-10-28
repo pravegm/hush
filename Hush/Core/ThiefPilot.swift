@@ -18,6 +18,11 @@ import Foundation
 //   0.75–1.0 × closeQuietSpeed (perfect 0.95 ×), drags × dragQuietSpeed/250; with the bag jingle on they leave the
 //   copper while anything better is left and bank once the jingle floor reaches 0.20 (perfect 0.22).
 // - R2 relic glimmer: in each chest the novice (50 %) and casual (60 %) pilot may be lured by a relic and reach for it.
+// - R7 "real hands" (ROUND-7 Core item 4): novice and casual move like a person. Casual opens at 10–25°/s and closes at
+//   20–40°/s, novice opens at 12–40°/s and closes at 30–60°/s (its slams stay), and every stroke from still starts with
+//   a stick-slip jump of 0.5–2° in one frame (drawn from its own stream, so every other draw is unchanged). Expert and
+//   perfect still play to the R2–R6 lines (12 / 18 °/s), not to R7's forgiving 14 / 28: the forgiveness is for real
+//   hands on unknown hardware, not a free speed-up for the skill ceiling.
 // Keep in sync with ThiefPilot in tools/balance-sim.js (same draw order).
 
 enum PilotSkill: String, CaseIterable, Sendable {
@@ -40,7 +45,7 @@ struct PilotOutput: Equatable {
 struct PilotProfile {
     /// Lid opening speed per chest (°/s).
     var open: ClosedRange<Double>
-    /// Lid closing speed per chest (°/s): "eases shut at 6–15°/s".
+    /// Lid closing speed per chest (°/s): R1 "eases shut at 6–15°/s"; R7 real hands close at 20–60°/s.
     var close: ClosedRange<Double>
     /// Chance per chest of slamming the lid shut instead, and the slam speed (°/s).
     var slamChance: Double
@@ -71,6 +76,8 @@ struct PilotProfile {
     var skipCheap: Bool = false
     /// R2 bag jingle: banks once the jingle floor reaches this (0 = never).
     var greed: Double = 0
+    /// R7 stick-slip: a lid stroke from still breaks away with a jump of this many degrees in one step (0...0 = none).
+    var slip: ClosedRange<Double> = 0...0
 
     /// The R1 behaviour table (speeds in R1 terms: quiet 8 °/s, silent drags 250 pt/s).
     static func base(_ skill: PilotSkill) -> PilotProfile {
@@ -96,16 +103,25 @@ struct PilotProfile {
         }
     }
 
-    /// The pilot actually used: novice and casual as in R1; expert and perfect adapted to the R2 thresholds.
+    /// The pilot actually used: novice and casual with R7's real hands (else as in R1); expert and perfect adapted to
+    /// the R2–R6 thresholds (`masterQuietSpeed`, `masterCloseQuietSpeed`).
     static func profile(_ skill: PilotSkill) -> PilotProfile {
         var p: PilotProfile = base(skill)
         switch skill {
-        case .novice, .casual:
+        case .novice:
+            p.open = handsNoviceOpen
+            p.close = handsNoviceClose
+            p.slip = handsSlip
+            return p
+        case .casual:
+            p.open = handsCasualOpen
+            p.close = handsCasualClose
+            p.slip = handsSlip
             return p
         case .expert, .perfect:
-            let kl: Double = Tuning.quietSpeed / r1QuietSpeed
+            let kl: Double = masterQuietSpeed / r1QuietSpeed
             let kd: Double = Tuning.dragQuietSpeed / r1DragQuietSpeed
-            let cq: Double = Tuning.closeQuietSpeed
+            let cq: Double = masterCloseQuietSpeed
             p.open = (p.open.lowerBound * kl)...(p.open.upperBound * kl)
             let perfectClose: ClosedRange<Double> = (0.95 * cq)...(0.95 * cq)
             let expertClose: ClosedRange<Double> = (0.75 * cq)...cq
@@ -121,6 +137,18 @@ struct PilotProfile {
     /// R1 quiet lines the base table was written for.
     static let r1QuietSpeed: Double = 8
     static let r1DragQuietSpeed: Double = 250
+    /// R7: the lid lines expert and perfect play to (R2–R6's `Tuning.quietSpeed` / `closeQuietSpeed`).
+    static let masterQuietSpeed: Double = 12
+    static let masterCloseQuietSpeed: Double = 18
+    /// R7 real hands (DEVICE-RISKS-1 item 1, REVIEW-1-feel): a natural slow close is 20–40°/s; the novice is faster.
+    static let handsCasualOpen: ClosedRange<Double> = 10...25
+    static let handsCasualClose: ClosedRange<Double> = 20...40
+    static let handsNoviceOpen: ClosedRange<Double> = 12...40
+    static let handsNoviceClose: ClosedRange<Double> = 30...60
+    /// R7 stick-slip breakaway (degrees in one step) at the start of every stroke from still.
+    static let handsSlip: ClosedRange<Double> = 0.5...2
+    /// The stick-slip stream (seed ^ this), separate so every other draw is unchanged.
+    static let slipSalt: UInt64 = 0x5715B11
     /// Bag-jingle floors at which the adapted pilots bank.
     static let greedExpert: Double = 0.20
     static let greedPerfect: Double = 0.22
@@ -179,12 +207,16 @@ struct ThiefPilot {
     private var nextTouchID: Int = PilotProfile.firstTouchID
     private var lureRng: SeededRandom
     private var lured: Bool = false
+    /// R7 stick-slip: its own stream, and whether the lid was still in the previous step (a new stroke).
+    private var slipRng: SeededRandom
+    private var stillBefore: Bool = true
 
     init(skill: PilotSkill, seed: UInt64) {
         self.skill = skill
         self.profile = PilotProfile.profile(skill)
         self.rng = SeededRandom(seed: seed)
         self.lureRng = SeededRandom(seed: PilotProfile.lureSeed ^ UInt64(skill.rawValue.count))
+        self.slipRng = SeededRandom(seed: seed ^ PilotProfile.slipSalt)
     }
 
     private var lidOutput: LidInput {
@@ -198,9 +230,15 @@ struct ThiefPilot {
         slamSpeed = rng.range(profile.slam)
     }
 
-    /// Moves the lid towards `target` at `degreesPerSecond`; true once there.
+    /// Moves the lid towards `target` at `degreesPerSecond`; true once there. R7: a stroke from still first breaks
+    /// away with a stick-slip jump (`profile.slip` degrees in this step, if that's more than the normal step).
     private mutating func moveLid(to target: Double, degreesPerSecond: Double, dt: Double) -> Bool {
-        let stepLen: Double = degreesPerSecond / Tuning.lidTravel * dt
+        var stepLen: Double = degreesPerSecond / Tuning.lidTravel * dt
+        if stillBefore && profile.slip.upperBound > 0 && abs(target - openness) > 1e-9 {
+            let jump: Double = slipRng.range(profile.slip) / Tuning.lidTravel
+            stepLen = max(stepLen, jump)
+        }
+        stillBefore = false
         let before: Double = openness
         if abs(target - openness) <= stepLen {
             openness = target
@@ -260,6 +298,7 @@ struct ThiefPilot {
 
     mutating func step(dt: Double, snapshot snap: HeistSnapshot) -> PilotOutput {
         var touches: [PilotTouch] = []
+        stillBefore = !(speed > 0)
         speed = 0
         let active: Bool
         switch snap.phase {

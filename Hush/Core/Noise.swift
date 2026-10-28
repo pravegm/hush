@@ -5,8 +5,8 @@ import Foundation
 enum Noise {
 
     /// Noise added per second by the lid moving at `speed` °/s (before the mimic multiplier). 0 at or below the quiet
-    /// line (`Tuning.quietSpeed` 12, or `Tuning.closeQuietSpeed` 18 while `closing`); opening 20°/s → 0.09/s,
-    /// 40°/s → 0.55/s.
+    /// line (`Tuning.quietSpeed` 14, or `Tuning.closeQuietSpeed` 28 while `closing`); opening 20°/s → 0.062/s,
+    /// 40°/s → 0.48/s. In a session the loud onset (`onsetShare`) also applies.
     static func lidRate(speed: Double, closing: Bool = false) -> Double {
         let quiet: Double = quietSpeed(closing: closing)
         guard speed.isFinite, speed > quiet else { return 0 }
@@ -17,6 +17,16 @@ enum Noise {
     /// The lid's silent line (°/s): `Tuning.closeQuietSpeed` while the lid is closing, else `Tuning.quietSpeed`.
     static func quietSpeed(closing: Bool) -> Double {
         return closing ? Tuning.closeQuietSpeed : Tuning.quietSpeed
+    }
+
+    /// R7 loud onset: the share (0…1) of a sub-step of length `step` in which lid noise counts, given how long the lid
+    /// had been above its quiet line before (`loudBefore`) and after (`loudAfter`) the sub-step. The first
+    /// `Tuning.loudOnsetSeconds` (0.08 s) of every loud stretch are free, so a stick-slip blip makes no noise; the
+    /// share doesn't depend on how the time is cut into steps. 0 for a bad or empty step.
+    static func onsetShare(loudBefore: Double, loudAfter: Double, step: Double) -> Double {
+        guard step.isFinite, step > 0, loudBefore.isFinite, loudAfter.isFinite else { return 0 }
+        let counted: Double = loudAfter - max(loudBefore, Tuning.loudOnsetSeconds)
+        return min(max(counted / step, 0), 1)
     }
 
     /// R2 bag jingle: the level noise can't decay below with `items` in the bag (`multiplier` = the chest's noise

@@ -4,11 +4,15 @@
 // R2 = REVIEW-1-feel's tools/balance-sim-r2.js proposal (kept as the reference, with its r1=1 baseline) plus the Duo
 // relic depth 0.80-0.88 and the Swift rule that the Hush Chain breaks the moment the mimic stirs (same gold: that chest
 // can no longer be Hushed either way).
+// R7 ("real hands", design/notes/core-R7.md): quietSpeed 14, closeQuietSpeed 28, the 0.08 s loud onset, the fresh chest,
+// LidSensitivity, and novice/casual pilots with real hand speeds and stick-slip (expert/perfect keep the 12/18 lines).
 //
 //   node tools/balance-sim.js                      # 8 seeds x 4 skills at 60 Hz, prints HUSH-BAL lines + target checks
 //   node tools/balance-sim.js seeds=40 skills=casual,expert
 //   node tools/balance-sim.js verbose=1 seeds=2    # one line per run
 //   node tools/balance-sim.js windows=40           # robustness: medians of 40 different 8-seed windows (min..max)
+//   node tools/balance-sim.js sensitivity=forgiving # R7 LidSensitivity (forgiving 0.75 / normal 1 / careful 1.2 noise)
+//   node tools/balance-sim.js T.hands=0 T.loudOnsetSeconds=0 T.masterQuiet=0   # R7 ablations (R6 pilots, no onset, ...)
 //   Any Tuning value can be overridden: T.decayWooden=0.12
 //   Seeds are 1000 + 7919*i (base= and stride= move them), the same as HushTests/BalanceTests.swift.
 //
@@ -19,7 +23,7 @@
 // MARK: Tuning (mirror of Hush/Core/Tuning.swift)
 const T = {
   shutAngle: 100, wideAngle: 165, shutZoneAngle: 110, tooWideAngle: 172,
-  quietSpeed: 12, loudSpeed: 30, lidRateLinear: 0.008, lidRateQuadratic: 0.0004,
+  quietSpeed: 14, loudSpeed: 30, lidRateLinear: 0.008, lidRateQuadratic: 0.0004,
   dragQuietSpeed: 350, dragRatePerPoint: 0.0006,
   pickNoise: 0.02, bagNoise: 0.03, dropNoise: 0.08,
   decayGrace: 0.3, quietRateThreshold: 0.01, restlessPerSecond: 0.02, restlessFloor: 0.5,
@@ -54,10 +58,15 @@ const T = {
   jinglePerItem: 0.035,                 // bag jingle: noise cannot decay below jinglePerItem*bagCount*mimicMult
   jingleMax: 0.30,                      // ... capped here (below Stirring 0.35, so a full bag never stirs by itself)
   greedExpert: 0.20, greedPerfect: 0.22, // adapted pilots bank once the jingle floor reaches this
-  closeQuietSpeed: 18,                  // >0: the lid is silent below this while CLOSING (0 = same as quietSpeed)
+  closeQuietSpeed: 28,                  // R7 18 -> 28. >0: the lid is silent below this while CLOSING (0 = same as quietSpeed)
   relicGlimmer: 1,                      // >0: relic chests twinkle; novice/casual then go for the relic (lure odds below)
   lureNovice: 0.5, lureCasual: 0.6,
   adaptPilots: 1,                       // expert/perfect play to the quiet thresholds (speeds x quiet / R1 quiet)
+  // --- R7 rules (real hands) ---
+  loudOnsetSeconds: 0.08,               // lid noise counts only once the lid has been above quiet this long (0 = off)
+  freshChestOpenness: 0.05,             // HeistSession.isFreshChest: .ready, openness never above this, empty bag
+  masterQuiet: 12, masterCloseQuiet: 18, // expert/perfect adapt to these lines (0 = to the live Tuning lines)
+  hands: 1,                             // novice/casual pilots move like real hands (R7 speeds + stick-slip); 0 = R6 pilots
 };
 const R1_QUIET = 8, R1_DRAG_QUIET = 250;
 const FLOOR = { width: 670, height: 456, bagMinY: 346, ix: 78, iy: 36, iw: 514, ih: 286 };
@@ -84,7 +93,11 @@ class SeededRandom {
 }
 
 // MARK: Noise / Lid
-function lidRate(speed, closing) { const q = closing && T.closeQuietSpeed > 0 ? T.closeQuietSpeed : T.quietSpeed; if (!(speed > q)) return 0; const x = speed - q; return T.lidRateLinear * x + T.lidRateQuadratic * x * x; }
+function quietLine(closing) { return closing && T.closeQuietSpeed > 0 ? T.closeQuietSpeed : T.quietSpeed; }
+// R7: the share of a sub-step of length h past the loud onset (Noise.onsetShare): the first loudOnsetSeconds of a loud
+// stretch are free.
+function onsetShare(before, after, h) { if (!(h > 0)) return 0; return Math.min(Math.max((after - Math.max(before, T.loudOnsetSeconds)) / h, 0), 1); }
+function lidRate(speed, closing) { const q = quietLine(closing); if (!(speed > q)) return 0; const x = speed - q; return T.lidRateLinear * x + T.lidRateQuadratic * x * x; }
 function dragRate(speed) { if (!(speed > T.dragQuietSpeed)) return 0; return T.dragRatePerPoint * (speed - T.dragQuietSpeed); }
 const ASLEEP = 0, STIRRING = 1, WAKING = 2, BITING = 3;
 function upThreshold(s) { return s === STIRRING ? T.stirringNoise : s === WAKING ? T.wakingNoise : s === BITING ? T.biteNoise : 0; }
@@ -188,9 +201,13 @@ function place(rng, depth, radius, items) {
 }
 
 // MARK: HeistSession
+// R7: LidSensitivity -> noise scale (the scored Daily always plays .normal).
+const SENSITIVITY = { forgiving: 0.75, normal: 1.0, careful: 1.2 };  // Tuning.forgiving/normal/carefulNoiseScale
 class HeistSession {
   constructor(seed, options) {
-    this.seed = seed; this.opt = Object.assign({ torch: true, bites: true, noiseScale: 1 }, options || {});
+    this.seed = seed; this.opt = Object.assign({ torch: true, bites: true, noiseScale: 1, sensitivity: 'normal' }, options || {});
+    this.opt.noiseScale *= SENSITIVITY[this.opt.sensitivity];
+    this.loudFor = 0; this.peakOpenness = 0;
     this.time = 0; this.phase = 'ready'; this.elapsed = 0;
     this.index = 0; this.found = new Set();
     this.noise = 0; this.stage = ASLEEP; this.quietFor = 0; this.chestTime = 0;
@@ -210,7 +227,7 @@ class HeistSession {
     this.loot = spec.items.map((it) => ({ item: it, x: it.x, y: it.y, place: 'inChest', touch: -1, light: 0, grabbable: false }));
     this.phase = 'ready'; this.sawShut = false; this.cracked = false; this.chestTime = 0; this.shutHold = 0;
     this.bagCount = 0; this.bagValue = 0; this.leftAsleep = false; this.revealed = new Set();
-    this.noise = 0; this.quietFor = 0;
+    this.noise = 0; this.quietFor = 0; this.loudFor = 0; this.peakOpenness = this.lid ? this.lid.openness : 0;
     this.twitchRng = new SeededRandom(chestSeed(this.seed, spec.index) ^ 0x7417C4n);
     this.twitchIn = this.twitchRng.range(T.dreamTwitchMin, T.dreamTwitchMax);
   }
@@ -237,8 +254,11 @@ class HeistSession {
     if (this.phase === 'finished') return;
     this.play(h, ev);
   }
+  // R7: an untouched .ready chest (the App skips the stillness wait for it).
+  isFreshChest() { return this.phase === 'ready' && this.bagCount === 0 && this.peakOpenness <= T.freshChestOpenness; }
   play(h, ev) {
     const o = this.lid.openness;
+    this.peakOpenness = Math.max(this.peakOpenness, o);
     if (this.phase === 'ready') {
       if (this.lid.inShutZone) this.sawShut = true;
       if (this.sawShut && o > T.lootingStartOpenness) { this.phase = 'looting'; this.chestsOpened += 1; this.chestTime = 0; }
@@ -251,7 +271,10 @@ class HeistSession {
     // held-drag stillness
     for (const t of this.touches.values()) { t.stillFor += h; if (t.stillFor > T.dragStillAfter) t.speed *= Math.exp(-h / T.dragStillDecay); }
     // noise
-    let raw = lidRate(this.lid.speed, this.closing);
+    // R7 loud onset: the lid only counts once it has been above its quiet line for loudOnsetSeconds.
+    const loudBefore = this.loudFor;
+    if (this.lid.speed > quietLine(this.closing)) this.loudFor += h; else this.loudFor = 0;
+    let raw = lidRate(this.lid.speed, this.closing) * onsetShare(loudBefore, this.loudFor, h);
     for (const t of this.touches.values()) raw += dragRate(t.speed);
     const rate = raw * this.mult();
     this.noise += rate * h;
@@ -421,11 +444,20 @@ const PROFILES = {
   expert: { open: [5, 9], close: [8, 12], slamChance: 0, slam: [0, 0], drag: [200, 320], reaction: 0.25, freezeStage: STIRRING, freezeObey: 1, unfreeze: 0.25, concurrent: true, reach: 1, drop: 0, torchAware: true, frontFirst: false },
   perfect: { open: [6, 6], close: [15, 15], slamChance: 0, slam: [0, 0], drag: [240, 240], reaction: 0.12, freezeStage: STIRRING, freezeObey: 1, unfreeze: 0.25, concurrent: true, reach: 1, drop: 0, torchAware: true, frontFirst: false },
 };
+// R7 "real hands" (T.hands): novice and casual move like a person (DEVICE-RISKS-1 item 1, REVIEW-1-feel): a natural
+// slow close is 20-40 deg/s, and every stroke from still starts with a stick-slip jump (slip, degrees in one frame).
+const HANDS = {
+  novice: { open: [12, 40], close: [30, 60], slip: [0.5, 2] },  // "faster still" (slams stay: 30 % at 70-120)
+  casual: { open: [10, 25], close: [20, 40], slip: [0.5, 2] },
+};
+const SLIP_SALT = 0x5715B11n;
 const P = { shutTarget: 0.06, openMargin: 0.015, bagY: 400, dropY: 302, bagJitter: 40, bagMinX: 60, bagMaxX: 610, torchMargin: 1.0 };
 const LID_TRAVEL = () => T.wideAngle - T.shutAngle;
 class ThiefPilot {
   constructor(skill, seed) {
-    this.skill = skill; this.p = PROFILES[skill]; this.rng = new SeededRandom(seed);
+    this.skill = skill; this.p = Object.assign({ slip: [0, 0] }, PROFILES[skill]); this.rng = new SeededRandom(seed);
+    if (T.hands && HANDS[skill]) this.p = Object.assign({}, this.p, HANDS[skill]);
+    this.slipRng = new SeededRandom(BigInt.asUintN(64, BigInt(seed)) ^ SLIP_SALT); this.stillBefore = true;
     // Sensitivity (args, not Tuning): casualObey=0.85 (a human sometimes fails to freeze); casualScale=1 (casual also
     // plays relative to the new thresholds: speeds x quiet/8, drags x dragQuiet/250).
     if (skill === 'casual' && (args.casualObey || args.casualScale)) {
@@ -435,9 +467,12 @@ class ThiefPilot {
       this.p = Object.assign({}, p, q);
     }
     if (T.adaptPilots && (skill === 'expert' || skill === 'perfect')) {
-      const kl = T.quietSpeed / R1_QUIET, kd = T.dragQuietSpeed / R1_DRAG_QUIET; const p = this.p;
+      // R7: the masters play to the R2-R6 lines (masterQuiet 12, masterCloseQuiet 18), not to R7's forgiving 14 / 28:
+      // the forgiveness is for real hands on unknown hardware, not a free speed-up for the skill ceiling.
+      const mq = T.masterQuiet > 0 ? T.masterQuiet : T.quietSpeed;
+      const kl = mq / R1_QUIET, kd = T.dragQuietSpeed / R1_DRAG_QUIET; const p = this.p;
       // Experts play just under the audible creak: close at 0.75-1.0 x quiet (perfect 0.95 x), open as R1 x quiet/8.
-      const cq = T.closeQuietSpeed > 0 ? T.closeQuietSpeed : T.quietSpeed;
+      const cq = T.masterCloseQuiet > 0 ? T.masterCloseQuiet : (T.closeQuietSpeed > 0 ? T.closeQuietSpeed : T.quietSpeed);
       const close = skill === 'perfect' ? [0.95 * cq, 0.95 * cq] : [0.75 * cq, cq];
       this.p = Object.assign({}, p, { open: p.open.map((x) => x * kl), close, drag: p.drag.map((x) => x * kd) });
       // With a jingling bag they leave the copper (base value < 15) unless nothing else is left.
@@ -455,7 +490,12 @@ class ThiefPilot {
     this.slamSpeed = this.rng.range(this.p.slam[0], this.p.slam[1]);
   }
   moveLid(target, degPerSec, dt) {
-    const step = degPerSec / LID_TRAVEL() * dt;
+    let step = degPerSec / LID_TRAVEL() * dt;
+    // R7 stick-slip: a stroke from still breaks away with a jump (one draw from the slip stream per stroke).
+    if (this.stillBefore && this.p.slip[1] > 0 && Math.abs(target - this.o) > 1e-9) {
+      step = Math.max(step, this.slipRng.range(this.p.slip[0], this.p.slip[1]) / LID_TRAVEL());
+    }
+    this.stillBefore = false;
     const before = this.o;
     if (Math.abs(target - this.o) <= step) this.o = target; else this.o += Math.sign(target - this.o) * step;
     this.speed = dt > 0 ? Math.abs(this.o - before) * LID_TRAVEL() / dt : 0;
@@ -479,6 +519,7 @@ class ThiefPilot {
   }
   step(dt, snap) {
     const touches = [];
+    this.stillBefore = !(this.speed > 0);
     this.speed = 0;
     if (snap.phase !== 'ready' && snap.phase !== 'looting') {
       if (this.drag) { touches.push({ phase: 'ended', id: this.drag.id, x: this.drag.x, y: this.drag.y }); this.drag = null; }
@@ -581,7 +622,7 @@ function snapshotOf(s) {
 
 // MARK: Harness (mirror of HushTests/BalanceTests.swift)
 function runOne(skill, seed) {
-  const session = new HeistSession(seed, {});
+  const session = new HeistSession(seed, { sensitivity: args.sensitivity || 'normal' });
   const pilot = new ThiefPilot(skill, BigInt.asUintN(64, BigInt(seed) * 7n + 1n));
   const dt = 1 / 60; let t = 0; let frames = 0; let maxNoise = 0; let stirs = 0;
   const use = { moment: 0, open: 0, close: 0, drag: 0, frozen: 0, idle: 0 }; let firstChestBitten = false;
@@ -616,9 +657,10 @@ function pct(a, p) { if (a.length === 0) return 0; const s = a.slice().sort((x, 
 // MARK: Targets (mirror of HushTests/BalanceTests.swift: medians, with bands around the R2 table)
 //   R2 table (40 seeds): novice ~1,635 gold / 5 chests / 3 bites; casual ~3,945 / 8 / 0 bites / 2 Hushed;
 //   expert ~10,847 / 13; perfect ~11,553 / never bitten. 8 seeds: novice >= 1,000 gold and >= 3 chests.
+//   R7: casual (real hands) banks more but Hushes less: gold 3,500-7,000, banked 6-12, Hushed >= 0.5.
 const BANDS = {
   novice: { gold: [1000, 2600], banked: [3, 8], bites: [1, 6] },
-  casual: { gold: [3000, 5200], banked: [5, 10], bites: [0, 0.5], hushed: [1, 5], seconds: [90, 160] },
+  casual: { gold: [3500, 7000], banked: [6, 12], bites: [0, 0.5], hushed: [0.5, 5], seconds: [90, 160] },
   expert: { gold: [8000, 14000], banked: [10, 16], bites: [0, 1], hushed: [8, 16] },
   perfect: { gold: [8500, 15000], banked: [10, 16], hushed: [9, 16] },
 };
