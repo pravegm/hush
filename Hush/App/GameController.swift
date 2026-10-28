@@ -503,6 +503,8 @@ final class GameController: ObservableObject, SceneDriver {
                                  quarterTurns: scene?.quarterTurns ?? quarterTurns, trace: debugTrace, route: route,
                                  frozen: frozen, sceneSize: scene?.size, viewSize: scene?.view?.bounds.size,
                                  scaleMode: scene?.scaleMode)
+            // R9b: every touch the scene got, wherever it landed (raw=0 means nothing reached the SKView at all).
+            + " raw=\(scene?.rawTouchesBegan ?? -1) rawAt=\(scene?.lastRawTouch ?? "-")"
     }
 
     /// Demo runs: republish `debug.state` (at most 4 times a second unless `force`).

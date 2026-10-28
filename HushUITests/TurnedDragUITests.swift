@@ -27,7 +27,9 @@ import XCTest
 /// (one test: `-only-testing:HushUITests/TurnedDragUITests/testLandscapeTurnedDragBagsALitItem`).
 final class TurnedDragUITests: XCTestCase {
     /// Attract mode never bites or ends; the lid held at 0.9 lights the floor; turned round with the Duo fold layout.
-    static let demo = "screen=run;mode=attract;seed=7;lid=0.9;turn=1;fold=1"
+    /// R9b: `orient=portrait`, so on the Duo sim (which boots in book pose) this is a true k=2 control; a phone is
+    /// portrait anyway.
+    static let demo = "screen=run;mode=attract;seed=7;lid=0.9;turn=1;fold=1;orient=portrait"
 
     /// R6: the same, asked into landscape. `orient=landscape` makes the App ask iOS for a landscape interface (and
     /// never for portrait); `quarter=3` (R6 App key, ignored until it exists) forces k = 3 where iOS refuses to rotate

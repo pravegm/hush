@@ -711,8 +711,19 @@ final class ChestScene: SKScene {
         }
     }
 
+    /// R9b diagnostics (CI's Duo drag: `touches=0/0/0`): every touch the scene receives, wherever it lands, and where
+    /// (canvas points, plus the raw view point). Read by the App's demo-only `debug.state`.
+    private(set) var rawTouchesBegan = 0
+    private(set) var lastRawTouch = "none"
+
     override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
-        for t in touches { beginTouch(ObjectIdentifier(t).hashValue, canvas: t.location(in: world), time: t.timestamp) }
+        for t in touches {
+            rawTouchesBegan += 1
+            let c = t.location(in: world)
+            let v = view.map { t.location(in: $0) } ?? .zero
+            lastRawTouch = "canvas(\(Int(c.x)),\(Int(c.y)))view(\(Int(v.x)),\(Int(v.y)))"
+            beginTouch(ObjectIdentifier(t).hashValue, canvas: c, time: t.timestamp)
+        }
     }
 
     override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent?) {
