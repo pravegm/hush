@@ -1,9 +1,21 @@
 # Hush: morning handover (28 Oct)
 
 ## TL;DR
-- **Install TestFlight 1.0 (4)** (or 1.0 (3) if 4 is still processing).
+- **Install TestFlight 1.0 (6)**, the release candidate.
 - **The stuck-when-opened-flat bug is fixed at the root.** Hush now plays whichever way iOS turns the screen.
-- 10 rounds, 368 unit tests green.
+- 11 rounds, 396 unit tests green.
+- Latest reviews:
+  - Apple juror **9.2, "yes"**.
+  - UX **8.8**, launch-ready on clarity.
+  - QA: ship.
+  - A first-time tester: **8 / 8 / 8 / 8**, including "would pay £1.99".
+- **Round 11**, on top of the overnight work:
+  - Callouts never overlap.
+  - Lid sensitivity is Forgiving / Normal / **Strict**, with a one-time "Make it forgiving" offer if it keeps
+    waking.
+  - Skip still teaches the stakes.
+  - VoiceOver covers Carry on and pause.
+  - New badge art.
 - The **iPhone Duo simulator passes all 13 hinge checks**, including the new **flat-open** (to 180° and back while
   playing), **landscape play** and **watchdog** checks.
 

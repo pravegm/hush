@@ -94,3 +94,24 @@
 - **Duo sim run 40641939161: 13 / 13 PASS** (FLAT-OPEN, LANDSCAPE-PLAY, WATCHDOG, both cover checks, slam, creak,
   pauses).
 - **TestFlight 1.0 (4)** uploaded (run 40647337828). `docs/HANDOVER.md` is the founder's morning summary.
+
+### 28 Oct, morning: review round 5 on build 4, round 11, builds 5–6
+- **Founder:** "Not testing yet. Keep polishing and reviewing unsupervised."
+- **Review round 5:**
+  - juror **9.2, YES** (its Duo condition, the R10 fixes on Duo frames, was confirmed on duo12: coin in its seat,
+    Settings reachable);
+  - UX **8.8**, launch-ready;
+  - QA-6: ship after the doc fixes;
+  - fresh tester 11: **8 / 8 / 8 / 8**.
+- **Docs truth pass:** review notes, privacy (on-device diagnostics log, still Data Not Collected), "ease the lid
+  down", the support "if it ever seems stuck" note, and the runbook's landscape-drag release gate.
+- **R11:**
+  - callouts never touch; Strict sensitivity plus a one-time "Make it forgiving" nudge;
+  - the first Skip goes to the stakes card; phone Home uses lever words;
+  - VoiceOver for Carry on, pause and the chain; new badge art;
+  - QA-6 P2s.
+  - R11b: the Results nudge no longer fades the gold total on a fold; the cover-card buttons sit inside their
+    plate.
+  - CI: **396 tests green**. Duo sim on R11: **13 / 13**.
+- **TestFlight 1.0 (5)** (R11) and **1.0 (6)** (R11b) are VALID; build 6 is the release candidate.
+- The store set re-shoot is in progress (run 40668557600 framed only D6; P1 was flagged).
