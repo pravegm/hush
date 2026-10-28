@@ -315,12 +315,29 @@ final class HeistSession {
     /// R12 rule 4: the App saw the lid shut without a step in the shut zone (e.g. a fast fold straight into the closing
     /// pause). If the chest is awaiting the close, the next chest is dealt now; its `chestArrived` comes with the next
     /// step. Otherwise nothing.
-    func noteLidShut() {
-        guard awaitingClose, !isFinished else { return }
+    /// R12b (CI BANK-CLOSE-FULL): with loot in the bag (`canBankOnShut`), a lid seen shut banks it: the cover display
+    /// can take over before the shut-zone hold finishes (the Duo simulator does at ~120°), and the closing pause stops
+    /// stepping. "The chest closed means the lid closed", so the bag is banked and the next chest dealt at once (the
+    /// lid is shut; nobody sees the bank moment). Those events are returned for the App to deliver now, so the
+    /// ka-ching plays as the lid shuts; the robbed chest's `chestArrived` still comes with the next step.
+    @discardableResult
+    func noteLidShut() -> [HeistEvent] {
+        guard !isFinished else { return [] }
         var ev: [HeistEvent] = []
+        if awaitingClose {
+            nextChest(&ev)
+            pending.append(contentsOf: ev)
+            return []
+        }
+        guard canBankOnShut else { return [] }
+        bank(&ev)
         nextChest(&ev)
-        pending.append(contentsOf: ev)
+        return ev
     }
+
+    /// R12b: a chest being looted with loot in the bag, outside the lesson (whose script waits for the bank moment):
+    /// `noteLidShut()` would bank it.
+    var canBankOnShut: Bool { !shutGate && !isFinished && isLooting && bagCount > 0 }
 
     private func tick(_ h: Double, _ ev: inout [HeistEvent]) {
         time += h

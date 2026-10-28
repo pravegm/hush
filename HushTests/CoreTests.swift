@@ -1999,6 +1999,43 @@ struct CoreTests {
         #expect(o.result?.chestLog.count == o.result?.chestsOpened)
     }
 
+    /// R12b (CI BANK-CLOSE-FULL): the lid seen shut with loot in the bag banks it, at once, and deals the next chest
+    /// (closed, fresh); the events come back from `noteLidShut()` itself. An empty bag, the lesson and a finished run
+    /// bank nothing.
+    @Test func r12bTheLidSeenShutBanksTheBag() {
+        let (s, _) = lootingSession(seed: 71)
+        guard let k = shallowest(s.snapshot) else { Issue.record("no loot"); return }
+        _ = bagItem(s, k)
+        let bag: Int = s.snapshot.bagValue
+        #expect(bag > 0)
+        #expect(s.canBankOnShut)
+        let ev: [HeistEvent] = s.noteLidShut()
+        #expect(count(ev, isBanked) == 1)
+        #expect(count(ev, isArrived) == 1)
+        #expect(s.snapshot.banked >= bag)
+        #expect(s.snapshot.chestsBanked == 1)
+        #expect(s.snapshot.chest?.index == 1)
+        #expect(s.snapshot.phase == .ready)
+        #expect(s.snapshot.bagValue == 0)
+        #expect(s.isFreshChest)
+        #expect(!s.canBankOnShut)
+        // Nothing is left pending: the next step brings no second bank or arrival, and the lid lifting opens it.
+        let open: [HeistEvent] = s.step(dt: 1.0 / 60.0, lid: lidAt(0.6))
+        #expect(count(open, isBanked) == 0)
+        #expect(count(open, isArrived) == 0)
+        #expect(s.snapshot.phase == .looting)
+        // An empty bag: nothing.
+        let (e, _) = lootingSession(seed: 71)
+        #expect(!e.canBankOnShut)
+        #expect(e.noteLidShut().isEmpty)
+        #expect(e.snapshot.chest?.index == 0)
+        // The lesson waits for its own bank moment.
+        let (l, _) = lootingSession(seed: 71, mode: .lesson)
+        if let j = shallowest(l.snapshot) { _ = bagItem(l, j) }
+        #expect(!l.canBankOnShut)
+        #expect(l.noteLidShut().isEmpty)
+    }
+
     /// Founder refinement: the chest dealt after a BANK always counts as "seen shut". Bank in the shut zone, reopen to
     /// 150° before the 1.4 s bank moment ends: the next chest loots at once, never `.closeForNext`.
     @Test func r12ABankAlwaysDealsTheNextChestSeenShut() {

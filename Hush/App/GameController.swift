@@ -591,6 +591,23 @@ final class GameController: ObservableObject, SceneDriver {
         if lessonScript != nil { pendingLessonEvents += events }
     }
 
+    /// R12b: a bank made outside a step (`noteLidShut` under the pause): `deliver` plus what the frame loop does for a
+    /// bank (the drawn total, the golden shimmer, the relic card, callouts, VoiceOver).
+    private func deliverShutBank(_ events: [HeistEvent]) {
+        guard !events.isEmpty, let session else { return }
+        deliver(events)
+        let s = session.snapshot
+        let now = CACurrentMediaTime()
+        let chain = Self.chainMultiplier(in: events)
+        for event in events {
+            if case let .banked(value, _, _) = event { bankedSum += value }
+            if case .chestArrived = event, s.chest?.golden == true { feedback.goldenArrived() }
+            if case .relicFound = event { noteRelicCard(at: s.time) }
+            callouts(for: event, snapshot: s, now: now)
+            announce(event, chain: chain)
+        }
+    }
+
     /// `HUSH-T event …`, with `golden=1` on a golden chest's arrival (CI's golden-mimic scenario).
     private func traceLine(_ event: HeistEvent, snapshot: HeistSnapshot) -> String {
         let line = AppTrace.describe(event)
@@ -1368,8 +1385,19 @@ final class GameController: ObservableObject, SceneDriver {
     /// the Duo folded flat) while the robbed chest waited, perhaps with no step in the shut zone: Core deals the next
     /// chest now (`chestArrived` with the first step back), so the reopen opens a fresh chest. Never from a hold that
     /// isn't the lid closing (the menu's Resume, the first hinge report, an input switch): the lid may be open then.
+    /// R12b (CI BANK-CLOSE-FULL): the same signals bank a chest with loot in the bag (`canBankOnShut`): the cover
+    /// display took over, or the pause began, before the shut-zone hold finished. Its events are delivered now.
     private func noteLidShutIfRobbed(_ reason: String) {
-        guard let session, session.awaitingClose else { return }
+        guard let session else { return }
+        if session.canBankOnShut {
+            deliverShutBank(session.noteLidShut())
+            let fresh = session.isFreshChest
+            if fresh != closingFresh { closingFresh = fresh }
+            AppTrace.t("HUSH-T banked under the pause reason=\(reason)")
+            note("banked on shut (\(reason))")
+            return
+        }
+        guard session.awaitingClose else { return }
         session.noteLidShut()
         let fresh = session.isFreshChest
         if fresh != closingFresh { closingFresh = fresh }

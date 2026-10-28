@@ -1,6 +1,23 @@
 # Hush: morning handover (28 Oct)
 
-## TL;DR
+## Build 7: the lid IS the chest (round 12, your build 6 test)
+You said: "the chest closed means lid closed, chest open means lid open". Now it does, everywhere.
+
+- **No "open the lid" gate.** If the lid is already open when you tap Play, the first chest is already open: start
+  looting straight away. If the lid is shut, you see the chest closed, and lifting the lid opens it.
+- **Moving chest to chest.** You close the lid to bank, so the next chest arrives closed under a closed lid. Open the
+  lid and it opens. It never asks you to open a lid that's already open.
+- **After a bite** the robbed chest stays open and empty, with "Close the lid for the next chest". The mimic grumbles
+  instead of snoring. Close the lid and the next chest is waiting, closed.
+- **A closed chest is drawn closed.** With the lid shut you see the chest's lid from above. It lifts as you open.
+- Copy now says "Close the lid to bank" (you close it, so the next chest arrives closed).
+- **Sound and feel:** a richer creak, a louder coin and ka-ching, a heavier CHOMP, and stronger layered vibration.
+- 428 unit tests green.
+
+**Please try:** open the lid, tap Play. Loot, close the lid to bank, open it again for the next chest. Then get bitten
+once and close the lid. At no point should it ask you to open a lid that is already open.
+
+## TL;DR (build 6)
 - **Install TestFlight 1.0 (6)**, the release candidate.
 - **The stuck-when-opened-flat bug is fixed at the root.** Hush now plays whichever way iOS turns the screen.
 - 11 rounds, 396 unit tests green.
