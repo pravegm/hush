@@ -687,9 +687,10 @@ if [[ " $PASSES " == *" hinge "* ]]; then
     result SLAM INCONCLUSIVE "$d (the hinge tool under-delivered the slam twice: peak < ${SLAM_MIN_PEAK} lid°/s, noise unchanged)"
   elif [[ -n "$scov" ]]; then
     result SLAM INCONCLUSIVE "$d (the sim's cover display took the run mid-slam both times: the pause froze the noise)"
-  elif [[ "$ns" =~ ^[0-9]+$ ]] && (( ns < 4 )); then
+  elif [[ "${ns%% *}" =~ ^[0-9]+$ ]] && (( ${ns%% *} < 4 )); then
     # R14 (run 40749413494: 2 samples, peak 72): too few hinge reports to judge a 0.4 s slam (unit tests cover it).
-    result SLAM INCONCLUSIVE "$d (the hinge tool sent only $ns reports during the slam)"
+    # R15c (run 40786342720): `ns` is slam_samples' text ("2 (lid-angle changes …), HUSH-H=7"): judge its leading count.
+    result SLAM INCONCLUSIVE "$d (the hinge tool sent only ${ns%% *} reports during the slam)"
   else result SLAM FAIL "$d"; fi
   [[ -f "$OUT_ABS/duo-h2-slam-bite.png" ]] || shoot_now duo-h2-slam-bite
   shoot duo-h2-after-slam inner
