@@ -2114,6 +2114,58 @@ struct CoreTests {
         #expect(w.endsEmptyOnShut)
     }
 
+    /// R15c (playtest P0; founder R12: "closing it all the way is fine: the bank fires on the way down"): closing the
+    /// phone with loot in the bag is the bank, so the lid is silent at any speed while it closes (`banking`), and it
+    /// never says "Slower…": a fast close with loot never raises the noise and never bites. A fast close over an empty
+    /// bag is still heard (it is not a bank), and says "Slower…".
+    @Test func r15cAFastCloseWithLootIsSilent() {
+        /// Raises the lid quietly to 0.6, lets the noise settle, then closes fast (80°/s on the lid's scale, well over
+        /// the 28°/s closing line) down to the edge of the shut zone. Returns the noise before the close, the highest
+        /// noise during it, whether "Slower…" showed, and the close's events.
+        func fastClose(_ s: HeistSession) -> (Double, Double, Bool, [HeistEvent]) {
+            var o: Double = s.snapshot.openness
+            while o < 0.6 {
+                o = min(0.6, o + 0.005)
+                _ = s.step(dt: 1.0 / 60.0, lid: lidAt(o, speed: 5))
+            }
+            run(s, seconds: 4.0, lid: lidAt(0.6))
+            let before: Double = s.snapshot.noise
+            var peak: Double = before
+            var slower: Bool = false
+            var ev: [HeistEvent] = []
+            while o > 0.0 {
+                let next: Double = max(0, o - 0.6 / 30.0)   // 0.6 → 0 in 0.5 s
+                if Lid.input(openness: next, speed: 0).inShutZone { break }
+                o = next
+                ev += s.step(dt: 1.0 / 60.0, lid: lidAt(o, speed: 80))
+                peak = max(peak, s.snapshot.noise)
+                if s.snapshot.hint == HeistHint.slower { slower = true }
+            }
+            return (before, peak, slower, ev)
+        }
+        // Loot in the bag: silent, no "Slower…", no bite.
+        for seed in [UInt64(7), 21, 77] {
+            let (s, _) = lootingSession(seed: seed)
+            guard let k = shallowest(s.snapshot) else {
+                Issue.record("no item")
+                return
+            }
+            _ = bagItem(s, k)
+            #expect(s.canBankOnShut, "\(seed)")
+            let (before, peak, slower, ev) = fastClose(s)
+            #expect(peak <= before + 1e-6, "seed \(seed): \(before) → \(peak)")
+            #expect(!slower, "\(seed)")
+            #expect(count(ev, isBitten) == 0, "\(seed)")
+            #expect(s.canBankOnShut, "\(seed)")
+        }
+        // An empty bag: the same close is heard, and says "Slower…".
+        let (e, _) = lootingSession(seed: 7)
+        #expect(!e.canBankOnShut)
+        let (before, peak, slower, _) = fastClose(e)
+        #expect(peak > before + 0.05, "\(before) → \(peak)")
+        #expect(slower)
+    }
+
     /// R14 (UX audit E): a fast drag makes noise, so it says "Slower…" (bites never feel random); a slow one doesn't.
     @Test func r14AFastDragSaysSlower() {
         let (s, _) = lootingSession(seed: 7)

@@ -809,7 +809,7 @@ struct PauseRuleTests {
         #expect(CoverCard.detail(midRun: true) == "The chest opens with the phone. Your candle waits.")
         // R15 (founder, build 9): outside a run the cover card is the intro (the rules and Play); opening the phone no
         // longer starts a run by itself, so its line says Play first.
-        #expect(CoverCard.title(midRun: false) == "Don't wake the mimic")
+        #expect(CoverCard.title(midRun: false) == "Steal the mimic's gold while it sleeps")
         #expect(CoverCard.detail(midRun: false) == "Press Play, then open the phone slowly.")
         #expect(CoverCard.playLabel == "Play")
         // R14: the run's first chest, closed to start, gives the three rules; a later fresh chest keeps its words.
@@ -3601,7 +3601,7 @@ struct R11Tests {
     @Test func theStakesCardSaysHowToPause() {
         let duoRows = LessonFinalCard.rows(slider: false, tight: false)
         #expect(duoRows.count == 4)
-        #expect(duoRows.last?.text == "Close the phone to pause")
+        #expect(duoRows.last?.text == "Hold the coin to pause")  // R15c: closing the phone banks now
         #expect(duoRows.last?.icon == .pause)
         #expect(LessonFinalCard.rows(slider: false, tight: true).count == 3)
         #expect(LessonFinalCard.rows(slider: true, tight: false).count == 3)
@@ -3922,12 +3922,13 @@ struct R12Tests {
         func words(_ s: String) -> [String] { s.lowercased().split { !$0.isLetter }.map(String.init) }
         #expect(duo.count == 3)
         #expect(lever.count == 3)
-        #expect(duo == ["Open the phone slowly. The chest opens with it.",
+        // R15c (playtest): rule 1 holds shut (the cover intro) or open (Home); rule 3 teaches the candle.
+        #expect(duo == ["The chest opens with the phone. Move it slowly.",
                         "Drag the loot into your bag.",
-                        "Close the phone to bank it. Don't wake the mimic."])
-        #expect(lever == ["Slide the lever up slowly. The chest opens with it.",
+                        "Close the phone to bank it before your candle runs out."])
+        #expect(lever == ["The chest opens with the lever. Slide it up slowly.",
                           "Drag the loot into your bag.",
-                          "Slide it back down to bank it. Don't wake the mimic."])
+                          "Slide the lever down to bank it before your candle runs out."])
         for line in duo {
             #expect(!words(line).contains("lid"), "\(line)")
             #expect(!line.lowercased().contains("lever"), "\(line)")
@@ -3940,15 +3941,20 @@ struct R12Tests {
             #expect(!words(line).contains("lid"), "\(line)")
             #expect(!line.lowercased().contains("torch"), "\(line)")
         }
-        // Open, loot, bank: the order of the game, and the mimic last.
-        #expect(duo[0].lowercased().hasPrefix("open"))
+        // Open, loot, bank: the order of the game, and the candle (the clock) last. R15c: rule 1 never says "open"
+        // as an order (it is read with the phone shut or open).
+        #expect(duo[0].lowercased().hasPrefix("the chest opens with the phone"))
+        #expect(lever[0].lowercased().hasPrefix("the chest opens with the lever"))
         #expect(duo[1].lowercased().contains("bag"))
         #expect(duo[2].lowercased().contains("bank"))
-        #expect(duo[2].hasSuffix("Don't wake the mimic."))
+        #expect(duo[2].hasSuffix("before your candle runs out."))
         #expect(lever[2].lowercased().contains("bank"))
-        #expect(lever[2].hasSuffix("Don't wake the mimic."))
+        #expect(lever[2].lowercased().contains("lever"))
+        #expect(lever[2].hasSuffix("before your candle runs out."))
+        #expect(CoverCard.justBankedLine(120) == "Banked +120 gold!")
+        #expect(CoverCard.nextChestTitle == "Open the phone slowly for the next chest")
         // The cover intro: its title, its Play and the line under Play; mid-run the card keeps its R13 words.
-        #expect(CoverCard.title(midRun: false) == "Don't wake the mimic")
+        #expect(CoverCard.title(midRun: false) == "Steal the mimic's gold while it sleeps")
         #expect(CoverCard.detail(midRun: false) == "Press Play, then open the phone slowly.")
         #expect(CoverCard.playLabel == "Play")
         #expect(CoverCard.title(midRun: true) == "Open the phone slowly")
