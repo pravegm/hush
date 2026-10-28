@@ -528,6 +528,15 @@ struct TurnedRoundTests {
         #expect(AppRules.pose(canvas: book, hingeSeen: false, isShut: false) == .play)
         #expect(AppRules.pose(canvas: cover, hingeSeen: true, isShut: true) == .cover)
         #expect(AppRules.pose(canvas: phone, hingeSeen: false, isShut: false) == .play)
+        // R15b (walkthrough P1-1): a fresh install launched shut has no hinge report yet: the Duo's cover display
+        // shape alone is the cover (the intro), never Home on the outer screen. Other small phones without a hinge
+        // still play.
+        let duoCover = CGSize(width: 466, height: 678)
+        #expect(AppRules.pose(canvas: duoCover, hingeSeen: false, isShut: false) == .cover)
+        #expect(AppRules.pose(canvas: duoCover, hingeSeen: true, isShut: true) == .cover)
+        #expect(AppRules.pose(canvas: CGSize(width: 375, height: 667), hingeSeen: false, isShut: false) == .play)
+        #expect(AppRules.pose(canvas: cover, hingeSeen: false, isShut: false)
+                == (OrientationLock.looksLikeDuoCover(cover) ? .cover : .play))
         #expect(AppRules.hasFold(canvas: inner, hingeSeen: true, demoFold: false))
         #expect(AppRules.hasFold(canvas: inner, hingeSeen: false, demoFold: false))
         #expect(!AppRules.hasFold(canvas: phone, hingeSeen: false, demoFold: false))
@@ -786,8 +795,16 @@ struct PauseRuleTests {
     @Test func closingCardCopy() {
         // R13 (founder: "open lid slowly, even 1 degree open lid means chest is opening"): the cards say how it opens.
         #expect(ClosingCard.title(lifted: false) == "Open the phone slowly to carry on")
-        #expect(ClosingCard.title(lifted: true) == "Hold still…")
+        // R15b (walkthrough P2-1): no "Hold still…" any more, lifted or not (R14: the lift alone carries on).
+        #expect(ClosingCard.title(lifted: true) == "Open the phone slowly to carry on")
         #expect(ClosingCard.detail(lifted: false).contains("candle"))
+        for lifted in [true, false] {
+            #expect(ClosingCard.detail(lifted: lifted) == "The mimic waits. Your candle does too.")
+            for fresh in [true, false] {
+                #expect(!ClosingCard.title(lifted: lifted, fresh: fresh).contains("Hold still"))
+                #expect(!ClosingCard.detail(lifted: lifted, fresh: fresh).contains("tiptoe"))
+            }
+        }
         #expect(CoverCard.title(midRun: true) == "Open the phone slowly")
         #expect(CoverCard.detail(midRun: true) == "The chest opens with the phone. Your candle waits.")
         // R15 (founder, build 9): outside a run the cover card is the intro (the rules and Play); opening the phone no
@@ -2504,7 +2521,8 @@ struct R7Tests {
             #expect(ClosingCard.title(lifted: lifted, fresh: true) == "Open the phone slowly for the next chest")
             #expect(!ClosingCard.title(lifted: lifted, fresh: true).contains("Hold still"))
         }
-        #expect(ClosingCard.title(lifted: true) == "Hold still…")
+        // R15b (walkthrough P2-1): nor over a played chest any more.
+        #expect(ClosingCard.title(lifted: true) == "Open the phone slowly to carry on")
         #expect(ClosingCard.title(lifted: true, awaitingHinge: true, fresh: true) == "Move the phone a little")
     }
 
@@ -3900,6 +3918,8 @@ struct R12Tests {
     @Test func howToPlayIsThreeLines() {
         let duo = HowToPlay.lines(slider: false)
         let lever = HowToPlay.lines(slider: true)
+        // Whole words ("slide" holds "lid").
+        func words(_ s: String) -> [String] { s.lowercased().split { !$0.isLetter }.map(String.init) }
         #expect(duo.count == 3)
         #expect(lever.count == 3)
         #expect(duo == ["Open the phone slowly. The chest opens with it.",
@@ -3909,7 +3929,7 @@ struct R12Tests {
                           "Drag the loot into your bag.",
                           "Slide it back down to bank it. Don't wake the mimic."])
         for line in duo {
-            #expect(!line.lowercased().contains("lid"), "\(line)")
+            #expect(!words(line).contains("lid"), "\(line)")
             #expect(!line.lowercased().contains("lever"), "\(line)")
             #expect(!line.lowercased().contains("torch"), "\(line)")
         }
@@ -3917,7 +3937,7 @@ struct R12Tests {
         #expect(lever[0].lowercased().contains("lever"))
         for line in lever {
             #expect(!line.lowercased().contains("phone"), "\(line)")
-            #expect(!line.lowercased().contains("lid"), "\(line)")
+            #expect(!words(line).contains("lid"), "\(line)")
             #expect(!line.lowercased().contains("torch"), "\(line)")
         }
         // Open, loot, bank: the order of the game, and the mimic last.
@@ -4272,6 +4292,52 @@ struct R12Tests {
         #expect(hand.last.hint != .easeLidDown)
         #expect(hand.last.torchRemaining < t0)
         done(c)
+    }
+
+    /// R15b (walkthrough P1-3, P2-4): the mid-run cover card's "End run" (the banked gold so far is kept) and the
+    /// intro's "Run over · N gold" on Results.
+    @Test func theCoverCardEndsARunAndSaysHowItWent() {
+        #expect(CoverCard.endRunLabel == "End run")
+        #expect(CoverCard.bankedLine(0) == "Banked so far: 0 gold")
+        #expect(CoverCard.bankedLine(340) == "Banked so far: 340 gold")
+        #expect(CoverCard.lastRunLine(gold: 340) == "Run over · 340 gold")
+        #expect(CoverCard.lastRunLine(gold: 0) == "Run over · 0 gold")
+        let (c, hand) = makeDuo(at: 150)
+        // Not in a run: "End run" does nothing; no last-run line off Results.
+        c.coverEndRun()
+        #expect(c.route == .home)
+        #expect(c.coverLastRun == nil)
+        c.coverPlay()
+        hand.hold(0.5)
+        #expect(c.isLiveRun)
+        #expect(c.bankedSoFar == 0)
+        #expect(c.coverLastRun == nil)
+        c.coverEndRun()
+        #expect(!c.isLiveRun)
+        #expect(c.route == .home)
+        done(c)
+    }
+
+    /// R15b (walkthrough P1-1): Play on a fresh install's cover intro (no hinge report yet): the cover display's
+    /// shape is a Duo, so the run plays the hinge (never the lever), waiting for its first report.
+    @Test func playOnAFreshCoverWithNoHingeIsTheHinge() {
+        var data = ProgressData()
+        data.lessonDone = true
+        data.runs = 0
+        let c = GameController(store: ProgressStore(inMemory: data), settings: SettingsStore(defaults: nil))
+        c.updateCanvas(CGSize(width: 466, height: 678), hasFold: false, quarterTurns: 0)
+        #expect(!c.hasHinge)
+        c.coverPlay()
+        #expect(c.route == .playing)
+        #expect(c.input == .hinge)
+        #expect(c.closingAwaitsHinge)
+        done(c)
+        // A plain phone with no hinge plays the lever.
+        let p = GameController(store: ProgressStore(inMemory: data), settings: SettingsStore(defaults: nil))
+        p.updateCanvas(CGSize(width: 402, height: 874), hasFold: false, quarterTurns: 0)
+        p.play()
+        #expect(p.input == .slider)
+        done(p)
     }
 
     /// With the lid closed, the first chest arrives closed and opens with the phone ("Open the phone… slowly" is right).
