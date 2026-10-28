@@ -219,8 +219,15 @@ final class HeistSession {
     /// below the speedometer, so reopening it is no resume hazard: the App skips the stillness wait for it.
     /// R12: outside the lesson a `.ready` chest is always closed and has never been heard (the lid is silent there), so
     /// any `.ready` chest is fresh, except the one awaiting the close (it has been played). The lesson keeps R7's rule.
+    /// R13 (App/Core review): the chest opens from ~3° of the phone now, so a hand settling a closing phone at 3–12°
+    /// (before the closing pause's dwell) starts it looting. Opened no further than `freshChestOpenness` with nothing
+    /// revealed or bagged, it is still untouched and still fresh.
     var isFreshChest: Bool {
-        guard phase == .ready, !awaitingClose, bagCount == 0 else { return false }
+        guard !awaitingClose, bagCount == 0 else { return false }
+        if phase == .looting {
+            return revealed.isEmpty && touches.isEmpty && peakOpenness <= Tuning.freshChestOpenness
+        }
+        guard phase == .ready else { return false }
         return !shutGate || peakOpenness <= Tuning.freshChestOpenness
     }
 
@@ -337,8 +344,8 @@ final class HeistSession {
         return ev
     }
 
-    /// R12b: a chest being looted with loot in the bag, outside the lesson (whose script waits for the bank moment):
-    /// `noteLidShut()` would bank it.
+    /// R12b: a chest being looted with loot in the bag: `noteLidShut()` would bank it. (R13: the lesson too; its
+    /// script hears the `.banked` through the App's `deliver`.)
     var canBankOnShut: Bool { !shutGate && !isFinished && isLooting && bagCount > 0 }
 
     private func tick(_ h: Double, _ ev: inout [HeistEvent]) {

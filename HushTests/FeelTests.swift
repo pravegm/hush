@@ -53,6 +53,9 @@ private final class FakeHinge {
     }
 
     var speeds: [Double] { lids.map { $0.speed } }
+    /// R13: the same frames in the hinge's own °/s (the lid's speed is the hinge's × `Tuning.hingeSpeedScale`, 65/150),
+    /// for tests about the speedometer itself rather than the noise.
+    var hingeSpeeds: [Double] { speeds.map { $0 / Tuning.hingeSpeedScale } }
 }
 
 /// Renders `seconds` of `synth` and reports the RMS, the peak, the share of samples over 0.6 and whether every
@@ -177,9 +180,12 @@ struct FeelTests {
             let hinge = FakeHinge(source: HingeLidSource())
             hinge.run(0.5, rate: rate) { _ in 120 }
             hinge.run(1.5, rate: rate) { t in 120 + 10 * t }
-            let tail = hinge.speeds.suffix(60)
+            // R13: in the hinge's °/s (the lid reads 10 × 65/150 ≈ 4.3).
+            let tail = hinge.hingeSpeeds.suffix(60)
             #expect((tail.min() ?? 0) >= 9)
             #expect((tail.max() ?? 99) <= 11)
+            let lidTail = hinge.speeds.suffix(60)
+            #expect(abs((lidTail.last ?? 0) - 10 * Tuning.hingeSpeedScale) < Tuning.hingeSpeedScale)
         }
     }
 
@@ -203,13 +209,14 @@ struct FeelTests {
         // Two seconds of silence, then one report a degree away, then (much later) a 9° jump.
         hinge.run(2.0) { _ in 140 }
         hinge.run(0.5) { _ in 141 }
-        #expect((hinge.speeds.max() ?? 99) < 1)
+        // R13: the hinge's °/s throughout (`hingeSpeeds`).
+        #expect((hinge.hingeSpeeds.max() ?? 99) < 1)
         hinge.run(0.6) { _ in 150 }
-        #expect((hinge.speeds.max() ?? 99) < 1)
+        #expect((hinge.hingeSpeeds.max() ?? 99) < 1)
         // A real move after the silence ramps up to its true speed and never overshoots it.
         hinge.run(1.0) { t in 150 - 12 * t }
-        #expect((hinge.speeds.max() ?? 99) <= 13.2)
-        #expect((hinge.speeds.last ?? 0) > 10.5)
+        #expect((hinge.hingeSpeeds.max() ?? 99) <= 13.2)
+        #expect((hinge.hingeSpeeds.last ?? 0) > 10.5)
     }
 
     @Test func aSlamReadsLoudAtOnce() {
@@ -217,20 +224,22 @@ struct FeelTests {
         hinge.run(1.0) { _ in 150 }
         hinge.run(0.4) { t in 150 - 120 * t }
         let speeds = hinge.speeds
-        // Past the loud line within 0.15 s of the first report, and close to the true 120°/s by 0.3 s.
+        let hingeSpeeds = hinge.hingeSpeeds
+        // Past the loud line within 0.15 s of the first report (R13: the lid's 120 × 65/150 = 52°/s), and close to the
+        // hinge's true 120°/s by 0.3 s.
         #expect(speeds.count == 48)
         #expect(speeds[18] > Tuning.loudSpeed)
-        #expect(speeds[36] > 90)
-        #expect((speeds.max() ?? 999) < 140)
+        #expect(hingeSpeeds[36] > 90)
+        #expect((hingeSpeeds.max() ?? 999) < 140)
     }
 
     @Test func reportJitterDoesNotChangeTheSpeedMuch() {
         let hinge = FakeHinge(source: HingeLidSource())
         var dice = FeelDice(seed: 21)
         hinge.run(0.5) { _ in 120 }
-        // ±0.5° of report noise on a steady 10°/s.
+        // ±0.5° of report noise on a steady 10°/s (R13: read in the hinge's °/s).
         hinge.run(2.0) { t in 120 + 10 * t + dice.range(-0.5, 0.5) }
-        let tail = hinge.speeds.suffix(120)
+        let tail = hinge.hingeSpeeds.suffix(120)
         #expect((tail.min() ?? 0) > 7)
         #expect((tail.max() ?? 99) < 13.5)
     }
@@ -269,30 +278,44 @@ struct FeelTests {
         #expect(source.isClosing == false)
     }
 
+    /// R13 (the phone is the chest): openness = θ / 150, shut zone θ ≤ 15°, too wide θ > 172°, and the hinge's °/s
+    /// scaled onto the lid's 65° travel.
     @Test func angleMapsToOpennessAndZones() {
-        let shut = HingeLidSource.lidInput(angle: Tuning.shutAngle, speed: 0)
+        let shut = HingeLidSource.lidInput(angle: Tuning.hingeShutAngle, speed: 0)
         #expect(abs(shut.openness) < 1e-9)
         #expect(shut.inShutZone)
-        #expect(HingeLidSource.lidInput(angle: Tuning.shutZoneAngle, speed: 0).inShutZone)
-        #expect(HingeLidSource.lidInput(angle: Tuning.shutZoneAngle + 0.5, speed: 0).inShutZone == false)
-        let wide = HingeLidSource.lidInput(angle: Tuning.wideAngle, speed: 0)
+        #expect(HingeLidSource.lidInput(angle: Tuning.hingeShutZoneAngle, speed: 0).inShutZone)
+        #expect(HingeLidSource.lidInput(angle: Tuning.hingeShutZoneAngle + 0.5, speed: 0).inShutZone == false)
+        let wide = HingeLidSource.lidInput(angle: Tuning.hingeWideAngle, speed: 0)
         #expect(abs(wide.openness - 1) < 1e-9)
         #expect(wide.tooWide == false)
-        #expect(HingeLidSource.lidInput(angle: Tuning.tooWideAngle + 0.5, speed: 0).tooWide)
-        #expect(HingeLidSource.lidInput(angle: 60, speed: 0).openness == 0)
+        #expect(HingeLidSource.lidInput(angle: Tuning.hingeTooWideAngle, speed: 0).tooWide == false)
+        #expect(HingeLidSource.lidInput(angle: Tuning.hingeTooWideAngle + 0.5, speed: 0).tooWide)
+        // A few degrees open is an open chest already (still in the shut zone); the phone standing at 90° is 0.6 open.
+        let crack = HingeLidSource.lidInput(angle: 10, speed: 0)
+        #expect(abs(crack.openness - 10.0 / 150) < 1e-9)
+        #expect(crack.inShutZone)
+        #expect(abs(HingeLidSource.lidInput(angle: 75, speed: 0).openness - 0.5) < 1e-9)
+        let upright = HingeLidSource.lidInput(angle: 90, speed: 0)
+        #expect(abs(upright.openness - 0.6) < 1e-9)
+        #expect(upright.inShutZone == false)
+        #expect(HingeLidSource.lidInput(angle: -5, speed: 0).openness == 0)
         #expect(HingeLidSource.lidInput(angle: 180, speed: 0).openness == 1)
+        // 150°/s of hinge is 65°/s of lid (the whole travel in a second either way).
+        #expect(abs(HingeLidSource.lidInput(angle: 75, speed: 150).speed - 65) < 1e-9)
         #expect(HingeLidSource.lidInput(angle: Double.nan, speed: Double.nan).speed == 0)
         #expect(HingeLidSource.lidInput(angle: 130, speed: -4).speed == 0)
     }
 
     @Test func theFilteredLidSettlesOnTheHinge() {
         let hinge = FakeHinge(source: HingeLidSource())
-        hinge.run(0.5) { _ in 105 }
+        // R13: the shut zone is θ ≤ 15° now (was ≤ 110°), and the expected openness is θ / 150.
+        hinge.run(0.5) { _ in 10 }
         #expect(hinge.source.hasHinge)
         #expect(hinge.lids.last?.inShutZone == true)
-        hinge.run(4.0) { t in min(105 + 10 * t, 140) }
+        hinge.run(4.0) { t in min(10 + 40 * t, 140) }
         let lid = hinge.run(1.0) { _ in 140 }
-        let expected = Lid.openness(angle: 140)
+        let expected = Lid.hingeOpenness(angle: 140)
         #expect(abs(lid.openness - expected) < 0.02)
         #expect(lid.inShutZone == false)
         #expect(abs((hinge.source.angle ?? 0) - 140) < 1)
@@ -301,33 +324,35 @@ struct FeelTests {
         #expect(again == lid)
     }
 
+    /// R13: the phone folds (all but) shut to close the chest: under 12° for the dwell (was 70°), clear above 16°.
     @Test func closingNeedsTheFullDwellAndClearsOnReopening() {
         let hinge = FakeHinge(source: HingeLidSource())
-        hinge.run(0.5) { _ in 120 }
-        hinge.run(0.3) { t in 120 - 60 * t / 0.3 }
-        hinge.run(0.15) { _ in 60 }
-        #expect(hinge.source.isClosing == false)
         hinge.run(0.5) { _ in 60 }
-        #expect(hinge.source.isClosing)
-        hinge.run(0.5) { t in 60 + 60 * min(t / 0.3, 1) }
+        hinge.run(0.3) { t in 60 - 55 * t / 0.3 }
+        hinge.run(0.15) { _ in 5 }
         #expect(hinge.source.isClosing == false)
-        // A dip under 70° shorter than the dwell never pauses.
-        hinge.run(0.1) { t in 120 - 54 * t / 0.1 }
-        hinge.run(0.1) { _ in 66 }
-        hinge.run(0.3) { t in 66 + 54 * min(t / 0.1, 1) }
+        hinge.run(0.5) { _ in 5 }
+        #expect(hinge.source.isClosing)
+        hinge.run(0.5) { t in 5 + 55 * min(t / 0.3, 1) }
+        #expect(hinge.source.isClosing == false)
+        // A dip under 12° shorter than the dwell never pauses.
+        hinge.run(0.1) { t in 60 - 52 * t / 0.1 }
+        hinge.run(0.1) { _ in 8 }
+        hinge.run(0.3) { t in 8 + 52 * min(t / 0.1, 1) }
         #expect(hinge.source.isClosing == false)
     }
 
-    /// REVIEW-1-duo P1-4: an upright lid resting at about 90° (the Duo reads ±5°) never pauses the game.
-    @Test func anUprightRestNeverPauses() {
-        #expect(FeelClosingGate.closeBelow == 70)
-        #expect(FeelClosingGate.reopenAbove == 78)
+    /// REVIEW-1-duo P1-4: a lid resting open never pauses the game. R13: the chest is open from the first degree, so
+    /// the rest to survive is a low one, about 25° (the Duo reads ±5°), over the 12° closing line (was 85° over 70°).
+    @Test func aLowOpenRestNeverPauses() {
+        #expect(FeelClosingGate.closeBelow == 12)
+        #expect(FeelClosingGate.reopenAbove == 16) // R13: margin 4 (was 8), under the 18° resume angle
         let hinge = FakeHinge(source: HingeLidSource())
-        hinge.run(0.5) { _ in 120 }
-        hinge.run(0.5) { t in 120 - 35 * min(t / 0.4, 1) }
+        hinge.run(0.5) { _ in 60 }
+        hinge.run(0.5) { t in 60 - 35 * min(t / 0.4, 1) }
         var paused = false
         for _ in 0..<30 {
-            hinge.run(0.1) { t in 85 + 5 * sin(2 * Double.pi * 1.3 * t) }
+            hinge.run(0.1) { t in 25 + 5 * sin(2 * Double.pi * 1.3 * t) }
             if hinge.source.isClosing { paused = true }
         }
         #expect(paused == false)
@@ -335,16 +360,16 @@ struct FeelTests {
 
     @Test func closingIsJudgedFromReportsWhileThePauseStopsTheFrames() {
         let hinge = FakeHinge(source: HingeLidSource())
-        hinge.run(0.5) { _ in 120 }
-        // The game pauses (no frames) as the lid folds to 60° and the hinge goes still.
-        hinge.run(0.3, frames: false) { t in 120 - 60 * t / 0.3 }
-        hinge.run(0.6, frames: false) { _ in 60 }
+        hinge.run(0.5) { _ in 60 }
+        // The game pauses (no frames) as the phone folds to 5° (R13: was 60°) and the hinge goes still.
+        hinge.run(0.3, frames: false) { t in 60 - 55 * t / 0.3 }
+        hinge.run(0.6, frames: false) { _ in 5 }
         #expect(hinge.source.closing(at: hinge.time))
         #expect(hinge.source.isClosing)
         // Lifting the lid back up resumes, still without frames.
-        hinge.run(0.5, frames: false) { t in 60 + 60 * min(t / 0.3, 1) }
+        hinge.run(0.5, frames: false) { t in 5 + 55 * min(t / 0.3, 1) }
         #expect(hinge.source.isClosing == false)
-        #expect(abs((hinge.source.angle ?? 0) - 120) < 3)
+        #expect(abs((hinge.source.angle ?? 0) - 60) < 3)
     }
 
     @Test func closingGateHasHysteresis() {
@@ -1024,24 +1049,25 @@ struct FeelTests {
     // MARK: - R2: the resume rule (REVIEW-1-duo P0-2)
 
     /// Closing pause, then a normal-speed reopen (150°/s, the evidence run's 30–90°/s and more): never resumable while
-    /// the hand moves, even past 95°; resumable once it has been still for the hold; `reset()` starts the hold again.
+    /// the hand moves, even past the resume angle; resumable once it has been still for the hold; `reset()` starts the
+    /// hold again. R13: the phone folds to 5° (was 60°) and reopens from there, 5° → 125° over 0.8 s.
     @Test func resumeWaitsForTheLidToBeOpenAndStill() {
         let hinge = FakeHinge(source: HingeLidSource())
-        hinge.run(0.5) { _ in 120 }
-        hinge.run(0.4) { t in 120 - 60 * min(t / 0.3, 1) }
-        hinge.run(0.6) { _ in 60 }
+        hinge.run(0.5) { _ in 60 }
+        hinge.run(0.4) { t in 60 - 55 * min(t / 0.3, 1) }
+        hinge.run(0.6) { _ in 5 }
         #expect(hinge.source.isClosing)
         #expect(hinge.source.canResume == false)
         var early = false
-        for k in 1...48 {
-            if feelHold(hinge, 60 + 60 * Double(k) / 48) { early = true }
+        for k in 1...96 {
+            if feelHold(hinge, 5 + 120 * Double(k) / 96) { early = true }
         }
         #expect(early == false)
         #expect(hinge.source.isClosing == false)
-        // Still at 120°: not within the hold, but within about a second.
+        // Still at 125°: not within the hold, but within about a second.
         var firstResumable: Int?
         for frame in 1...180 where firstResumable == nil {
-            if feelHold(hinge, 120) { firstResumable = frame }
+            if feelHold(hinge, 125) { firstResumable = frame }
         }
         let seconds = Double(firstResumable ?? 999) * FakeHinge.frame
         #expect(seconds >= HingeLidSource.resumeHold)
@@ -1052,53 +1078,77 @@ struct FeelTests {
         #expect(hinge.source.speed == 0)
         #expect(hinge.source.canResume == false)
         var again = false
-        for _ in 0..<48 { again = feelHold(hinge, 120) }
+        for _ in 0..<48 { again = feelHold(hinge, 125) }
         #expect(again)
         #expect(hinge.source.lid(at: hinge.time + 0.001).speed < 0.5)
     }
 
-    /// R7 (DEVICE-RISKS-1 item 7): resume is lifted from 92° and stays lifted down to 88°, so a lid resting near the
-    /// line (±5° accuracy) never flickers "Lift the lid" ↔ "Hold still…"; `effectiveResumeAngle` is the line in force.
-    @Test func resumeHasHysteresisAtNinetyTwoAndEightyEight() {
-        #expect(HingeLidSource.resumeAngle == 92)
+    /// R7 (DEVICE-RISKS-1 item 7): resume is lifted from the resume angle and stays lifted a few degrees under it, so a
+    /// lid resting near the line (±5° accuracy) never flickers "Lift the lid" ↔ "Hold still…"; `effectiveResumeAngle`
+    /// is the line in force. R13: 18° and 15° (was 92° and 88°).
+    @Test func resumeHasHysteresisAtEighteenAndFifteen() {
+        #expect(HingeLidSource.resumeAngle == 18)
         #expect(HingeLidSource.resumeSpeed == 6)
         let hinge = FakeHinge(source: HingeLidSource())
-        hinge.run(0.5) { _ in 120 }
-        hinge.run(0.4) { t in 120 - 60 * min(t / 0.3, 1) }
-        hinge.run(0.6) { _ in 60 }
-        // Eased up to 89.5° and held perfectly still: closing has cleared (> 78°) but it isn't lifted yet.
-        hinge.run(1.3) { t in 60 + 29.5 * min(t / 1.2, 1) }
+        hinge.run(0.5) { _ in 60 }
+        hinge.run(0.4) { t in 60 - 55 * min(t / 0.3, 1) }
+        hinge.run(0.6) { _ in 5 }
+        // Eased up to 15.5° and held perfectly still: not lifted yet (R13: under the closing latch's 16° too).
+        hinge.run(1.3) { t in 5 + 10.5 * min(t / 1.2, 1) }
         var below = false
         for _ in 0..<240 {
-            if feelHold(hinge, 89.5) { below = true }
+            if feelHold(hinge, 15.5) { below = true }
         }
-        #expect(hinge.source.isClosing == false)
         #expect(below == false)
         #expect(hinge.source.effectiveResumeAngle == HingeLidSource.resumeAngle)
-        // Up to 93°: lifted, and it resumes once still.
-        hinge.run(0.3) { t in 89.5 + 3.5 * min(t / 0.2, 1) }
+        // Up to 19°: lifted, and it resumes once still.
+        hinge.run(0.3) { t in 15.5 + 3.5 * min(t / 0.2, 1) }
         var lifted = false
         for _ in 0..<180 {
-            if feelHold(hinge, 93) { lifted = true }
+            if feelHold(hinge, 19) { lifted = true }
         }
         #expect(lifted)
-        #expect(hinge.source.effectiveResumeAngle == HingeLidSource.resumeAngle - 4)
-        // Sinking back to 89° keeps it lifted (88° is the line now).
-        hinge.run(0.5) { t in 93 - 4 * min(t / 0.4, 1) }
+        #expect(hinge.source.effectiveResumeAngle == HingeLidSource.resumeAngle - 3)
+        // Sinking back to 16° keeps it lifted (15° is the line now).
+        hinge.run(0.5) { t in 19 - 3 * min(t / 0.4, 1) }
         var stillLifted = false
         for _ in 0..<180 {
-            if feelHold(hinge, 89) { stillLifted = true }
+            if feelHold(hinge, 16) { stillLifted = true }
         }
         #expect(stillLifted)
         #expect(hinge.source.canResume)
-        // Under 88°: not lifted any more, and the line is 92° again.
-        hinge.run(0.4) { t in 89 - 3 * min(t / 0.3, 1) }
+        // Under 15°: not lifted any more, and the line is 18° again.
+        hinge.run(0.4) { t in 16 - 3 * min(t / 0.3, 1) }
         var dropped = false
         for _ in 0..<180 {
-            if feelHold(hinge, 86) { dropped = true }
+            if feelHold(hinge, 13) { dropped = true }
         }
         #expect(dropped == false)
         #expect(hinge.source.effectiveResumeAngle == HingeLidSource.resumeAngle)
+    }
+
+    /// R13: the closing latch clears above 16° (margin 4), under the 18° resume angle, so the App's closing pause on a
+    /// lid lifted to 18.5° and held still resumes. (With R13's first 20° unlatch the gate kept it paused.)
+    @Test func aClosingPauseLiftedPastTheResumeAngleResumes() {
+        #expect(FeelClosingGate.reopenAbove < HingeLidSource.resumeAngle)
+        let hinge = FakeHinge(source: HingeLidSource())
+        var pause = ClosingPause()
+        hinge.run(0.5) { _ in 60 }
+        hinge.run(0.4) { t in 60 - 55 * min(t / 0.3, 1) }
+        hinge.run(0.6) { _ in 5 }
+        let closed = pause.update(angle: hinge.source.angle, gateClosing: hinge.source.isClosing, isShut: false,
+                                  canResume: hinge.source.canResume, now: hinge.time)
+        #expect(closed == .paused)
+        hinge.run(0.6) { t in 5 + 13.5 * min(t / 0.5, 1) }
+        var resumed = false
+        for _ in 0..<120 where !resumed {
+            feelHold(hinge, 18.5)
+            let change = pause.update(angle: hinge.source.angle, gateClosing: hinge.source.isClosing, isShut: false,
+                                      canResume: hinge.source.canResume, now: hinge.time)
+            if change == .resumed { resumed = true }
+        }
+        #expect(resumed)
+        #expect(hinge.source.isClosing == false)
     }
 
     /// R7 (DEVICE-RISKS-1 item 7): above 100° a hand resting on the lid may drift under 10°/s and still resume; under
@@ -1131,18 +1181,19 @@ struct FeelTests {
     /// The App runs frames while paused, but the rule must not depend on them (the game can pause its frames).
     @Test func resumeIsJudgedWithoutFrames() {
         let hinge = FakeHinge(source: HingeLidSource())
-        hinge.run(0.5) { _ in 120 }
-        hinge.run(0.4, frames: false) { t in 120 - 60 * min(t / 0.3, 1) }
-        hinge.run(0.6, frames: false) { _ in 60 }
+        // R13: folded to 5° (was 60°), then reopened at 150°/s to 125°.
+        hinge.run(0.5) { _ in 60 }
+        hinge.run(0.4, frames: false) { t in 60 - 55 * min(t / 0.3, 1) }
+        hinge.run(0.6, frames: false) { _ in 5 }
         #expect(hinge.source.isClosing)
         var early = false
-        for k in 1...48 {
-            if feelHold(hinge, 60 + 60 * Double(k) / 48, frames: false) { early = true }
+        for k in 1...96 {
+            if feelHold(hinge, 5 + 120 * Double(k) / 96, frames: false) { early = true }
         }
         #expect(early == false)
         var resumed = false
         for _ in 0..<150 {
-            if feelHold(hinge, 120, frames: false) { resumed = true }
+            if feelHold(hinge, 125, frames: false) { resumed = true }
         }
         #expect(resumed)
         // Slow wobble at 3°/s still counts as still; 15°/s does not.
@@ -1168,33 +1219,41 @@ struct FeelTests {
     // MARK: - R2: the speed only counts inside the play range (REVIEW-1-duo P1-5)
 
     @Test func motionOutsideThePlayRangeIsSilent() {
-        #expect(HingeLidSource.speedAngleRange.lowerBound == Tuning.shutAngle - 3)
-        // R7 (DEVICE-RISKS-1 item 10): the top is capped at 162° (relics need ≤ 161°; the last degrees may snap).
-        let top: Double = min(Tuning.wideAngle + 3, 162)
+        // R13: the play range is the phone's whole travel, 0° … `hingeWideAngle` + 3 (153°; was 97…162°). The top
+        // stays under R7's 162° cap (DEVICE-RISKS-1 item 10: the last degrees towards flat may snap).
+        let top: Double = min(Tuning.hingeWideAngle + 3, 162)
+        #expect(top == 153)
+        #expect(HingeLidSource.speedAngleRange.lowerBound == 0)
         #expect(HingeLidSource.speedAngleRange.upperBound == top)
         #expect(HingeLidSource.speedAngle(180) == top)
-        #expect(HingeLidSource.speedAngle(40) == Tuning.shutAngle - 3)
+        #expect(HingeLidSource.speedAngle(160) == top)
+        #expect(HingeLidSource.speedAngle(10) == 10)
+        #expect(HingeLidSource.speedAngle(-5) == 0)
         #expect(HingeLidSource.speedAngle(130) == 130)
         // Near flat: a 180 → 170 snap (40°/s) makes no noise, though the hinge really moved.
         let flat = FakeHinge(source: HingeLidSource())
         flat.run(0.5) { _ in 180 }
         var loudest = 0.0
         flat.run(0.25) { t in 180 - 40 * t }
-        loudest = max(loudest, flat.speeds.max() ?? 99)
+        loudest = max(loudest, flat.hingeSpeeds.max() ?? 99)
         #expect(flat.source.motionSpeed > 20)
         flat.run(0.5) { _ in 170 }
-        loudest = max(loudest, flat.speeds.max() ?? 99)
+        loudest = max(loudest, flat.hingeSpeeds.max() ?? 99)
         #expect(loudest < 0.5)
-        // Folding the phone shut below the chest's shut line (96° → 30° at 110°/s) is silent too.
+        // R13: folding the phone shut (96° → 30° at 110°/s) now COUNTS: the chest is closing with it. The lid reads
+        // 110 × 65/150 ≈ 48°/s, loud.
         let fold = FakeHinge(source: HingeLidSource())
         fold.run(0.5) { _ in 96 }
         fold.run(0.6) { t in 96 - 110 * t }
-        #expect((fold.speeds.max() ?? 99) < 0.5)
-        // Inside the range nothing changed: 10°/s still reads 10.
-        let play = FakeHinge(source: HingeLidSource())
-        play.run(0.5) { _ in 110 }
-        play.run(1.5) { t in 110 + 10 * t }
-        #expect(abs((play.speeds.last ?? 0) - 10) < 1)
+        #expect((fold.hingeSpeeds.max() ?? 0) > 80)
+        #expect((fold.speeds.max() ?? 0) > Tuning.loudSpeed)
+        // Inside the range: 10°/s of hinge still reads 10 (4.3 on the lid), high or low.
+        for from in [110.0, 20.0] {
+            let play = FakeHinge(source: HingeLidSource())
+            play.run(0.5) { _ in from }
+            play.run(1.5) { t in from + 10 * t }
+            #expect(abs((play.hingeSpeeds.last ?? 0) - 10) < 1)
+        }
     }
 
     @Test func speedPeekNeverAdvancesAndDecays() {
@@ -1670,21 +1729,22 @@ struct FeelTests {
     // MARK: - R3: the resume angle after a cover trip (REVIEW-2-duo P1-3)
 
     @Test func aCoverTripCanLowerTheResumeAngle() {
-        // R7: the usual angle is 92° (`resumeAngle`).
+        // R13: the usual angle is 18° (`resumeAngle`; R7: 92°); a cover trip may lower it to relight + 3, floor 16°.
+        #expect(HingeLidSource.resumeAngle == 18)
         #expect(HingeLidSource.coverResumeAngle(relight: nil) == HingeLidSource.resumeAngle)
         #expect(HingeLidSource.coverResumeAngle(relight: Double.nan) == HingeLidSource.resumeAngle)
-        #expect(HingeLidSource.coverResumeAngle(relight: 80) == 90)
-        #expect(HingeLidSource.coverResumeAngle(relight: 88) == 91)
-        #expect(HingeLidSource.coverResumeAngle(relight: 100) == HingeLidSource.resumeAngle)
+        #expect(HingeLidSource.coverResumeAngle(relight: 10) == 16)
+        #expect(HingeLidSource.coverResumeAngle(relight: 14) == 17)
+        #expect(HingeLidSource.coverResumeAngle(relight: 40) == HingeLidSource.resumeAngle)
         let source = HingeLidSource()
         #expect(source.requiredResumeAngle == HingeLidSource.resumeAngle)
         source.requiredResumeAngle = Double.nan
         #expect(source.effectiveResumeAngle == HingeLidSource.resumeAngle)
-        source.requiredResumeAngle = 10
-        #expect(source.effectiveResumeAngle == 90)
+        source.requiredResumeAngle = 5
+        #expect(source.effectiveResumeAngle == 16)
         source.requiredResumeAngle = 500
         #expect(source.effectiveResumeAngle == 150)
-        // Held still at 110°: not resumable while the App asks for 120°, resumable once it lowers the angle to 91°.
+        // Held still at 110°: not resumable while the App asks for 120°.
         source.requiredResumeAngle = 120
         let hinge = FakeHinge(source: source)
         hinge.run(0.5) { _ in 110 }
@@ -1693,15 +1753,24 @@ struct FeelTests {
             if feelHold(hinge, 110) { resumed = true }
         }
         #expect(resumed == false)
-        source.requiredResumeAngle = HingeLidSource.coverResumeAngle(relight: 88)
+        // Eased down to 17.5° and held still: under the usual 18°, so not resumable; resumable once the App lowers the
+        // angle to 17° (relit at 14°). The usual angle is set only once down: passing 18° on the way would lift it.
+        hinge.run(1.5) { t in 110 - 92.5 * min(t / 0.8, 1) }
+        source.requiredResumeAngle = HingeLidSource.resumeAngle
+        var usual = false
+        for _ in 0..<180 {
+            if feelHold(hinge, 17.5) { usual = true }
+        }
+        #expect(usual == false)
+        source.requiredResumeAngle = HingeLidSource.coverResumeAngle(relight: 14)
         var lowered = false
         for _ in 0..<120 {
-            if feelHold(hinge, 110) { lowered = true }
+            if feelHold(hinge, 17.5) { lowered = true }
         }
         #expect(lowered)
         // `reset()` leaves the App's angle alone.
         source.reset()
-        #expect(source.requiredResumeAngle == 91)
+        #expect(source.requiredResumeAngle == 17)
     }
 
     // MARK: - R7: real hands (ROUND-7 Feel 1, DEVICE-RISKS-1 items 2 and 10)
@@ -1714,8 +1783,10 @@ struct FeelTests {
             let hinge = FakeHinge(source: HingeLidSource())
             hinge.run(0.5) { _ in 110 }
             hinge.run(10, angle: feelStickSlip(stick: stick))
+            // R13: the meter in the hinge's °/s; the noise from the lid's (× 65/150, so quieter still).
+            let meter = hinge.hingeSpeeds
             var late = 0.0
-            for (index, speed) in hinge.speeds.enumerated() where Double(index + 1) * FakeHinge.frame >= stick + 0.15 {
+            for (index, speed) in meter.enumerated() where Double(index + 1) * FakeHinge.frame >= stick + 0.15 {
                 late = max(late, speed)
             }
             #expect(late <= 14)
@@ -1726,7 +1797,7 @@ struct FeelTests {
             let hinge = FakeHinge(source: HingeLidSource())
             hinge.run(0.5, rate: rate) { _ in 110 }
             hinge.run(10, rate: rate, angle: feelStickSlip(stick: 0.3, creep: 0.3, rate: rate))
-            #expect((hinge.speeds.max() ?? 99) < 22)
+            #expect((hinge.hingeSpeeds.max() ?? 99) < 22)
             #expect(feelLidNoise(hinge.speeds) < 0.03)
         }
     }
@@ -1749,22 +1820,26 @@ struct FeelTests {
             let hinge = FakeHinge(source: HingeLidSource())
             hinge.run(1.0, rate: rate) { _ in 110 }
             hinge.run(1.0, rate: rate) { t in 110 + 40 * t }
+            // R13: in the hinge's °/s (the lid reads × 65/150).
             var settled = 99.0
-            for (index, speed) in hinge.speeds.enumerated() where Double(index + 1) * FakeHinge.frame >= 0.32 {
+            for (index, speed) in hinge.hingeSpeeds.enumerated() where Double(index + 1) * FakeHinge.frame >= 0.32 {
                 settled = min(settled, speed)
             }
             #expect(settled >= 36)
-            #expect((hinge.speeds.max() ?? 99) <= 44)
+            #expect((hinge.hingeSpeeds.max() ?? 99) <= 44)
         }
         let slam = FakeHinge(source: HingeLidSource())
         slam.run(1.0) { _ in 150 }
         slam.run(0.4) { t in 150 - 200 * min(t, 0.25) }
-        #expect((slam.speeds.max() ?? 0) > 80)
-        // A 470°/s fling down from 165°: 15° per report, but it leaves the snap zone at once, so it counts.
+        #expect((slam.hingeSpeeds.max() ?? 0) > 80)
+        #expect((slam.speeds.max() ?? 0) > Tuning.loudSpeed)
+        // A 470°/s fling down from 165°: 15° per report, but it leaves the snap zone at once, so it counts (R13: from
+        // 153° down, the top of the speedometer's range).
         let fling = FakeHinge(source: HingeLidSource())
         fling.run(1.0) { _ in 165 }
         fling.run(0.4) { t in max(165 - 470 * t, 100) }
-        #expect((fling.speeds.max() ?? 0) > 80)
+        #expect((fling.hingeSpeeds.max() ?? 0) > 80)
+        #expect((fling.speeds.max() ?? 0) > Tuning.loudSpeed)
     }
 
     /// DEVICE-RISKS-1 item 10: one report jumping more than 8° with both ends at or above 150° is the hinge settling,
@@ -1773,13 +1848,14 @@ struct FeelTests {
         let hinge = FakeHinge(source: HingeLidSource())
         hinge.run(0.5) { _ in 150 }
         hinge.run(0.6) { t in 150 + 5 * t }
-        let creeping = hinge.speeds.max() ?? 0
+        // R13: the hinge's °/s (`speed` is the lid's, × 65/150).
+        let creeping = hinge.hingeSpeeds.max() ?? 0
         #expect(creeping > 3 && creeping < 6)
         var speedPeak = 0.0
         var motionPeak = 0.0
         for _ in 0..<60 {
             hinge.run(FakeHinge.frame) { _ in 162 }
-            speedPeak = max(speedPeak, hinge.source.speed)
+            speedPeak = max(speedPeak, hinge.source.speed / Tuning.hingeSpeedScale)
             motionPeak = max(motionPeak, hinge.source.motionSpeed)
         }
         #expect(speedPeak < 6)
@@ -1789,13 +1865,18 @@ struct FeelTests {
         let still = FakeHinge(source: HingeLidSource())
         still.run(0.5) { _ in 153 }
         still.run(0.5) { _ in 162 }
-        #expect((still.speeds.max() ?? 99) < 0.5)
-        // Crossing up through 150° (149 → 158): a real move, loud.
+        #expect((still.hingeSpeeds.max() ?? 99) < 0.5)
+        // Crossing up through 150° (149 → 158): a real move, credited in full. R13: the game's speedometer stops at
+        // 153° now, so the 9° jump shows on the unclamped motion meter (the hand's own 30°/s plus the jump).
         let crossing = FakeHinge(source: HingeLidSource())
         crossing.run(0.5) { _ in 140 }
         crossing.run(0.3) { t in 140 + 30 * t }
-        crossing.run(0.3) { _ in 158 }
-        #expect((crossing.speeds.max() ?? 0) > Tuning.loudSpeed)
+        var crossingPeak = 0.0
+        for _ in 0..<36 {
+            crossing.run(FakeHinge.frame) { _ in 158 }
+            crossingPeak = max(crossingPeak, crossing.source.motionSpeed)
+        }
+        #expect(crossingPeak > 40)
         #expect(crossing.source.traceText().contains("snaps 0"))
     }
 

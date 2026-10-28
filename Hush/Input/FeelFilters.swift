@@ -483,18 +483,21 @@ struct FeelHingeTrace {
     }
 }
 
-/// The "lid is closing" gate (GAME-DESIGN §3): closed when the angle stays under `closingAngle` (70°) for
-/// `Tuning.closingDwell` (0.4 s); it opens again above `closingAngle + reopenMargin` (78°), so ±1° jitter at 70° can't
+/// The "lid is closing" gate (GAME-DESIGN §3): closed when the angle stays under `closingAngle` (R13: 12°) for
+/// `Tuning.closingDwell` (0.4 s); it opens again above `closingAngle + reopenMargin` (16°), so ±1° jitter at 12° can't
 /// flicker the pause card. Pure, with explicit times; `isClosing(at:)` lets the dwell mature with time alone.
 ///
 /// R2 (REVIEW-1-duo P1-4): the line is **70°** (R1's 85° sat inside the natural upright 90° rest, within the Duo's ±5°
 /// accuracy) and it unlatches above **78°**. Unlatching is not resuming: the run resumes only on
 /// `HingeLidSource.canResume` (R7: ≥ 92° with hysteresis, held still).
-/// R13 (the phone is the chest): the line is **12°** (the phone shut) and it unlatches above **20°**; resume ≥ 18°.
+/// R13 (the phone is the chest): the line is **12°** (the phone shut) and it unlatches above **16°**, under the resume
+/// line (18°), so the resume rule, not the gate, decides when play goes on (Feel R13 review: at 20° the gate held a
+/// lid the card already called lifted).
 struct FeelClosingGate {
-    /// θ under this for `dwell` s pauses the game (`Tuning.closingAngle`, 70° from R2).
+    /// θ under this for `dwell` s pauses the game (`Tuning.closingAngle`, 12° from R13).
     static var closingAngle: Double { Tuning.closingAngle }
-    static let reopenMargin = 8.0
+    /// R13: 8 → 4 (still twice the hinge's ±1° report jitter).
+    static let reopenMargin = 4.0
 
     static var closeBelow: Double { closingAngle }
     static var dwell: Double { Tuning.closingDwell }

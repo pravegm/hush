@@ -1,5 +1,28 @@
 # Hush: morning handover (28 Oct)
 
+## Build 8: the phone IS the chest (round 13, your build 7 test)
+You said: "the iphone lid is at 90 degrees open and it says that the chest is closed… even 1 degree open lid means
+chest is opening". You were right, and build 7 hadn't fixed it.
+
+**Why build 7 was still wrong:** from round 1 the game treated the Duo standing like a laptop (about 90°) as a *shut*
+chest. Only opening past 100° counted as open. Round 12 removed the confusing prompts but kept that dead zone.
+
+**Now:**
+- **The chest follows the phone, degree for degree.** Fully shut is a closed chest. The moment you open it, even a
+  crack, the chest opens with it, and at 90° it is clearly open. Wider means deeper loot shows (relics need it wide).
+- **Closed means closed.** Close the phone (all the way, or near enough, ≤ 15°) to bank. If the outer screen comes
+  on first, it still banks.
+- **What you see while it's closed:** the outer screen and the pause card both say "Open the lid slowly", with "The
+  chest opens with the lid, from the very first degree." Home says "Open the lid slowly. The chest opens with it."
+- **The noise is the same game:** the chest moves the same amount per second for the same noise, and the phone's
+  longer travel is taken into account.
+- **The first lesson** no longer asks you to close the lid first. Stand it like a laptop and the chest is open.
+- **Other iPhones (the lever):** lever down is a closed chest (it settles shut when you let go near the bottom), a
+  second finger can no longer make the lid jump, and the phone's copy no longer mentions a lid or hinge.
+
+**Please try:** start with the phone shut, open it slowly to about 30° and then 90°. The chest should be open the
+whole way. Take a coin, close the phone fully (bank), then open it again for the next chest.
+
 ## Build 7: the lid IS the chest (round 12, your build 6 test)
 You said: "the chest closed means lid closed, chest open means lid open". Now it does, everywhere.
 

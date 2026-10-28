@@ -784,10 +784,14 @@ struct PauseRuleTests {
     }
 
     @Test func closingCardCopy() {
-        #expect(ClosingCard.title(lifted: false).contains("Lift"))
+        // R13 (founder: "open lid slowly, even 1 degree open lid means chest is opening"): the cards say how it opens.
+        #expect(ClosingCard.title(lifted: false) == "Open the lid slowly to carry on")
         #expect(ClosingCard.title(lifted: true) == "Hold still…")
         #expect(ClosingCard.detail(lifted: false).contains("candle"))
-        #expect(CoverCard.detail(midRun: true).contains("hold still"))
+        #expect(CoverCard.title(midRun: true) == "Open the lid slowly")
+        #expect(CoverCard.detail(midRun: true).contains("from the very first degree"))
+        #expect(CoverCard.detail(midRun: true).hasSuffix("Your candle waits."))
+        #expect(CoverCard.detail(midRun: false).hasSuffix("There's gold in here."))
         // R3 (P1-4): before the first hinge report.
         #expect(ClosingCard.title(lifted: false, awaitingHinge: true) == "Move the lid a little")
     }
@@ -809,7 +813,7 @@ struct LessonTests {
         _ = s.update(LessonScript.Input(time: 0, angle: 100))
         _ = s.update(LessonScript.Input(time: 0.3, angle: 105))
         #expect(!s.isPraising)
-        _ = s.update(LessonScript.Input(time: 0.35, angle: 140))   // out of range: the clock restarts
+        _ = s.update(LessonScript.Input(time: 0.35, angle: 160))   // out of range (R13: > 150°): the clock restarts
         _ = s.update(LessonScript.Input(time: 0.6, angle: 100))
         _ = s.update(LessonScript.Input(time: 1.0, angle: 100))
         #expect(!s.isPraising)
@@ -820,7 +824,7 @@ struct LessonTests {
     }
 
     /// R13 (the phone is the chest): the pose window is any open laptop pose, 45…150° (the chest opens with it).
-    @Test func poseWindowMatchesTheShutZone() {
+    @Test func poseWindowIsAnyLaptopPose() {
         #expect(LessonScript.poseMin == 45)
         #expect(LessonScript.poseMax == 150)
         var s = LessonScript()
@@ -862,9 +866,15 @@ struct LessonTests {
                 #expect(!d.line.hasPrefix("Close"))
             }
         }
-        #expect(LessonScript.liftCue(angle: 140) == .lower)
+        // R13: the window is 45…150° (flat from 168°).
+        #expect(LessonScript.liftCue(angle: 160) == .lower)
+        #expect(LessonScript.liftCue(angle: 150.5) == .lower)
+        #expect(LessonScript.liftCue(angle: 150) == .hold)
         #expect(LessonScript.liftCue(angle: 100) == .hold)
-        #expect(LessonScript.liftCue(angle: 70) == .liftMore)
+        #expect(LessonScript.liftCue(angle: 45) == .hold)
+        #expect(LessonScript.liftCue(angle: 44) == .liftMore)
+        #expect(LessonScript.liftCue(angle: 10) == .liftMore)
+        #expect(LessonScript.liftCue(angle: 168) == .lift)
         #expect(LessonScript.liftCue(angle: 175) == .lift)
         #expect(LessonScript.liftCue(angle: nil) == .lift)
         // The lever (no fold) has no lid marker.
@@ -1605,7 +1615,7 @@ struct R4Tests {
         #expect(LessonDisplay.announcement(from: open, to: open) == nil)
         let grab = LessonScript(start: .grab).display(slider: true, angle: nil, hint: nil)
         #expect(LessonDisplay.announcement(from: open, to: grab) == "Drag a coin into your bag.")
-        let pose1 = LessonScript(start: .pose).display(slider: false, angle: 60, hint: nil)
+        let pose1 = LessonScript(start: .pose).display(slider: false, angle: 30, hint: nil)   // R13: under 45°
         let pose2 = LessonScript(start: .pose).display(slider: false, angle: 100, hint: nil)
         #expect(pose1.line != pose2.line)
         #expect(LessonDisplay.announcement(from: pose1, to: pose2) == nil)
@@ -2161,15 +2171,15 @@ struct R6Tests {
     }
 
     /// The founder's rule: the watchdog resumes only a closing pause, ≥ 6 s, with the last known angle ≥ the resume
-    /// angle (R7: 92°, Feel's line), on the inner display. A lid sitting shut (no samples, a low angle, or none) stays
-    /// paused.
+    /// angle (R7: 92°, Feel's line; R13: 18°, just out of the 15° shut zone), on the inner display. A lid sitting shut
+    /// (no samples, a low angle, or none) stays paused.
     @Test func theWatchdogRule() {
         let ok = AppRules.watchdogResumes(pausedFor: 6.1, onlyClosing: true, liveRun: true, canvas: .inner, angle: 130)
         #expect(ok)
         #expect(!AppRules.watchdogResumes(pausedFor: 5.9, onlyClosing: true, liveRun: true, canvas: .inner,
                                           angle: 130))
-        #expect(!AppRules.watchdogResumes(pausedFor: 9, onlyClosing: true, liveRun: true, canvas: .inner, angle: 91))
-        #expect(!AppRules.watchdogResumes(pausedFor: 9, onlyClosing: true, liveRun: true, canvas: .inner, angle: 55))
+        #expect(!AppRules.watchdogResumes(pausedFor: 9, onlyClosing: true, liveRun: true, canvas: .inner, angle: 17.9))
+        #expect(!AppRules.watchdogResumes(pausedFor: 9, onlyClosing: true, liveRun: true, canvas: .inner, angle: 5))
         #expect(!AppRules.watchdogResumes(pausedFor: 9, onlyClosing: true, liveRun: true, canvas: .inner, angle: nil))
         #expect(!AppRules.watchdogResumes(pausedFor: 9, onlyClosing: true, liveRun: true, canvas: .small, angle: 130))
         #expect(!AppRules.watchdogResumes(pausedFor: 9, onlyClosing: true, liveRun: true, canvas: nil, angle: 130))
@@ -2178,13 +2188,17 @@ struct R6Tests {
         #expect(!AppRules.watchdogResumes(pausedFor: .nan, onlyClosing: true, liveRun: true, canvas: .inner,
                                           angle: 130))
         #expect(AppRules.watchdogResumes(pausedFor: 9, onlyClosing: true, liveRun: true, canvas: .inner, angle: 95))
+        // R13: a phone at 90° is an open chest, and 18° is the line.
+        #expect(AppRules.watchdogResumes(pausedFor: 9, onlyClosing: true, liveRun: true, canvas: .inner, angle: 90))
+        #expect(AppRules.watchdogResumes(pausedFor: 9, onlyClosing: true, liveRun: true, canvas: .inner, angle: 18))
     }
 
     /// The real controller: a shut lid stays held; an open one is resumed by the watchdog; the menu is never.
     @Test func theWatchdogResumesAnOpenLidOnly() {
         let controller = makeFoldRun()
         #expect(controller.isClosingPaused)
-        controller.hinge.ingest(angleDegrees: 40, at: CACurrentMediaTime())
+        // R13: shut is under the 18° resume line (40° is an open chest now).
+        controller.hinge.ingest(angleDegrees: 8, at: CACurrentMediaTime())
         controller.backdateClosing(by: 10)
         let shut = controller.watchdogCheck(now: CACurrentMediaTime())
         #expect(!shut)
@@ -2413,7 +2427,13 @@ struct R7Tests {
                               hushed: 0, bites: 0, relics: [], bestChestValue: 0, itemsBagged: 0,
                               highestTier: .wooden, lostToBites: 0)
         lines.append(AppRules.story(empty, outcome: RecordOutcome(), relicName: { _ in "" }))
+        lines.append(AppRules.story(empty, outcome: RecordOutcome(), relicName: { _ in "" }, slider: true))
         for line in lines { #expect(!line.lowercased().contains("shut"), "\(line)") }
+        // R13 (phone QA P1-2): the empty Results line speaks the layout's words.
+        #expect(AppRules.story(empty, outcome: RecordOutcome(), relicName: { _ in "" })
+                == "Nothing banked. Close the lid to bank your loot.")
+        #expect(AppRules.story(empty, outcome: RecordOutcome(), relicName: { _ in "" }, slider: true)
+                == "Nothing banked. Slide the lever down to bank.")
     }
 
     /// The pure rule: a fresh chest resumes on the lift alone; a chest in play still needs lifted AND still.
@@ -2433,14 +2453,15 @@ struct R7Tests {
     }
 
     /// The real controller: the run's first chest (fresh, lid shut) resumes while the lid is still rising at 40°/s,
-    /// once it passes Feel's line, with no stillness wait, and logs it.
+    /// once it passes Feel's line, with no stillness wait, and logs it. R13: shut is the phone shut (2°), and the line
+    /// is 18° (the gate unlatches above 20°), so it resumes in the first degrees of the lift.
     @Test func aFreshChestResumesOnTheLift() {
         let controller = makeFoldRun()
         #expect(controller.isClosingPaused)
         let frame = 1.0 / 60.0
         var t = CACurrentMediaTime()
-        controller.hingeSample(angle: 40, time: t)
-        var angle = 40.0
+        controller.hingeSample(angle: 2, time: t)
+        var angle = 2.0
         var sawFresh = false
         var resumedWhileMoving = false
         for i in 0..<300 {
@@ -2452,7 +2473,7 @@ struct R7Tests {
             _ = controller.advance(dt: frame, now: t)
             if controller.closingFresh { sawFresh = true }
             if !controller.isClosingPaused {
-                resumedWhileMoving = angle < 139
+                resumedWhileMoving = angle > 16 && angle < 40
                 break
             }
         }
@@ -2491,46 +2512,54 @@ struct R7Tests {
 
     // MARK: Item 3: the lesson
 
-    /// Step 1 passes after 4 s anywhere in 80…125° ("That'll do."), and still after 0.5 s in 90…112°.
+    /// Step 1 passes after 4 s anywhere in the loose window ("That'll do."), and still after 0.5 s in the pose window.
+    /// R13 (any laptop pose): loose 30…165° (was 80…125°), pose 45…150° (was 90…112°), so the loose window's own
+    /// part is 30…45° and 150…165°.
     @Test func thePoseStepIsLenient() {
-        #expect(LessonScript.looseMin == 80 && LessonScript.looseMax == 125 && LessonScript.looseHold == 4)
+        #expect(LessonScript.looseMin == 30 && LessonScript.looseMax == 165 && LessonScript.looseHold == 4)
         var s = LessonScript()
         for t in [0.0, 1.0, 2.0, 3.0, 3.95] {
-            _ = s.update(LessonScript.Input(time: t, angle: 118))
+            _ = s.update(LessonScript.Input(time: t, angle: 158))
             #expect(!s.isPraising)
         }
-        _ = s.update(LessonScript.Input(time: 4.0, angle: 118))
+        _ = s.update(LessonScript.Input(time: 4.0, angle: 158))
         #expect(s.isPraising)
-        #expect(s.line(slider: false, angle: 118, hint: nil) == LessonScript.loosePraise)
-        _ = s.update(LessonScript.Input(time: 5.1, angle: 118))
+        #expect(s.line(slider: false, angle: 158, hint: nil) == LessonScript.loosePraise)
+        _ = s.update(LessonScript.Input(time: 5.1, angle: 158))
         #expect(s.step == .open)
 
-        // A wobbly rest between 85 and 124° (±5° hinge accuracy) passes too.
+        // A wobbly rest between 152 and 163° (±5° hinge accuracy, never in the pose window) passes too.
         var w = LessonScript()
         var t = 0.0
         var passed = false
         while t < 4.3 {
-            let a: Double = Int(t * 10) % 2 == 0 ? 85 : 124
+            let a: Double = Int(t * 10) % 2 == 0 ? 152 : 163
             _ = w.update(LessonScript.Input(time: t, angle: a))
             if w.isPraising { passed = true }
             t += 0.05
         }
         #expect(passed)
+        // So does a low one (the phone barely open), 31…44°.
+        var low = LessonScript()
+        _ = low.update(LessonScript.Input(time: 0, angle: 31))
+        _ = low.update(LessonScript.Input(time: 2, angle: 44))
+        _ = low.update(LessonScript.Input(time: 4.05, angle: 38))
+        #expect(low.isPraising)
 
-        // Outside 80…125° never passes; leaving the window restarts the clock.
-        for angle in [79.0, 126.0, 170.0] {
+        // Outside 30…165° never passes; leaving the window restarts the clock.
+        for angle in [10.0, 29.0, 166.0, 170.0] {
             var o = LessonScript()
             _ = o.update(LessonScript.Input(time: 0, angle: angle))
             _ = o.update(LessonScript.Input(time: 6, angle: angle))
             #expect(!o.isPraising)
         }
         var r = LessonScript()
-        _ = r.update(LessonScript.Input(time: 0, angle: 120))
-        _ = r.update(LessonScript.Input(time: 3, angle: 140))
-        _ = r.update(LessonScript.Input(time: 3.1, angle: 120))
-        _ = r.update(LessonScript.Input(time: 6.5, angle: 120))
+        _ = r.update(LessonScript.Input(time: 0, angle: 160))
+        _ = r.update(LessonScript.Input(time: 3, angle: 170))
+        _ = r.update(LessonScript.Input(time: 3.1, angle: 160))
+        _ = r.update(LessonScript.Input(time: 6.5, angle: 160))
         #expect(!r.isPraising)
-        _ = r.update(LessonScript.Input(time: 7.2, angle: 120))
+        _ = r.update(LessonScript.Input(time: 7.2, angle: 160))
         #expect(r.isPraising)
     }
 
@@ -2538,14 +2567,16 @@ struct R7Tests {
     @Test func skipComesAfterTwentySeconds() {
         #expect(LessonScript.skipAfter == 20)
         var s = LessonScript()
-        _ = s.update(LessonScript.Input(time: 5, angle: 150))
+        // R13: 170° (out of the 30…165° loose window; 150° is a pose now), so step 1 never passes on its own.
+        _ = s.update(LessonScript.Input(time: 5, angle: 170))
         #expect(!s.canSkip)
-        _ = s.update(LessonScript.Input(time: 24.9, angle: 150))
+        _ = s.update(LessonScript.Input(time: 24.9, angle: 170))
         #expect(!s.canSkip)
-        _ = s.update(LessonScript.Input(time: 25.0, angle: 150))
+        _ = s.update(LessonScript.Input(time: 25.0, angle: 170))
         #expect(s.canSkip)
         #expect(s.step == .pose)
-        #expect(s.display(slider: false, angle: 150, hint: nil).canSkip)
+        #expect(!s.isPraising)
+        #expect(s.display(slider: false, angle: 170, hint: nil).canSkip)
         #expect(LessonScript(start: .pose, replay: true).canSkip)
         #expect(!LessonScript(start: .pose).canSkip)
     }
@@ -2730,15 +2761,17 @@ struct R7Tests {
 
     // MARK: The R6 watchdog follows Feel's resume line
 
+    /// R13: Feel's line is 18° (15° once lifted, the hysteresis); NaN falls back to `AppRules.resumeAngle` (18).
     @Test func theWatchdogUsesFeelsResumeLine() {
         #expect(AppRules.resumeAngle == HingeLidSource.resumeAngle)
-        #expect(AppRules.watchdogResumes(pausedFor: 7, onlyClosing: true, liveRun: true, canvas: .inner, angle: 90,
-                                         resumeAngle: 88))
-        #expect(!AppRules.watchdogResumes(pausedFor: 7, onlyClosing: true, liveRun: true, canvas: .inner, angle: 90,
-                                          resumeAngle: 92))
-        #expect(AppRules.watchdogResumes(pausedFor: 7, onlyClosing: true, liveRun: true, canvas: .inner, angle: 93,
+        #expect(AppRules.resumeAngle == 18)
+        #expect(AppRules.watchdogResumes(pausedFor: 7, onlyClosing: true, liveRun: true, canvas: .inner, angle: 16,
+                                         resumeAngle: 15))
+        #expect(!AppRules.watchdogResumes(pausedFor: 7, onlyClosing: true, liveRun: true, canvas: .inner, angle: 16,
+                                          resumeAngle: 18))
+        #expect(AppRules.watchdogResumes(pausedFor: 7, onlyClosing: true, liveRun: true, canvas: .inner, angle: 19,
                                          resumeAngle: .nan))
-        #expect(!AppRules.watchdogResumes(pausedFor: 7, onlyClosing: true, liveRun: true, canvas: .inner, angle: 91,
+        #expect(!AppRules.watchdogResumes(pausedFor: 7, onlyClosing: true, liveRun: true, canvas: .inner, angle: 17,
                                           resumeAngle: .nan))
     }
 }
@@ -2950,15 +2983,15 @@ struct R8Tests {
         c.goHome()
     }
 
-    /// The report the re-subscription delivers right after "Carry on" (a shut-looking 40°) never closes the card
-    /// again; the chest keeps stepping.
+    /// The report the re-subscription delivers right after "Carry on" (a shut-looking 40°; R13: 5°, under the 12°
+    /// closing line) never closes the card again; the chest keeps stepping.
     @Test func carryOnsOwnRefreshNeverClosesTheCard() {
         let controller = makeFoldRun()
         let t0 = CACurrentMediaTime()
-        controller.hingeSample(angle: 40, time: t0)
+        controller.hingeSample(angle: 5, time: t0)
         controller.carryOn()
         #expect(!controller.isClosingPaused)
-        controller.hingeSample(angle: 40, time: t0 + 0.03)
+        controller.hingeSample(angle: 5, time: t0 + 0.03)
         let frame = 1.0 / 60.0
         var t = t0 + 0.03
         for _ in 0..<24 {
@@ -3764,7 +3797,9 @@ struct R12Tests {
     @Test func theRobbedChestAndTheBankSayClose() {
         #expect(HushCopy.hint(.closeForNext, slider: false) == "Close the lid for the next chest")
         #expect(HushCopy.hint(.closeForNext, slider: true) == HushCopy.closeForNextLever)
-        #expect(HushCopy.closeForNextLever.hasPrefix("Slide"))
+        // R13 (phone QA P1-1): the lever named ("Slide it down…" had no subject on the plate).
+        #expect(HushCopy.closeForNextLever == "Lever down for the next chest")
+        #expect(HushCopy.closeForNextLever.lowercased().contains("lever"))
         #expect(HushCopy.allHints.contains(.closeForNext))
         for slider in [true, false] {
             let line = HushCopy.hint(.closeForNext, slider: slider)
@@ -3793,7 +3828,7 @@ struct R12Tests {
         #expect(GameController.startBanner(.lesson, lidOpen: true) == nil)
     }
 
-    @Test func homeSaysLiftOnlyWhileClosed() {
+    @Test func homeTeachesTheOpeningOnlyWhileClosed() {
         // R13: the Duo caption says how the chest opens; from 0.03 (≈ 4.5°) the chest is open.
         #expect(HomeView.caption(HomeLid(openness: 0, speed: 0), hinge: true) == HomeView.duoCaption)
         #expect(HomeView.caption(HomeLid(openness: 0.03, speed: 0), hinge: true) == HomeView.duoCaption)
@@ -3803,8 +3838,9 @@ struct R12Tests {
         #expect(HomeView.caption(HomeLid(openness: 0.9, speed: 0), hinge: true) == "It's watching you.")
     }
 
-    /// Rule 7: close it, then open it slowly, in chest words; never "open" to an open lid.
-    @Test func theLessonClosesThenOpens() {
+    /// Rule 7: chest words; never "open" to an open lid. R13: no "close it first" any more (the lesson's chest opens
+    /// with the lid); a lid past the pose window is asked to close a little.
+    @Test func theLessonSpeaksChestWords() {
         let pose = LessonScript()
         #expect(pose.line(slider: false, angle: 160, hint: nil) == "Close the lid a little")
         #expect(pose.line(slider: false, angle: 100, hint: nil) == "Hold it there…")
@@ -3819,7 +3855,7 @@ struct R12Tests {
     }
 
     /// The sweep: no hint, banner, lesson line, lid marker or Home caption that says "open" can show while the lid's
-    /// openness is past 0.15.
+    /// openness is past 0.15 (R13: 0.03, ≈ 4.5° of the phone).
     @Test func nothingAsksToOpenAnOpenLid() {
         #expect(!AppRules.lidReadsOpen(0.03))
         #expect(AppRules.lidReadsOpen(0.031))
@@ -4009,16 +4045,26 @@ struct R12Tests {
     }
 
     /// With the lid closed, the first chest arrives closed and opens with the lid ("Open the lid… slowly" is right).
-    @Test func aClosedLidStartsAClosedChest() {
-        let (c, hand) = makeDuo(at: 100)
+    /// R13 ("closed means closed"): closed is the phone shut. At 2° (openness 0.013, under the 0.02 looting line ≈ 3°)
+    /// the chest stays closed, and under the 12° closing line the run waits on the closing card; the lift resumes it
+    /// (a fresh chest: no "Hold still…") and the chest opens with the lid.
+    @Test func aShutLidStartsAClosedChest() {
+        let (c, hand) = makeDuo(at: 2)
         c.play()
-        hand.hold(0.4)
+        hand.hold(0.8)
         #expect(hand.last.phase == .ready)
         #expect(!c.hud.lidOpen)
         #expect(c.hud.banner == nil || c.hud.banner == "Candle lit. Open it gently.")
-        let events = hand.move(to: 125, seconds: 2.5)
+        #expect(c.isClosingPaused)
+        #expect(c.closingFresh)
+        #expect(ClosingCard.title(lifted: c.closingLifted, awaitingHinge: c.closingAwaitsHinge, fresh: c.closingFresh)
+                == "Open the lid slowly for the next chest")
+        // 2 → 60° in 2.5 s: 23°/s of hinge, 10°/s on the lid's scale (65/150), as quiet as R12's 100 → 125°.
+        let events = hand.move(to: 60, seconds: 2.5) + hand.hold(0.3)
+        #expect(!c.isClosingPaused)
         #expect(has(events, isCrack))
         #expect(hand.last.phase == .looting)
+        #expect(c.hud.lidOpen)
         done(c)
     }
 
@@ -4042,22 +4088,29 @@ struct R12Tests {
         #expect(shown == .closeForNext)
         #expect(plateText(c) == "Close the lid for the next chest")
         // Close to the shut zone: the next chest is dealt, and the robbed chest's line goes with it.
+        // R13: the shut zone is ≤ 15° of the phone, so the close goes all the way, in one movement, to 2° (under the
+        // 0.02 looting line, ≈ 3°: the new chest stays closed; a still lid at 3–12° would open it before the pause).
         var staleLine = false
-        let closing = hand.move(to: 100, seconds: 1.4) { c, _, _, _ in
+        var arrivalAngles: [Double] = []
+        let closing = hand.move(to: 2, seconds: 2.0) { c, _, e, a in
             if !c.awaitingClose && c.hud.hint == .closeForNext { staleLine = true }
+            if has(e, isArrival) { arrivalAngles.append(a) }
         }
         #expect(has(closing, isArrival))
         #expect(!c.awaitingClose)
         #expect(!staleLine)
-        // On down to the closing pause: a fresh chest.
-        hand.move(to: 30, seconds: 1.8)
+        #expect(arrivalAngles.count == 1)
+        #expect(arrivalAngles.allSatisfy { $0 <= Tuning.hingeShutZoneAngle }, "\(arrivalAngles)")
+        // Held shut, under the 12° closing line: the closing pause, over a fresh chest.
         hand.hold(0.8)
         #expect(c.isClosingPaused)
         #expect(c.closingFresh)
-        // Reopen at 40°/s: it resumes on the lift, never "Hold still…", and the new chest opens.
+        #expect(hand.last.phase == .ready)
+        // Reopen while moving (2 → 70° in 2.75 s, 25°/s of hinge): it resumes on the lift, never "Hold still…", and
+        // the new chest opens.
         var holdStill = false
         var resumedAt: Double?
-        let reopen = hand.move(to: 140, seconds: 2.75) { c, _, _, a in
+        let reopen = hand.move(to: 70, seconds: 2.75) { c, _, _, a in
             if c.isClosingPaused,
                ClosingCard.title(lifted: c.closingLifted, awaitingHinge: c.closingAwaitsHinge,
                                  fresh: c.closingFresh) == "Hold still…" { holdStill = true }
@@ -4065,7 +4118,8 @@ struct R12Tests {
         }
         let opened = hand.hold(0.5)
         #expect(!holdStill)
-        #expect((resumedAt ?? 999) < 139)
+        // R13: just past the 18° resume line (the gate unlatches above 20°), never at the top of the lift.
+        #expect((resumedAt ?? 999) < 40)
         #expect(hand.last.phase == .looting)
         #expect(has(reopen + opened, isCrack))
         #expect(!has(reopen + opened, isArrival))
@@ -4090,15 +4144,18 @@ struct R12Tests {
             if c.hud.hint == .closeForNext { closeLine = true }
             if has(e, isArrival) { arrivalAngles.append(a) }
         }
-        // 20°/s, under the closing creak's quiet line, through the shut zone and on down to the cover.
-        let down = hand.move(to: 100, seconds: 2.5, watch: watch) + hand.move(to: 30, seconds: 3.5, watch: watch)
-        hand.hold(0.8, watch: watch)
+        // 20°/s on the lid's scale (R13: 46°/s of hinge × 65/150), under the closing creak's quiet line (28°/s),
+        // through the shut zone (≤ 15°) and on down to shut (2°, under the looting line: the next chest stays closed).
+        // Held there through the 1.4 s bank moment: the next chest is dealt under the shut lid, then the closing pause.
+        let down = hand.move(to: 2, seconds: 3.2, watch: watch) + hand.hold(2.2, watch: watch)
         #expect(has(down, isBank))
         #expect(c.isClosingPaused)
         #expect(c.closingFresh)
+        #expect(hand.last.phase == .ready)
         var holdStill = false
         var resumedAt: Double?
-        hand.move(to: 140, seconds: 2.75) { c, s, e, a in
+        // Reopen while moving (2 → 70° in 2.75 s, 25°/s of hinge).
+        hand.move(to: 70, seconds: 2.75) { c, s, e, a in
             watch(c, s, e, a)
             if c.isClosingPaused,
                ClosingCard.title(lifted: c.closingLifted, awaitingHinge: c.closingAwaitsHinge,
@@ -4107,12 +4164,12 @@ struct R12Tests {
         }
         hand.hold(0.5, watch: watch)
         #expect(!holdStill)
-        #expect((resumedAt ?? 999) < 139)
+        #expect((resumedAt ?? 999) < 40)
         #expect(hand.last.phase == .looting)
         #expect(!closeLine)
-        // The next chest came while the lid was closed (CI's BANK-CLOSE-FULL: never above 113°).
+        // The next chest came while the lid was closed (CI's BANK-CLOSE-FULL: never above 113°; R13: the 15° zone).
         #expect(arrivalAngles.count == 1)
-        #expect(arrivalAngles.allSatisfy { $0 <= 113 }, "\(arrivalAngles)")
+        #expect(arrivalAngles.allSatisfy { $0 <= Tuning.hingeShutZoneAngle }, "\(arrivalAngles)")
         done(c)
     }
 }
