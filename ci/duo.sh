@@ -502,20 +502,31 @@ if [[ " $PASSES " == *" hinge "* ]]; then
   #    cracked there at launch, so the old check proved nothing about the open). The shut gate is gone, so the start
   #    angle no longer has to sit in the shut zone. A crack logged before the sweep while the lid read ≤ 102° (openness
   #    ≤ 0.03) FAILs: a closed chest opened by itself.
+  #    R13: the closed chest is the phone (nearly) shut: from 5° (openness 0.03; lidCracked first at 0.05 ≈ 7.5°),
+  #    reached by a closing sweep (the sim keeps the inner panel lit further down when closing), 5 → 160 over 8 s
+  #    (19°/s physical ≈ 8.4 lid °/s, under quietSpeed 14). To 160, not 120: if the sim lit its cover display at 5°,
+  #    the inner display relights only near 150° on the way up, and the run resumes and cracks there. A crack logged
+  #    before the sweep while the lid read ≤ 6° (openness ≤ 0.04) FAILs. No crack at all with the cover still lit at
+  #    the top is INCONCLUSIVE (the sim's cover display, not the app).
   # 3. STILL (same launch): hold 1.5 s at 160 after the sweep. PASS: the last logged lid speed in the hold is < 1.0
   #    (speed must decay when hinge samples stop: they arrive at 25–30 Hz moving and not at all while still).
-  hinge_set 100
+  hinge_set 40; hinge_sweep 5 1.5; hinge_set 5
   launch slow-open "screen=run;mode=attract;seed=7" 1
   SL="$OUT_ABS/logs/slow-open.txt"
   # PORTRAIT: the inner-display capture is taller than wide (taken before the timed window; a shot takes ~15 s).
-  # R12: duo-h0-closed-100 (was duo-h0-ready-105) shows the closed-chest cover.
-  shoot duo-h0-closed-100 inner
-  wh=$(png_wh "$OUT_ABS/duo-h0-closed-100.png"); cl=$(canvas_line "$SL")
+  # R12: duo-h0-closed-100 (was duo-h0-ready-105) shows the closed-chest cover. R13: duo-h0-closed-5. If the sim's
+  # cover display is the lit one at 5°, PORTRAIT is judged on the later wide-open frame (duo-h1) instead.
+  shoot duo-h0-closed-5 inner
+  scov0="$LAST_PICK"
+  wh=$(png_wh "$OUT_ABS/duo-h0-closed-5.png"); cl=$(canvas_line "$SL")
   d="inner frame $wh; ${cl:-no canvas line}; orient=${ORIENT:-none}; $(grep -m1 -oE 'HUSH-T orient [a-z]+ [a-z]+' "$SL" || echo 'no HUSH-T orient line')"
   # R6: a landscape inner display is playable too (drawn with odd k, the right way up for a tabletop Duo).
-  if is_portrait "$wh"; then result PORTRAIT PASS "$d"
-  elif k_odd "$cl"; then result PORTRAIT PASS "$d (landscape interface, drawn with odd k: playable since R6)"
-  else result PORTRAIT FAIL "$d (neither portrait nor an odd-k landscape canvas)"; fi
+  portrait_judge() {
+    if is_portrait "$wh"; then result PORTRAIT PASS "$d"
+    elif k_odd "$cl"; then result PORTRAIT PASS "$d (landscape interface, drawn with odd k: playable since R6)"
+    else result PORTRAIT FAIL "$d (neither portrait nor an odd-k landscape canvas)"; fi
+  }
+  [[ "$scov0" == cover ]] || portrait_judge
   m0=$(nlines "$SL")
   sa0=$(angle_before "$SL" $(( m0 + 1 )))
   hinge_sweep 160 8
@@ -529,15 +540,23 @@ if [[ " $PASSES " == *" hinge "* ]]; then
   maxv=$(between "$SL" "$m0" "$m1" | lid_vals speed | max_of)
   inp=$(grep -m1 -oE "HUSH-T input [a-z]+" "$SL" | awk '{print $3}')
   hl=$(count "HUSH-H" "$SL")
-  d="lidCracked=$cracked (first@${scl:-none}, ${sca}°; $( [[ -n "$scl" ]] && (( scl <= m0 )) && echo 'before the sweep' || echo 'in the sweep')) start ${sa0}° maxNoise=$maxn peakSpeed=${maxv}°/s input=${inp:-none} HUSH-H=$hl"
-  if [[ -n "$scl" ]] && (( scl <= m0 )) && le "$sca" 102; then result SLOW-OPEN FAIL "$d; the closed chest (≤ 102°) cracked before the sweep"
-  elif (( cracked > 0 )) && lt "$maxn" 0.35; then result SLOW-OPEN PASS "$d"; else result SLOW-OPEN FAIL "$d"; fi
+  scv=""; [[ "$scov0" == cover ]] && scv="; the sim's cover display was the lit panel at 5° (the run waited for the relight)"
+  d="lidCracked=$cracked (first@${scl:-none}, ${sca}°; $( [[ -n "$scl" ]] && (( scl <= m0 )) && echo 'before the sweep' || echo 'in the sweep')) start ${sa0}° maxNoise=$maxn peakSpeed=${maxv} lid°/s input=${inp:-none} HUSH-H=$hl$scv"
+  if [[ -n "$scl" ]] && (( scl <= m0 )) && le "$sca" 6; then result SLOW-OPEN FAIL "$d; the closed chest (≤ 6°) cracked before the sweep"
+  elif (( cracked > 0 )) && lt "$maxn" 0.35; then result SLOW-OPEN PASS "$d"
+  elif (( cracked == 0 )) && cover_up "$SL"; then result SLOW-OPEN INCONCLUSIVE "$d (the sim's cover display was still lit at 160°: nothing was opened)"
+  else result SLOW-OPEN FAIL "$d"; fi
   hold=$(between "$SL" "$m1" "$m2" | lid_vals speed)
   last=$(echo "$hold" | grep -E '^-?[0-9.]+$' | tail -1)
   low=$(echo "$hold" | min_of)
   d="last speed in the 1.5 s hold=${last:-none} min=$low ($(echo "$hold" | grep -cE '^-?[0-9.]+$') lid lines)"
   if [[ -n "$last" ]] && lt "$last" 1.0; then result STILL PASS "$d"; else result STILL FAIL "$d"; fi
   shoot duo-h1-slow-open-160 inner
+  if [[ "$scov0" == cover ]]; then
+    wh=$(png_wh "$OUT_ABS/duo-h1-slow-open-160.png"); cl=$(canvas_line "$SL")
+    d="inner frame $wh (duo-h1-slow-open-160: the cover was lit at 5°); ${cl:-no canvas line}; orient=${ORIENT:-none}; $(grep -m1 -oE 'HUSH-T orient [a-z]+ [a-z]+' "$SL" || echo 'no HUSH-T orient line')"
+    portrait_judge
+  fi
 
   # 2. SLAM: a real run, sweep 105 → 150 over 6 s, hold 2 s, then slam 150 → 104 in 0.3 s (~150°/s). PASS:
   #    `event bitten` or the stage reaching waking/biting within 2 s of the slam (lines logged since the slam began,
@@ -557,19 +576,25 @@ if [[ " $PASSES " == *" hinge "* ]]; then
   #       didn't wake or bite;
   #     - every SLAM line records the slam's sample count (distinct lid angles logged inside 106–149° during the slam,
   #       plus the raw HUSH-H lines) and the attempt number.
-  hinge_set 105
+  #    R13 (the phone is the chest): launched open at 160° (openness 1: the first chest loots at once), a 1.5 s hold,
+  #    then the slam 160 → 20° in 0.4 s (350°/s physical ≈ 152 lid °/s nominal, the old slam's lid speed, over 61 lid°
+  #    instead of 46). It ends at 20°: above the 15° shut zone (no bank, no next chest) and the 12° closing line (no
+  #    pause). The re-open for a retry is 20 → 160 over 8 s (7.6 lid °/s, silent). SLAM_MIN_PEAK stays 60 LID °/s.
+  #    The sim may hand the app to its cover display on the way down (a pause that freezes the noise): a slam the cover
+  #    took before it registered is retried, and twice is INCONCLUSIVE, never FAIL.
+  hinge_set 160
   launch slam "screen=run;mode=run;seed=7;freezeOn=bite" 1
   SM="$OUT_ABS/logs/slam.txt"
-  hinge_sweep 150 6
+  hinge_wiggle 160 1
   h0=$(nlines "$SM"); sleep 1.5
   hl2=$(sed -n "$(( h0 + 1 )),\$p" "$SM" | lid_vals speed | grep -E '^-?[0-9.]+$' | tail -1)
-  result STILL-RUN INFO "last speed 1.5 s into the hold at 150 (real run)=${hl2:-none}"
-  attempt=1; froze=""; hit=""; bit=""; peak=none; pn=none; n0=none; ns=""
+  result STILL-RUN INFO "last speed 1.5 s into the hold at 160 (real run)=${hl2:-none}"
+  attempt=1; froze=""; hit=""; bit=""; peak=none; pn=none; n0=none; ns=""; scov=""
   while :; do
-    hinge_wiggle 150 2
+    hinge_wiggle 160 2
     n0=$(head -n "$(nlines "$SM")" "$SM" | lid_vals noise | grep -E '^-?[0-9.]+$' | tail -1)
     s0=$(nlines "$SM")
-    hinge_sweep 104 0.3
+    hinge_sweep 20 0.4
     # The bite usually lands while the sweep call is still returning; catch the freeze line as soon as it is there.
     if wait_for "$SM" "HUSH-T freeze bite" 3; then shoot_now duo-h2-slam-bite; froze="froze on the bite"
     else froze="no 'HUSH-T freeze bite' within 3 s"; fi
@@ -578,24 +603,27 @@ if [[ " $PASSES " == *" hinge "* ]]; then
     bit=$(after "$SM" "$s0" | grep -m1 -E "HUSH-T event bitten" | tr -d '\r')
     peak=$(after "$SM" "$s0" | lid_vals speed | max_of)
     pn=$(after "$SM" "$s0" | lid_vals noise | max_of)
-    ns=$(slam_samples "$SM" "$s0")
-    log "SLAM attempt $attempt: peakSpeed=${peak}°/s noise ${n0:-none} -> $pn; $ns; ${hit:-no hit}"
+    ns=$(slam_samples "$SM" "$s0" 25)
+    scov=$(after "$SM" "$s0" | grep -m1 -oE "HUSH-T pose cover[^\r]*" | tr -d '\r')
+    log "SLAM attempt $attempt: peakSpeed=${peak} lid°/s noise ${n0:-none} -> $pn; $ns; ${hit:-no hit}${scov:+; $scov}"
     [[ -n "$hit" ]] && break
-    { [[ "$peak" == none ]] || lt "$peak" "$SLAM_MIN_PEAK"; } || break
+    { [[ "$peak" == none ]] || lt "$peak" "$SLAM_MIN_PEAK" || [[ -n "$scov" ]]; } || break
     (( attempt >= 2 )) && break
     attempt=2
-    log "SLAM: peak ${peak}°/s < ${SLAM_MIN_PEAK}°/s and no hit (the hinge tool under-delivered?): re-open gently and slam again"
-    hinge_sweep 150 8
+    log "SLAM: peak ${peak} lid°/s (line ${SLAM_MIN_PEAK}), no hit${scov:+, the sim cover display took over}: re-open gently and slam again"
+    hinge_sweep 160 8
     sleep 1
   done
   rise=$(awk -v a="${n0:-0}" -v b="$pn" 'BEGIN { if (b !~ /^-?[0-9.]+$/) print "none"; else printf "%.2f\n", b - (a ~ /^-?[0-9.]+$/ ? a : 0) }')
-  d="attempt $attempt/2; peakSpeed=${peak}°/s; slam samples: $ns; noise ${n0:-none} -> $pn (rise $rise); first: ${hit:-none}; bite: ${bit:-none}; $froze"
+  d="attempt $attempt/2; slam 160 → 20° in 0.4 s; peakSpeed=${peak} lid°/s (hinge × 0.4333); slam samples: $ns; noise ${n0:-none} -> $pn (rise $rise); first: ${hit:-none}; bite: ${bit:-none}; $froze${scov:+; cover: $scov}"
   # R7 (real hands: closing quiet 28 deg/s, 0.08 s onset): a sim slam (the tool's peak is ~80 deg/s) may only stir;
   # it must still register as clearly too loud (noise rise >= 0.35, i.e. Stirring).
   if [[ -n "$hit" ]]; then result SLAM PASS "$d"
   elif [[ "$rise" != none ]] && ge "$rise" 0.35; then result SLAM PASS "$d (registered as loud: rise $rise >= 0.35)"
   elif { [[ "$peak" == none ]] || lt "$peak" "$SLAM_MIN_PEAK"; } && { [[ "$rise" == none ]] || lt "$rise" 0.05; }; then
-    result SLAM INCONCLUSIVE "$d (the hinge tool under-delivered the slam twice: peak < ${SLAM_MIN_PEAK}°/s, noise unchanged)"
+    result SLAM INCONCLUSIVE "$d (the hinge tool under-delivered the slam twice: peak < ${SLAM_MIN_PEAK} lid°/s, noise unchanged)"
+  elif [[ -n "$scov" ]]; then
+    result SLAM INCONCLUSIVE "$d (the sim's cover display took the run mid-slam both times: the pause froze the noise)"
   else result SLAM FAIL "$d"; fi
   [[ -f "$OUT_ABS/duo-h2-slam-bite.png" ]] || shoot_now duo-h2-slam-bite
   shoot duo-h2-after-slam inner
@@ -605,19 +633,20 @@ if [[ " $PASSES " == *" hinge "* ]]; then
   #     App logs it and freezes on `freezeOn=creak`, design/NEEDS.md CI R3). PASS: a creak line within 3 s of the
   #     slam. FAIL: no creak line although the logged noise rose > 0.25 over 3 lid samples. INFO otherwise (no line,
   #     no measurable jump: the App hook or the attract noise may be missing).
-  hinge_set 105
+  #     R13: the same slam as SLAM, 160 → 20° in 0.4 s from an open start at 160°.
+  hinge_set 160
   launch slam-creak "screen=run;mode=attract;seed=7;freezeOn=creak" 1
   SK="$OUT_ABS/logs/slam-creak.txt"
-  hinge_sweep 150 6; sleep 2
+  hinge_wiggle 160 1; sleep 1.5; hinge_wiggle 160 1
   k0=$(nlines "$SK")
-  hinge_sweep 104 0.3
+  hinge_sweep 20 0.4
   if wait_for "$SK" "HUSH-T (freeze creak|event creak|creak )" 3; then shoot_now duo-h2c-slam-creak; got="creak line seen"
   else shoot_now duo-h2c-slam-creak; got="no creak line within 3 s (shot anyway)"; fi
   sleep 0.5
   kl=$(after "$SK" "$k0" | grep -m1 -E "HUSH-T (freeze creak|event creak|creak )" | tr -d '\r')
   kj=$(after "$SK" "$k0" | lid_vals noise | max_jump)
   kp=$(after "$SK" "$k0" | lid_vals speed | max_of)
-  d="peakSpeed=${kp}°/s noise jump(0.3 s)=$kj; first: ${kl:-none}; $got"
+  d="peakSpeed=${kp} lid°/s noise jump(0.3 s)=$kj; first: ${kl:-none}; $got$(cover_note "$SK" "$k0" "$(nlines "$SK")")"
   if [[ -n "$kl" ]]; then result SLAM-CREAK PASS "$d"
   elif [[ "$kj" != none ]] && awk -v j="$kj" 'BEGIN { exit !(j + 0 > 0.25) }'; then result SLAM-CREAK FAIL "$d (the rule was met)"
   else result SLAM-CREAK INFO "$d (no line and no jump > 0.25 logged: App hook pending?)"; fi
@@ -625,26 +654,43 @@ if [[ " $PASSES " == *" hinge "* ]]; then
   # 4a. UPRIGHT-NO-PAUSE (REVIEW-1-duo P1-4): the closing pause moved from 85° to 70° so a lid resting upright (90°,
   #     which the Duo can read as low as ~84°) never pauses. From 120, sweep to 78° and hold 2 s: no `paused closing`.
   # 4b. CLOSE-PAUSE: then on down to 55° (< 70° held 0.4 s pauses) → `paused closing`; back to 120 → `resumed`.
+  # R13 (the phone is the chest): a phone at 25° is an OPEN chest (openness 0.17), so UPRIGHT-NO-PAUSE holds the lid
+  #     low but open: 120 → 25° (2 s), held 2 s: no `paused closing` (the line is 12°). A cover-display pause the sim
+  #     may throw in on the way down is reported, not judged (COVER-SLOW-CLOSE owns that). CLOSE-PAUSE: on down to 5°
+  #     (< 12° held 0.4 s) → `paused closing` (any `HUSH-T paused` counts when the sim's cover display took the run
+  #     first; the detail says which); reopen to 40° and hold still (resume at ≥ 18°, still) → `resumed`; if nothing
+  #     resumed and the cover display is still up (the sim relights only near 150°), on to 165° and look again.
   hinge_set 120
   launch close-pause "screen=run;mode=attract;seed=7" 1
   CP="$OUT_ABS/logs/close-pause.txt"
-  sleep 1
+  hinge_wiggle 120 1; sleep 1
   u0=$(nlines "$CP")
-  hinge_sweep 78 1.5; sleep 2
+  hinge_sweep 25 2; sleep 2
   u1=$(nlines "$CP")
   up=$(first_line "$CP" "HUSH-T paused closing" "$u0")
-  d="held 78° for 2 s: $( [[ -n "$up" ]] && echo "paused at line $up (angle $(angle_before "$CP" "$up")°)" || echo "no pause" ); last angle $(angle_before "$CP" $(( u1 + 1 )))°"
-  if [[ -z "$up" ]]; then result UPRIGHT-NO-PAUSE PASS "$d"; else result UPRIGHT-NO-PAUSE FAIL "$d (closing threshold still above 78°?)"; fi
-  hinge_sweep 55 1; sleep 1.5
+  ucov=$(between "$CP" "$u0" "$u1" | grep -m1 -oE "HUSH-T paused [a-z]+" | tr -d '\r')
+  d="held 25° (openness 0.17) for 2 s: $( [[ -n "$up" ]] && echo "paused closing at line $up (angle $(angle_before "$CP" "$up")°)" || echo "no closing pause" ); last angle $(angle_before "$CP" $(( u1 + 1 )))°${ucov:+; first pause line: $ucov}$(cover_note "$CP" "$u0" "$u1")"
+  if [[ -z "$up" ]]; then result UPRIGHT-NO-PAUSE PASS "$d"; else result UPRIGHT-NO-PAUSE FAIL "$d (closing line still above 25°? R13: 12°)"; fi
+  hinge_sweep 5 1; hinge_wiggle 5 1; sleep 1
   p=$(first_line "$CP" "HUSH-T paused closing" "$u1")
   [[ -z "$p" && -n "$up" ]] && p="$up"
-  shoot duo-h3-closing-card-55 inner
-  hinge_sweep 120 1.5; sleep 2
+  [[ -z "$p" ]] && p=$(first_line "$CP" "HUSH-T paused" "$u0")
+  pw=$( [[ -n "$p" ]] && sed -n "${p}p" "$CP" | grep -oE "paused [a-z]+" | awk '{print $2}' )
+  shoot duo-h3-closing-card-5 inner
+  went=40
+  hinge_sweep 40 1.5; sleep 2
   r=""
   [[ -n "$p" ]] && r=$(first_line "$CP" "HUSH-T resumed" "$p")
-  d="paused@line ${p:-none} (angle $( [[ -n "$p" ]] && angle_before "$CP" "$p" || echo -)°), resumed@line ${r:-none} (angle $( [[ -n "$r" ]] && angle_before "$CP" "$r" || echo -)°); HUSH-H=$(count 'HUSH-H' "$CP")"
-  if [[ -n "$p" && -n "$r" ]]; then result CLOSE-PAUSE PASS "$d"; else result CLOSE-PAUSE FAIL "$d"; fi
-  shoot duo-h4-resumed-120 inner
+  if [[ -n "$p" && -z "$r" ]] && cover_up "$CP"; then
+    went=165; log "CLOSE-PAUSE: no resume at 40° and the sim's cover display is still up: on to 165°"
+    hinge_sweep 165 1.5; sleep 2
+    r=$(first_line "$CP" "HUSH-T resumed" "$p")
+  fi
+  d="paused@line ${p:-none} (${pw:-?}, angle $( [[ -n "$p" ]] && angle_before "$CP" "$p" || echo -)°), reopened to ${went}°, resumed@line ${r:-none} (angle $( [[ -n "$r" ]] && angle_before "$CP" "$r" || echo -)°); HUSH-H=$(count 'HUSH-H' "$CP")$(cover_note "$CP" "$u1" "$(nlines "$CP")")"
+  if [[ -n "$p" && -n "$r" ]]; then result CLOSE-PAUSE PASS "$d"
+  elif [[ -n "$p" ]] && cover_up "$CP"; then result CLOSE-PAUSE INCONCLUSIVE "$d (the sim's cover display was still lit at 165°)"
+  else result CLOSE-PAUSE FAIL "$d"; fi
+  shoot "duo-h4-resumed-$went" inner
 
   # 5. REOPEN-NO-BITE (REVIEW-1-duo P0-2, QA-1 P1-2): a real run (bites on) with the noise held at 0.6 until the pause
   #    (`noiseUntil=pause` releases the demo hold at the first pause and logs `HUSH-T noise released`). Open gently to
@@ -652,18 +698,24 @@ if [[ " $PASSES " == *" hinge "* ]]; then
   #    120° in 0.4 s (~150°/s: the "normal" hand). PASS: no `event bitten` within 2 s of the reopen, no `resumed`
   #    while the lid was still low, and the first `resumed` after the reopen only once a logged angle is >= 95°.
   #    Without the release line the hold stays on all run (a bite is impossible), so a clean run is INFO, not PASS.
-  hinge_set 105
+  #    R13: launched open at 150° (the chest loots at once), lowered gently to 5° over 6 s (24°/s physical ≈ 10.5 lid
+  #    °/s, under closeQuietSpeed 28), 2 s on the closing card, then the quick hand: 5 → 160° in 0.5 s (310°/s ≈ 134
+  #    lid °/s, the old 150°/s reopen's lid speed; to 160 so the sim's cover display, if it took the run on the way
+  #    down, relights inside the move). The first `resumed` must be at a logged angle ≥ 15° (R13: resume at 18°,
+  #    hysteresis 15°). If the sim took the run to its cover display, the first pause may be `paused pose`: it counts.
+  hinge_set 150
   launch reopen "screen=run;mode=run;seed=7;noise=0.6;noiseUntil=pause" 1
   RO="$OUT_ABS/logs/reopen.txt"
-  hinge_sweep 130 4; sleep 1
+  hinge_wiggle 150 1; sleep 1
   c0=$(nlines "$RO")
-  hinge_sweep 60 5; sleep 2
+  hinge_sweep 5 6; sleep 2
   p=$(first_line "$RO" "HUSH-T paused closing" "$c0")
+  [[ -z "$p" ]] && p=$(first_line "$RO" "HUSH-T paused" "$c0")
   # (no shot here: a shot takes 3–15 s and the wait on the card must stay 2 s; duo-h3 already shows the closing card)
   r0=$(nlines "$RO")
   early=$(first_line "$RO" "HUSH-T resumed" "${p:-$c0}")
   [[ -n "$early" && "$early" -gt "$r0" ]] && early=""
-  hinge_sweep 120 0.4
+  hinge_sweep 160 0.5
   sleep 2
   r2=$(nlines "$RO")
   sleep 3
@@ -679,35 +731,42 @@ if [[ " $PASSES " == *" hinge "* ]]; then
   # Duo run 40510297922: the pause line can land in the log after the 2 s wait (it was at line 655, the resume at
   # 662), so look again now, and accept it if it comes before the resume.
   if [[ -z "$p" ]]; then
-    p=$(first_line "$RO" "HUSH-T paused closing" "$c0")
+    p=$(first_line "$RO" "HUSH-T paused" "$c0")
     [[ -n "$p" && -n "$rl" && "$p" -gt "$rl" ]] && p=""
   fi
   pre=$( [[ -n "$p" ]] && angle_before "$RO" "$p" || echo -)
+  pw=$( [[ -n "$p" ]] && sed -n "${p}p" "$RO" | grep -oE "paused [a-z]+" | awk '{print $2}' )
   maxn=$(after "$RO" "${rl:-$r0}" | lid_vals noise | max_of)
-  d="paused@${p:-none} (${pre}°); resumed while low: ${early:-no}; resumed@${rl:-none} angle ${ra:-none}°; bitten≤2s: ${bitten:-none}; waking≤2s: ${waking:-none}; maxNoise after resume=$maxn; noise released=$released"
+  d="paused@${p:-none} (${pw:-?}, ${pre}°); resumed while low: ${early:-no}; resumed@${rl:-none} angle ${ra:-none}°; bitten≤2s: ${bitten:-none}; waking≤2s: ${waking:-none}; maxNoise after resume=$maxn; noise released=$released$(cover_note "$RO" "$c0" "$r0")"
   verdict=PASS
-  [[ -z "$p" ]] && { verdict=FAIL; d="$d; never paused at 60°"; }
+  [[ -z "$p" ]] && { verdict=FAIL; d="$d; never paused at 5°"; }
   [[ -n "$early" ]] && { verdict=FAIL; d="$d; resumed before the reopen"; }
   [[ -n "$bitten" ]] && verdict=FAIL
-  if [[ -z "$rl" ]]; then verdict=FAIL; d="$d; no resume within 5 s of the reopen"
-  elif [[ "$ra" == none ]] || lt "$ra" 88; then verdict=FAIL; d="$d; resumed below 88° (R7: resume enters at 92°, hysteresis 88°)"; fi
+  if [[ -z "$rl" ]]; then
+    if cover_up "$RO"; then verdict=INCONCLUSIVE; d="$d; no resume: the sim's cover display was still lit at 160°"
+    else verdict=FAIL; d="$d; no resume within 5 s of the reopen"; fi
+  elif [[ "$ra" == none ]] || lt "$ra" "$RESUME_LOW"; then verdict=FAIL; d="$d; resumed below ${RESUME_LOW}° (R13: resume enters at ${RESUME_LINE}°, hysteresis ${RESUME_LOW}°)"; fi
+  [[ -n "$bitten" || -n "$early" || -z "$p" ]] && [[ "$verdict" == INCONCLUSIVE ]] && verdict=FAIL
   if [[ "$verdict" == PASS && "$released" == 0 ]]; then
     verdict=INFO; d="$d; INCONCLUSIVE: no 'HUSH-T noise released', so noise=0.6 was held all run (no bite possible). App: noiseUntil=pause (design/NEEDS.md)"
   fi
   result REOPEN-NO-BITE "$verdict" "$d"
-  shoot duo-h6-reopened-120 inner
+  shoot duo-h6-reopened-160 inner
 
   # 6. COVER-SLOW-CLOSE (R3 decision 1, REVIEW-2-duo P0-1): the cover display is a pause, always. A real run with the
   #    noise held at 0.6 until the first pause (then frozen there, decision 2). From 120°, close gently to 40° over 6 s
   #    (13°/s, under the 18°/s closing creak: iOS hands the app to the cover display around 74–92° on the sim), then
   #    hold 3 s. PASS: a `HUSH-T paused` line, no `HUSH-T pose play` on a cover-sized canvas and no `small-canvas-open`
   #    (the deleted R2 fallback), and no `HUSH-T resumed` after the pause.
-  hinge_set 120
+  #    R13: from an open 150°, the gentle close is 150 → 5° over 6 s (24°/s physical ≈ 10.5 lid °/s), then 3 s at 5°
+  #    (under the 12° closing line, so the run pauses whether or not the sim's cover display takes it on the way: on
+  #    the sim it may now do so while the chest is still open, which must be a pause too).
+  hinge_set 150
   launch cover-slow "screen=run;mode=run;seed=7;noise=0.6;noiseUntil=pause" 1
   CS="$OUT_ABS/logs/cover-slow.txt"
-  sleep 1
+  hinge_wiggle 150 1; sleep 1
   k0=$(nlines "$CS")
-  hinge_sweep 40 6; sleep 3
+  hinge_sweep 5 6; sleep 3
   k1=$(nlines "$CS")
   kp=$(first_line "$CS" "HUSH-T paused" "$k0")
   kc=$(first_line "$CS" "HUSH-T pose cover" "$k0")
@@ -730,8 +789,9 @@ if [[ " $PASSES " == *" hinge "* ]]; then
   #    hardware relights the inner display somewhere on the way). PASS: the first `HUSH-T resumed` comes on the inner
   #    canvas ($INNER_CANVAS) at a logged angle >= 95°, no resume at all on a cover-sized canvas, and no `event
   #    bitten` in the 2 s after the resume. A clean run without `HUSH-T noise released` is INFO (the hold made a bite
-  #    impossible), as in REOPEN-NO-BITE.
-  hinge_sweep 10 1.5; hinge_set 0; sleep 3
+  #    impossible), as in REOPEN-NO-BITE. R13: from 5° to 0°; 0 → 140° over 5 s is 28°/s physical ≈ 12 lid °/s (under
+  #    quietSpeed 14); the first resume must be at a logged angle ≥ 15° (resume 18°, hysteresis 15°).
+  hinge_sweep 1 0.5; hinge_set 0; sleep 3
   shoot duo-h7-cover-after-slow-close cover
   m0=$(nlines "$CS")
   hinge_sweep 140 5
@@ -765,9 +825,11 @@ if [[ " $PASSES " == *" hinge "* ]]; then
   released=$(count "HUSH-T noise released" "$CS")
   d="reopened to ${went}°; resumed@${rl:-none} angle ${ra:-none}° canvas $rc; relit (pose play)@${pl:-none} ~${relight}°$(grep -m1 -oE 'HUSH-T relight angle=[0-9.]+' "$CS" | sed 's/^HUSH-T / /'); resumed on cover:${oncover:- none}; bitten≤2s: ${bit:-none}; maxNoise after=$(after "$CS" "${rl:-$m0}" | lid_vals noise | max_of); noise released=$released"
   verdict=PASS
-  if [[ -z "$rl" ]]; then verdict=FAIL; d="$d; no resume after the reopen (even at 165°)"
+  if [[ -z "$rl" ]]; then
+    if cover_up "$CS"; then verdict=INCONCLUSIVE; d="$d; no resume: the sim's cover display was still lit at 165°"
+    else verdict=FAIL; d="$d; no resume after the reopen (even at 165°)"; fi
   else
-    { [[ "$ra" == none ]] || lt "$ra" 88; } && { verdict=FAIL; d="$d; resumed below 88° (R7 hysteresis)"; }
+    { [[ "$ra" == none ]] || lt "$ra" "$RESUME_LOW"; } && { verdict=FAIL; d="$d; resumed below ${RESUME_LOW}° (R13 hysteresis)"; }
     inner_flip="${INNER_CANVAS#*x}x${INNER_CANVAS%x*}"   # R6: the inner display may be landscape (odd k) too
     [[ "$rc" != "$INNER_CANVAS" && "$rc" != "$inner_flip" ]] && { verdict=FAIL; d="$d; resumed on $rc, not the inner $INNER_CANVAS or $inner_flip"; }
   fi
@@ -852,19 +914,27 @@ if [[ " $PASSES " == *" hinge "* ]]; then
   #    way up, after the reopen began, is a pass too). FAIL: a resume before the reopen began (lid still at 60°); paused,
   #    the reopen arrived (a logged angle ≥ 95°) and nothing resumed in 8 s (stuck); or no pause although the log went
   #    ≤ 65°. INCONCLUSIVE: the tool never delivered the close (nothing ≤ 70° logged, after one more try) or the reopen.
+  #    R13: the close is 130 → 5° (5 s, 25°/s physical ≈ 11 lid °/s) and a wiggle at 5° (the pause: < 12° held 0.4 s);
+  #    the slow reopen is 5 → 160° over WATCHDOG_REOPEN_S (14 s, 11°/s: never "still", which is < 6°/s below 100° and
+  #    < 10°/s above, so only the hold at the top or the watchdog can resume) to 160°, not 130°: the sim's cover display,
+  #    which may have taken the run on the close, relights only near 150°. The 8 s count from reaching 160. FAIL: a
+  #    resume while the lid was still at 5°; paused, the reopen arrived (a logged angle ≥ 140°) and nothing resumed in
+  #    8 s (stuck); or no pause although the log went ≤ 10°. INCONCLUSIVE: nothing ≤ 12° logged (after one more try),
+  #    the reopen never reached 140°, or nothing resumed with the cover display still lit at the top.
   WD_REOPEN_S="${WATCHDOG_REOPEN_S:-14}"
   WD_LIMIT="${WATCHDOG_LIMIT:-8}"
+  WD_TOP=160
   hinge_set 130
   launch watchdog "screen=run;mode=attract;seed=7" 1
   WD="$OUT_ABS/logs/watchdog.txt"
-  sleep 1
+  hinge_wiggle 130 1; sleep 1
   w0=$(nlines "$WD")
-  hinge_sweep 60 5; hinge_wiggle 60 1; sleep 0.5
+  hinge_sweep 5 5; hinge_wiggle 5 1; sleep 0.5
   wp=$(first_line "$WD" "HUSH-T paused" "$w0")
   wlow=$(angles "$WD" "$w0" "$(nlines "$WD")" | min_of)
-  if [[ -z "$wp" ]] && ! le "$wlow" 70; then
-    log "WATCHDOG: no pause and nothing ≤ 70° logged (lowest ${wlow}°): the hinge tool under-delivered? close again"
-    hinge_set 60; hinge_wiggle 60 2; sleep 0.5
+  if [[ -z "$wp" ]] && ! le "$wlow" "$CLOSE_LINE"; then
+    log "WATCHDOG: no pause and nothing ≤ ${CLOSE_LINE}° logged (lowest ${wlow}°): the hinge tool under-delivered? close again"
+    hinge_set 5; hinge_wiggle 5 2; sleep 0.5
     wp=$(first_line "$WD" "HUSH-T paused" "$w0")
     wlow=$(angles "$WD" "$w0" "$(nlines "$WD")" | min_of)
   fi
@@ -872,13 +942,13 @@ if [[ " $PASSES " == *" hinge "* ]]; then
   wearly=""
   [[ -n "$wp" ]] && wearly=$(between "$WD" "$wp" "$w1" | grep -m1 -oE "HUSH-T (resumed|watchdog resume)[^\r]*")
   clock_start "$WD"
-  hinge_sweep 130 "$WD_REOPEN_S"
+  hinge_sweep "$WD_TOP" "$WD_REOPEN_S"
   w2=$(nlines "$WD"); wt2=$(now_s)
   wr=""; wn=0
   while :; do
     wr=$(first_line "$WD" "HUSH-T (resumed|watchdog resume)" "$w1"); [[ -n "$wr" ]] && break
     awk -v a="$(now_s)" -v b="$wt2" -v l="$WD_LIMIT" 'BEGIN { exit !(a - b >= l + 0.5) }' && break
-    hinge_wiggle 130 1; wn=$((wn + 1))
+    hinge_wiggle "$WD_TOP" 1; wn=$((wn + 1))
   done
   sleep 0.5
   w3=$(nlines "$WD")
@@ -889,25 +959,28 @@ if [[ " $PASSES " == *" hinge "* ]]; then
     wline=$(sed -n "${wr}p" "$WD" | grep -oE "HUSH-T (resumed|watchdog resume)[^\r]*")
     wang=$(echo "$wline" | grep -oE "angle [0-9.]+" | awk '{print $2}'); [[ -n "$wang" ]] || wang=$(angle_before "$WD" "$wr")
     wrt=$(line_time "$WD" "$wr"); [[ -n "$wrt" ]] && wdt=$(fsub "$wrt" "$wt2")
-    if (( wr <= w2 )); then wwhen="during the reopen (${wdt} s vs reaching 130)"; wdt=on-the-way-up
-    else wwhen="${wdt} s after reaching 130"; fi
+    if (( wr <= w2 )); then wwhen="during the reopen (${wdt} s vs reaching $WD_TOP)"; wdt=on-the-way-up
+    else wwhen="${wdt} s after reaching $WD_TOP"; fi
   fi
   wtop=$(angles "$WD" "$w1" "$w3" | max_of)
   wpa=$( [[ -n "$wp" ]] && angle_before "$WD" "$wp" || echo - )
-  d="paused@${wp:-none} (${wpa}°, lowest logged ${wlow}°); resumed before the reopen: ${wearly:-no}; reopen 60 → 130 over ${WD_REOPEN_S} s, top logged ${wtop}°, $wn wiggle(s) after; first resume@${wr:-none}: ${wline:-none} (angle ${wang:-none}°), $wwhen; watchdog lines: $(count 'HUSH-T watchdog resume' "$WD")"
+  wpw=$( [[ -n "$wp" ]] && sed -n "${wp}p" "$WD" | grep -oE "paused [a-z]+" | awk '{print $2}' )
+  d="paused@${wp:-none} (${wpw:-?}, ${wpa}°, lowest logged ${wlow}°); resumed before the reopen: ${wearly:-no}; reopen 5 → $WD_TOP over ${WD_REOPEN_S} s, top logged ${wtop}°, $wn wiggle(s) after; first resume@${wr:-none}: ${wline:-none} (angle ${wang:-none}°), $wwhen; watchdog lines: $(count 'HUSH-T watchdog resume' "$WD")$(cover_note "$WD" "$w0" "$w3")"
   if [[ -z "$wp" ]]; then
-    if le "$wlow" 65; then result WATCHDOG FAIL "$d; never paused although the lid went to ${wlow}°"
-    else result WATCHDOG INCONCLUSIVE "$d (the hinge tool never delivered the close: nothing ≤ 70° logged)"; fi
+    if le "$wlow" 10; then result WATCHDOG FAIL "$d; never paused although the lid went to ${wlow}°"
+    else result WATCHDOG INCONCLUSIVE "$d (the hinge tool never delivered the close: nothing ≤ ${CLOSE_LINE}° logged)"; fi
   elif [[ -n "$wearly" ]]; then
-    result WATCHDOG FAIL "$d; resumed while the lid was still at 60°"
+    result WATCHDOG FAIL "$d; resumed while the lid was still at 5°"
   elif [[ -n "$wr" ]]; then
     if [[ "$wdt" == on* ]] || ! num "$wdt" || le "$wdt" "$(awk -v l="$WD_LIMIT" 'BEGIN { print l + 0.2 }')"; then
       result WATCHDOG PASS "$d$( num "$wdt" || [[ "$wdt" == on* ]] || echo ' (no line clock: within the wiggle loop)')"
-    else result WATCHDOG FAIL "$d; resumed, but ${wdt} s after reaching 130 (> ${WD_LIMIT} s)"; fi
-  elif ! ge "$wtop" 92; then
-    result WATCHDOG INCONCLUSIVE "$d (the hinge tool never delivered the reopen: nothing ≥ 95° logged)"
+    else result WATCHDOG FAIL "$d; resumed, but ${wdt} s after reaching $WD_TOP (> ${WD_LIMIT} s)"; fi
+  elif ! ge "$wtop" 140; then
+    result WATCHDOG INCONCLUSIVE "$d (the hinge tool never delivered the reopen: nothing ≥ 140° logged)"
+  elif cover_up "$WD"; then
+    result WATCHDOG INCONCLUSIVE "$d (the sim's cover display was still lit at ${WD_TOP}°: a resume there would be wrong)"
   else
-    result WATCHDOG FAIL "$d; STUCK: no resume within ${WD_LIMIT} s of reaching 130°"
+    result WATCHDOG FAIL "$d; STUCK: no resume within ${WD_LIMIT} s of reaching ${WD_TOP}°"
   fi
   shoot duo-h10-watchdog-after inner
 
@@ -922,7 +995,10 @@ if [[ " $PASSES " == *" hinge "* ]]; then
   #     unreadable (no `k=` and a portrait-shaped canvas line), or the tool never delivered the open (after a retry).
   #     R12: from 100° (openness 0, the closed chest) instead of 105° (already cracked at launch), 100 → 160 over 7 s
   #     (8.6°/s; attract, and this check reads no noise). The detail says whether lidCracked came inside the window.
-  hinge_set 100
+  #     R13: from 5° (openness 0.03, reached by a closing sweep), 5 → 160 over 7 s (22°/s physical ≈ 9.6 lid °/s); the
+  #     retry closes gently back to 5°. If the sim's cover display is lit at 5° the run waits for its relight (~150°);
+  #     lidCracked may then come late in the window, which still counts.
+  hinge_sweep 5 6; hinge_set 5
   launch landscape-play "screen=run;mode=attract;seed=7;orient=landscape" 0
   LP="$OUT_ABS/logs/landscape-play.txt"
   t=0
@@ -934,8 +1010,9 @@ if [[ " $PASSES " == *" hinge "* ]]; then
   sleep 1
   attempt=1
   while :; do
-    hinge_wiggle 100 1
+    hinge_wiggle 5 1
     l0=$(nlines "$LP")
+    lcov=0; cover_up "$LP" && lcov=1   # R13: the sim's cover display lit at 5° (no lid lines until the relight)
     hinge_sweep 160 7
     sleep 1.5
     l1=$(nlines "$LP")
@@ -945,7 +1022,7 @@ if [[ " $PASSES " == *" hinge "* ]]; then
     (( attempt >= 2 )) && break
     attempt=2
     log "LANDSCAPE-PLAY: the logged angle never reached 150° (the hinge tool under-delivered?): close gently and again"
-    hinge_sweep 100 6; sleep 1
+    hinge_sweep 5 6; sleep 1
   done
   lstand=$(grep -m1 -nE "HUSH-T pose standUp" "$LP" 2>/dev/null | tr -d '\r' | cut -c1-120)
   lpp=$(between "$LP" "$l0" "$l1" | grep -m1 -nE "HUSH-T paused pose" 2>/dev/null | tr -d '')   # R7: only inside the window (later checks reuse this log)
@@ -959,7 +1036,7 @@ if [[ " $PASSES " == *" hinge "* ]]; then
   lo=$(openness "$LP" "$l0" "$l1")
   lorr=$(awk -v a="$(echo "$lo" | max_of)" -v b="$(echo "$lo" | min_of)" 'BEGIN { if (a !~ /^[0-9.]+$/ || b !~ /^[0-9.]+$/) print "none"; else printf "%.2f\n", a - b }')
   lcr=$(head -n "$l1" "$LP" | grep -c "HUSH-T event lidCracked" | tr -d ' ')   # whole log to l1 (a retry's window may follow the crack)
-  lcw=$(between "$LP" "$l0" "$l1" | grep -c "HUSH-T event lidCracked" | tr -d ' ')   # R12: inside the window (from 100°)
+  lcw=$(between "$LP" "$l0" "$l1" | grep -c "HUSH-T event lidCracked" | tr -d ' ')   # R12: inside the window (R13: from 5°)
   linp=$(grep -oE "HUSH-T input [a-z]+" "$LP" | tail -1 | awk '{print $3}')
   shoot duo-h11-landscape-play-160 inner
   lwh=$(png_wh "$OUT_ABS/duo-h11-landscape-play-160.png")
@@ -975,8 +1052,11 @@ if [[ " $PASSES " == *" hinge "* ]]; then
   { [[ "$lar" == none ]] || lt "$lar" 30; } && why="$why; the lid angle didn't follow the hinge"
   { [[ "$lorr" == none ]] || lt "$lorr" 0.2; } && why="$why; the openness didn't move"
   (( lcr == 0 )) && why="$why; no lidCracked"
+  (( lcov )) && d="$d; the sim's cover display was lit at 5° (the run waits for its relight: a paused run logs no lid lines)"
   if ! ge "$ltop" 150; then
     result LANDSCAPE-PLAY INCONCLUSIVE "$d (the hinge tool never delivered the open twice: no logged angle ≥ 150°)"
+  elif (( lcov )) && [[ -z "$lstand$lpp" && "$lk" != even ]] && { [[ "$lar" == none ]] || lt "$lar" 30 || [[ "$lorr" == none ]] || lt "$lorr" 0.2 || (( lcr == 0 )); }; then
+    result LANDSCAPE-PLAY INCONCLUSIVE "$d (the cover display held the run for most of the open: the follow rule can't be judged)"
   elif (( ! reached )); then
     result LANDSCAPE-PLAY INCONCLUSIVE "$d (the sim never reached a landscape interface: nothing was tested)"
   elif [[ -n "$why" ]]; then
@@ -997,14 +1077,16 @@ if [[ " $PASSES " == *" hinge "* ]]; then
   #     above 115°), and the last lid line carries 150°'s openness (angle 145–155°, openness within 0.05 of
   #     (θ − 100) / 65 = 0.77 at 150). INCONCLUSIVE: the lid never read 140–160° (the tool didn't set it). Under the old
   #     gate the chest waited in .ready for a shut lid that never came (no lidCracked at all): FAIL.
+  #     R13: the openness is θ / 150 clamped, so 1.00 at 150° (the R12 mapping's 0.77 now FAILs); a bad hint is
+  #     `openSlowly` above 20°.
   SO_LIMIT="${START_OPEN_LIMIT:-3}"
   hinge_set 150
   SO="$OUT_ABS/logs/start-open.txt"
   : > "$SO"
   clock_start "$SO" 180
   launch start-open "screen=run;mode=attract;seed=7" 1
+  hinge_wiggle 150 1   # R13: samples flowing (the first hinge report is held until the lid reads open and still)
   wait_for "$SO" "HUSH-T event lidCracked" 5 || true
-  hinge_wiggle 150 1
   s1=$(nlines "$SO")
   clock_stop "$SO"
   sa=$(first_line "$SO" "HUSH-T (screen playing|event chestArrived|lid )" 0)
@@ -1012,7 +1094,7 @@ if [[ " $PASSES " == *" hinge "* ]]; then
   sdt=none; snl=none
   if [[ -n "$sa" && -n "$scr" ]]; then sdt=$(dt_lines "$SO" "$sa" "$scr"); snl=$(lid_count "$SO" "$sa" "$scr"); fi
   sang=$(last_lid "$SO" 0 "$s1" angle); sop=$(last_lid "$SO" 0 "$s1" lid)
-  swant=$(awk -v a="$sang" 'BEGIN { if (a !~ /^[0-9.]+$/) print "none"; else { o = (a - 100) / 65; if (o < 0) o = 0; if (o > 1) o = 1; printf "%.2f\n", o } }')
+  swant=$(awk -v a="$sang" 'BEGIN { if (a !~ /^[0-9.]+$/) print "none"; else { o = a / 150; if (o < 0) o = 0; if (o > 1) o = 1; printf "%.2f\n", o } }')
   sdiff=$(awk -v a="$sop" -v b="$swant" 'BEGIN { if (a !~ /^[0-9.]+$/ || b !~ /^[0-9.]+$/) print "none"; else { d = a - b; if (d < 0) d = -d; printf "%.2f\n", d } }')
   sbad=$(bad_hints "$SO" 0 "$s1")
   shs=$(hints "$SO" 0 "$s1")
@@ -1051,6 +1133,15 @@ if [[ " $PASSES " == *" hinge "* ]]; then
   #     that bite counts, a bite needs a looting chest); with HUD hint lines, `hint closeForNext` between the bite and
   #     the close, and no bad hint. INCONCLUSIVE: no bite although the chest opened (the demo hold didn't bite), or the
   #     tool never delivered the close (nothing ≤ 110° logged, after one more try) or the reopen (top < 140°).
+  #     R13: the close is 150 → 5° over 4 s (36°/s physical ≈ 16 lid °/s, under closeQuietSpeed 28) and a hold at 5°;
+  #     the shut zone is ≤ 15° (a logged angle ≤ 18° with the 10 Hz slack; HUSH-H samples count, a paused run logs no lid
+  #     lines). The next chest is dealt EITHER by a step in the shut zone (`chestArrived` ≤ 18°, within 1.3 s of the
+  #     first reading ≤ 15°) OR under the pause (`HUSH-T next chest dealt under the pause reason=closing|cover|shut`:
+  #     the closing pause, the Duo shut ≤ 10°, or the sim's cover display, which may take the run on the way down while
+  #     the robbed chest is still open; its `chestArrived` may then log with the first step back, on the reopen). FAIL:
+  #     a `chestArrived` above 18° with no dealt-under-the-pause line before it, or one logged after the reopen with no
+  #     such line. The reopen is to 165° over 6 s (27°/s ≈ 12 lid °/s; 165 so the sim's cover relights), then 1°
+  #     wiggles until the new chest opens (or 6 s). Frames duo-h13-robbed-open-150, duo-h13b-next-opened-165.
   BN_LIMIT="${BITE_NEXT_LIMIT:-1}"
   hinge_set 150
   BC="$OUT_ABS/logs/bite-close.txt"
@@ -1074,51 +1165,64 @@ if [[ " $PASSES " == *" hinge "* ]]; then
     bomin=$(angles "$BC" "$bb" "$c0" | min_of)
     bhs=$(hints "$BC" "$bb" "$c0")
     attempt=1
-    hinge_sweep 100 4; hinge_wiggle 100 2
-    be=$(first_angle_line "$BC" "$c0" le 110)
+    hinge_sweep 5 4; hinge_wiggle 5 2
+    be=$(first_angle_line "$BC" "$c0" le "$SHUT_ZONE")
     if [[ -z "$be" ]]; then
       attempt=2
-      log "BITE-CLOSE-NEXT: no lid line ≤ 110° after the close (the hinge tool under-delivered?): close again"
-      hinge_set 100; hinge_wiggle 100 2
-      be=$(first_angle_line "$BC" "$c0" le 110)
-    fi
-    bca=$(first_line "$BC" "HUSH-T event chestArrived" "$c0")
-    bcaa=$( [[ -n "$bca" ]] && angle_before "$BC" "$bca" || echo none )
-    bdt=none; bnl=none
-    if [[ -n "$be" && -n "$bca" ]]; then
-      if (( bca >= be )); then bdt=$(dt_lines "$BC" "$be" "$bca"); bnl=$(lid_count "$BC" "$be" "$bca"); else bdt=0.0; bnl=0; fi
+      log "BITE-CLOSE-NEXT: no reading ≤ ${SHUT_ZONE}° after the close (the hinge tool under-delivered?): close again"
+      hinge_set 5; hinge_wiggle 5 2
+      be=$(first_angle_line "$BC" "$c0" le "$SHUT_ZONE")
     fi
     r0=$(nlines "$BC")
-    bpre=""; [[ -n "$bca" ]] && bpre=$(between "$BC" "$bca" "$r0" | grep -m1 -oE "HUSH-T event (lidCracked|bitten)[^\r]*")
-    hinge_sweep 150 5
+    hinge_sweep 165 6
     t=0; bo=""
-    while (( t < 15 )); do bo=$(first_line "$BC" "HUSH-T event (lidCracked|bitten)" "$r0"); [[ -n "$bo" ]] && break; sleep 0.2; t=$((t + 1)); done
+    while (( t < 8 )); do
+      bca=$(first_line "$BC" "HUSH-T event chestArrived" "$c0")
+      [[ -n "$bca" ]] && bo=$(first_line "$BC" "HUSH-T event (lidCracked|bitten)" "$(( bca > r0 ? bca : r0 ))")
+      [[ -n "$bo" ]] && break
+      hinge_wiggle 165 1; t=$((t + 1))
+    done
     sleep 0.5
     r1=$(nlines "$BC")
     clock_stop "$BC"
+    bca=$(first_line "$BC" "HUSH-T event chestArrived" "$c0")
+    bdl=$(first_line "$BC" "HUSH-T next chest dealt under the pause" "$c0")
+    bdlw=$( [[ -n "$bdl" ]] && sed -n "${bdl}p" "$BC" | grep -oE "reason=[a-z]+" )
+    bcaa=$( [[ -n "$bca" ]] && angle_before "$BC" "$bca" || echo none )
+    bunder=0; [[ -n "$bdl" && -n "$bca" ]] && (( bdl <= bca && bdl < r0 )) && bunder=1
+    bdt=none; bnl=none
+    if [[ -n "$be" && -n "$bca" ]] && (( ! bunder )); then
+      if (( bca >= be )); then bdt=$(dt_lines "$BC" "$be" "$bca"); bnl=$(lid_count "$BC" "$be" "$bca"); else bdt=0.0; bnl=0; fi
+    fi
+    bpre=""; [[ -n "$bca" ]] && (( bca < r0 )) && bpre=$(between "$BC" "$bca" "$r0" | grep -m1 -oE "HUSH-T event (lidCracked|bitten)[^\r]*")
+    bwhen=""; [[ -n "$bca" ]] && bwhen=$( (( bca < r0 )) && echo "while closed" || echo "on the reopen" )
     botop=$(angles "$BC" "$r0" "$r1" | max_of)
     boev=""; boa=none
     if [[ -n "$bo" ]]; then boev=$(sed -n "${bo}p" "$BC" | grep -oE "HUSH-T event [A-Za-z]+" | awk '{print $3}'); boa=$(angle_before "$BC" "$bo"); fi
     brel=$(grep -m1 -oE "HUSH-T noise released[^\r]*" "$BC")
     bbad=$(bad_hints "$BC" "$bb" "$r1")
     blim=$(awk -v l="$BN_LIMIT" 'BEGIN { print l + 0.3 }')
-    d="bite@$bb; held open after it: lowest ${bomin}°, chestArrived while open: ${bopen:-none}; hints bite→close: ${bhs}$(hints_on || echo ' (the App prints no HUD hint lines yet: NEEDS CI R12)'); close to 100° (attempt $attempt/2): first lid line ≤ 110°@${be:-none}, chestArrived@${bca:-none} (${bcaa}°, ${bdt} s / ${bnl} lid lines after entering the shut zone); before the reopen: ${bpre:-nothing}; reopen to 150 (top ${botop}°): ${boev:-nothing}@${bo:-none} (${boa}°); ${brel:-no 'noise released' line (noiseUntil=bite pending: the hold stays on)}"
+    d="bite@$bb; held open after it: lowest ${bomin}°, chestArrived while open: ${bopen:-none}; hints bite→close: ${bhs}$(hints_on || echo ' (the App prints no HUD hint lines yet: NEEDS CI R12)'); close to 5° (attempt $attempt/2): first reading ≤ ${SHUT_ZONE}°@${be:-none}, dealt under the pause@${bdl:-none}${bdlw:+ ($bdlw)}, chestArrived@${bca:-none} (${bcaa}°, ${bwhen:-never}; ${bdt} s / ${bnl} lid lines after entering the shut zone)$(cover_note "$BC" "$c0" "$r0"); before the reopen: ${bpre:-nothing}; reopen to 165 (top ${botop}°): ${boev:-nothing}@${bo:-none} (${boa}°); ${brel:-no 'noise released' line (noiseUntil=bite pending: the hold stays on)}"
     if [[ -n "$bopen" ]]; then result BITE-CLOSE-NEXT FAIL "$d; the next chest was dealt while the lid was open"
     elif [[ -n "$bbad" ]]; then result BITE-CLOSE-NEXT FAIL "$d; asked to open or lower an open lid: $bbad"
-    elif [[ -z "$be" ]]; then result BITE-CLOSE-NEXT INCONCLUSIVE "$d (the hinge tool never delivered the close twice: no lid line ≤ 110°)"
-    elif [[ -z "$bca" ]]; then result BITE-CLOSE-NEXT FAIL "$d; no chestArrived after closing into the shut zone"
-    elif num "$bcaa" && ! le "$bcaa" 113; then result BITE-CLOSE-NEXT FAIL "$d; chestArrived above the shut zone (${bcaa}°)"
-    elif num "$bdt" && ! le "$bdt" "$blim"; then result BITE-CLOSE-NEXT FAIL "$d; chestArrived ${bdt} s after entering the shut zone (> ${BN_LIMIT} s)"
-    elif ! num "$bdt" && ! le "$bnl" 13; then result BITE-CLOSE-NEXT FAIL "$d; no line clock, and $bnl lid lines (> 13) between the shut zone and chestArrived"
-    elif [[ -n "$bpre" ]]; then result BITE-CLOSE-NEXT FAIL "$d; the next chest opened while the lid sat at 100° (openness 0)"
+    elif [[ -z "$be" && -z "$bdl" ]]; then result BITE-CLOSE-NEXT INCONCLUSIVE "$d (the hinge tool never delivered the close twice: no reading ≤ ${SHUT_ZONE}°)"
+    elif [[ -z "$bca" ]]; then
+      if [[ -n "$bdl" ]] && cover_up "$BC"; then result BITE-CLOSE-NEXT INCONCLUSIVE "$d (dealt under the pause, but the sim's cover display was still lit at 165°: no step back)"
+      else result BITE-CLOSE-NEXT FAIL "$d; no chestArrived after closing the lid"; fi
+    elif (( ! bunder )) && (( bca >= r0 )); then result BITE-CLOSE-NEXT FAIL "$d; the next chest was dealt on the way back up"
+    elif (( ! bunder )) && num "$bcaa" && ! le "$bcaa" $(( SHUT_ZONE + 3 )); then result BITE-CLOSE-NEXT FAIL "$d; chestArrived above the shut zone (${bcaa}°) and not under the pause"
+    elif (( ! bunder )) && num "$bdt" && ! le "$bdt" "$blim"; then result BITE-CLOSE-NEXT FAIL "$d; chestArrived ${bdt} s after entering the shut zone (> ${BN_LIMIT} s)"
+    elif (( ! bunder )) && ! num "$bdt" && ! le "$bnl" 13; then result BITE-CLOSE-NEXT FAIL "$d; no line clock, and $bnl lid lines (> 13) between the shut zone and chestArrived"
+    elif [[ -n "$bpre" ]]; then result BITE-CLOSE-NEXT FAIL "$d; the next chest opened while the lid sat at 5° (openness 0.03)"
     elif [[ -z "$bo" ]]; then
-      if ge "$botop" 140; then result BITE-CLOSE-NEXT FAIL "$d; the next chest never opened on the reopen"
+      if cover_up "$BC"; then result BITE-CLOSE-NEXT INCONCLUSIVE "$d (the sim's cover display was still lit at 165°)"
+      elif ge "$botop" 140; then result BITE-CLOSE-NEXT FAIL "$d; the next chest never opened on the reopen"
       else result BITE-CLOSE-NEXT INCONCLUSIVE "$d (the hinge tool never delivered the reopen: top ${botop}°)"; fi
     elif hints_on && [[ "$bhs" != *closeForNext* ]]; then result BITE-CLOSE-NEXT FAIL "$d; no 'hint closeForNext' while the robbed chest waited"
     else
-      result BITE-CLOSE-NEXT PASS "$d$( [[ "$boev" == bitten ]] && echo ' (opened: the held noise bit the new chest at once; lidCracked logs once noiseUntil=bite lands)')$( num "$bdt" || echo ' (no line clock: judged on lid lines)')"
+      result BITE-CLOSE-NEXT PASS "$d$( (( bunder )) && echo " (dealt under the pause ${bdlw:-})")$( [[ "$boev" == bitten ]] && echo ' (opened: the held noise bit the new chest at once; lidCracked logs once noiseUntil=bite lands)')$( (( bunder )) || num "$bdt" || echo ' (no line clock: judged on lid lines)')"
     fi
-    shoot duo-h13b-next-opened-150 inner
+    shoot duo-h13b-next-opened-165 inner
   fi
 
   # 13. BANK-CLOSE-FULL (rule 3: bank = close the lid, and closing it all the way is fine). An attract run at 150 with
@@ -1134,6 +1238,13 @@ if [[ " $PASSES " == *" hinge "* ]]; then
   #     isn't in this build), or the tool never delivered the close (nothing ≤ 108°, after one more try via a hold at
   #     105°) or the reopen (top < 92°). The R7 fresh-chest resume line (`HUSH-T fresh chest resume`, no "Hold still" on
   #     a fresh chest) is reported, not judged.
+  #     R13 (the phone is the chest): the close is 150 → 5° over 6 s (24°/s physical), 1 s at 5° (the shut zone is
+  #     ≤ 15°, the closing pause < 12°), then 0°. R12b: when the closing pause begins, or the sim's cover display takes
+  #     the run (on the sim it may do so on the way down, chest still open), with loot in the bag, the bag banks at once
+  #     (`HUSH-T banked under the pause reason=…` after `event banked`, then `chestArrived`). So a pause logged before
+  #     the bank passes when a banked-under-the-pause line follows it before the reopen, and the next chest may arrive
+  #     above 18° only when banked under the pause. Close delivered: a reading ≤ 15° (retry via a hold at 20°). Reopen
+  #     delivered: a logged angle ≥ 145° (the sim's cover relights ~150°); still on the cover at 165° is INCONCLUSIVE.
   hinge_set 150
   BK="$OUT_ABS/logs/bank-full.txt"
   launch bank-full "screen=run;mode=attract;seed=7;bag=1" 1
@@ -1142,13 +1253,13 @@ if [[ " $PASSES " == *" hinge "* ]]; then
   hinge_wiggle 150 1
   clock_start "$BK" 200
   b0=$(nlines "$BK"); attempt=1
-  hinge_sweep 30 5; hinge_wiggle 30 1; sleep 1
+  hinge_sweep 5 6; hinge_wiggle 5 1; sleep 1
   bk=$(first_line "$BK" "HUSH-T event banked" "$b0")
   blow=$(angles "$BK" "$b0" "$(nlines "$BK")" | min_of)
-  if [[ -z "$bk" ]] && ! le "$blow" 108; then
+  if [[ -z "$bk" ]] && ! le "$blow" "$SHUT_ZONE"; then
     attempt=2
-    log "BANK-CLOSE-FULL: nothing ≤ 108° logged on the close (lowest ${blow}°; the hinge tool under-delivered?): again, via a hold at 105°"
-    hinge_set 105; hinge_wiggle 105 2; hinge_sweep 30 4; hinge_wiggle 30 1; sleep 1
+    log "BANK-CLOSE-FULL: nothing ≤ ${SHUT_ZONE}° logged on the close (lowest ${blow}°; the hinge tool under-delivered?): again, via a hold at 20°"
+    hinge_set 20; hinge_wiggle 20 2; hinge_sweep 5 1; hinge_wiggle 5 1; sleep 1
     bk=$(first_line "$BK" "HUSH-T event banked" "$b0")
     blow=$(angles "$BK" "$b0" "$(nlines "$BK")" | min_of)
   fi
@@ -1156,7 +1267,7 @@ if [[ " $PASSES " == *" hinge "* ]]; then
   bka=$( [[ -n "$bk" ]] && angle_before "$BK" "$bk" || echo none )
   bpa=$( [[ -n "$bp" ]] && angle_before "$BK" "$bp" || echo none )
   bpw=$( [[ -n "$bp" ]] && sed -n "${bp}p" "$BK" | grep -oE "paused [a-z]+" | awk '{print $2}' )
-  hinge_sweep 10 1; hinge_set 0; sleep 3
+  hinge_sweep 1 0.5; hinge_set 0; sleep 3
   shoot duo-h14-bank-cover-0 cover
   r0=$(nlines "$BK")
   hinge_sweep 165 3
@@ -1174,6 +1285,10 @@ if [[ " $PASSES " == *" hinge "* ]]; then
   sleep 0.5
   r1=$(nlines "$BK")
   clock_stop "$BK"
+  # R12b: the bag banked under the pause (closing / cover / shut) before the reopen.
+  bku=$(first_line "$BK" "HUSH-T banked under the pause" "$b0")
+  [[ -n "$bku" ]] && (( bku >= r0 )) && bku=""
+  bkuw=$( [[ -n "$bku" ]] && sed -n "${bku}p" "$BK" | grep -oE "reason=[a-z]+" )
   bcaa=$( [[ -n "$bca" ]] && angle_before "$BK" "$bca" || echo none )
   bcw=""
   if [[ -n "$bca" ]]; then
@@ -1189,24 +1304,28 @@ if [[ " $PASSES " == *" hinge "* ]]; then
   kfresh=$(after "$BK" "$r0" | grep -m1 -oE "HUSH-T fresh chest resume[^\r]*")
   kbad=$(bad_hints "$BK" "$b0" "$r1")
   khs=$(hints "$BK" "$b0" "$r1")
-  d="${bagl:-no 'HUSH-T demo bag' line}; close 150 → 30 → 0 (attempt $attempt/2, lowest ${blow}°): banked@${bk:-none} (${bka}°), first pause@${bp:-none} (${bpw:-}${bp:+, }${bpa}°); next chestArrived@${bca:-none} (${bcaa}°, ${bcw:-never}); reopen to 165 (top ${rtop}°): resumed@${brs:-none} (${rsa}°), ${kfresh:-no fresh-chest resume line}; new chest lidCracked@${boc:-none} (${bocw:-})"
+  d="${bagl:-no 'HUSH-T demo bag' line}; close 150 → 5 → 0 (attempt $attempt/2, lowest ${blow}°): banked@${bk:-none} (${bka}°)${bku:+, under the pause@$bku ($bkuw)}, first pause@${bp:-none} (${bpw:-}${bp:+, }${bpa}°)$(cover_note "$BK" "$b0" "$r0"); next chestArrived@${bca:-none} (${bcaa}°, ${bcw:-never}); reopen to 165 (top ${rtop}°): resumed@${brs:-none} (${rsa}°), ${kfresh:-no fresh-chest resume line}; new chest lidCracked@${boc:-none} (${bocw:-})"
   d="$d; hints: ${khs}$(hints_on || echo ' (the App prints no HUD hint lines yet: NEEDS CI R12)')"
   if [[ -z "$bk" && -z "$bagl" ]]; then
     result BANK-CLOSE-FULL INCONCLUSIVE "$d (no bag: the App's bag=1 demo key isn't in this build, NEEDS CI R12)"
-  elif [[ -z "$bk" ]] && ! le "$blow" 108; then
-    result BANK-CLOSE-FULL INCONCLUSIVE "$d (the hinge tool never delivered the close twice: nothing ≤ 108° logged)"
+  elif [[ -z "$bk" ]] && ! le "$blow" "$SHUT_ZONE"; then
+    result BANK-CLOSE-FULL INCONCLUSIVE "$d (the hinge tool never delivered the close twice: nothing ≤ ${SHUT_ZONE}° logged)"
   elif [[ -z "$bk" ]]; then
-    result BANK-CLOSE-FULL FAIL "$d; loot in the bag, but closing the lid to 30° never banked"
-  elif [[ -n "$bp" ]] && (( bp < bk )); then
-    result BANK-CLOSE-FULL FAIL "$d; the run paused before the bank (the bank must fire on the way down)"
+    result BANK-CLOSE-FULL FAIL "$d; loot in the bag, but closing the lid to 5° never banked"
+  elif (( bk >= r0 )); then
+    result BANK-CLOSE-FULL FAIL "$d; the bag banked only after the reopen (it must bank as the lid closes)"
+  elif [[ -n "$bp" ]] && (( bp < bk )) && [[ -z "$bku" ]]; then
+    result BANK-CLOSE-FULL FAIL "$d; the run paused before the bank, and it didn't bank under the pause (R12b)"
   elif [[ -z "$bca" ]]; then
     result BANK-CLOSE-FULL FAIL "$d; no next chest after the bank"
-  elif num "$bcaa" && ! le "$bcaa" 113; then
-    result BANK-CLOSE-FULL FAIL "$d; the next chest was dealt with the lid open (${bcaa}°): it must arrive under the closed lid"
+  elif num "$bcaa" && ! le "$bcaa" $(( SHUT_ZONE + 3 )) && ! { [[ -n "$bku" ]] && (( bca < r0 )); }; then
+    result BANK-CLOSE-FULL FAIL "$d; the next chest was dealt with the lid open (${bcaa}°): it must arrive under the closed lid (or under the pause)"
   elif [[ -n "$kbad" ]]; then
     result BANK-CLOSE-FULL FAIL "$d; asked to open or lower an open lid: $kbad"
-  elif [[ -n "$bp" && -z "$brs" ]] && ! ge "$rtop" 92; then
+  elif [[ -n "$bp" && -z "$brs" ]] && ! ge "$rtop" 145; then
     result BANK-CLOSE-FULL INCONCLUSIVE "$d (the hinge tool never delivered the reopen: top ${rtop}°)"
+  elif [[ -n "$bp" && -z "$brs" ]] && cover_up "$BK"; then
+    result BANK-CLOSE-FULL INCONCLUSIVE "$d (the sim's cover display was still lit at 165°)"
   elif [[ -n "$bp" && -z "$brs" ]]; then
     result BANK-CLOSE-FULL FAIL "$d; no resume after the reopen to 165°"
   elif [[ -z "$boc" ]]; then
@@ -1226,44 +1345,58 @@ if [[ " $PASSES " == *" frames "* ]]; then
   # Slow sweeps (7–8°/s) keep the mimic asleep so the frames show the reveal, not the alarm.
   # R12: from 100° (openness 0), so duo-00 is the closed chest's cover (planks, bands, lock; Scene rule 5) and duo-01 at
   # 105° (openness 0.08) the cover lifting towards the hinge.
-  hinge_set 100
+  # R13 (openness θ / 150): closed at 5° (0.03), cracking at 25° (0.17, above the 18° resume line, so the run plays),
+  # half at 75° (0.5), wide at 150° (1.0); every sweep ≤ 20°/s physical (≤ 9 lid °/s). 5° is reached by a closing
+  # sweep; if the sim's cover display is the lit panel at 5°, the inner display is relit at 165° and the opening frames
+  # start from a gentle close back down to 25° (the inner panel stays lit closing from open) instead.
+  hinge_sweep 5 8; hinge_set 5
   launch frames "screen=run;mode=attract;seed=7" 1
   FL="$OUT_ABS/logs/frames.txt"
-  shoot duo-00-closed-100 inner
-  hinge_sweep 105 1; sleep 2.5; shoot duo-01-closed-105 inner
-  hinge_sweep 135 4; sleep 2.5; shoot duo-02-half-135 inner
-  hinge_sweep 160 3.5; sleep 2.5; shoot duo-03-wide-160 inner
+  shoot duo-00-closed-5 inner
+  if [[ "$LAST_PICK" == cover ]]; then
+    log "frames: the sim's cover display is lit at 5°: relight at 165°, then down to 25° for the opening frames"
+    hinge_sweep 165 8; sleep 2; hinge_sweep 25 7
+  else
+    hinge_sweep 25 1.5
+  fi
+  sleep 2.5; shoot duo-01-crack-25 inner
+  hinge_sweep 75 3; sleep 2.5; shoot duo-02-half-75 inner
+  hinge_sweep 150 4; sleep 2.5; shoot duo-03-wide-150 inner
   result TURNED INFO "$(canvas_line "$FL")"
   hinge_sweep 60 2; hinge_sweep 10 0.8; hinge_set 0; sleep 3; shoot duo-04-cover-shut cover
   result COVER INFO "paused-closing lines=$(count 'HUSH-T paused closing' "$FL"); last canvas: $(canvas_line "$FL")"
   o0=$(nlines "$FL")
   hinge_sweep 165 2.5; sleep 3
   # The reopen from the cover (REVIEW-1-duo P0-2's other half): where did the run resume? Evidence only (attract
-  # never bites); the R2 rule is >= 95° and still for 0.3 s.
+  # never bites); the R2 rule was >= 95° and still for 0.3 s (R13: >= 18°, but the sim's cover relights only ~150°).
   orl=$(first_line "$FL" "HUSH-T resumed" "$o0")
   ora=""; [[ -n "$orl" ]] && { ora=$(sed -n "${orl}p" "$FL" | grep -oE "angle [0-9.]+" | awk '{print $2}'); [[ -n "$ora" ]] || ora=$(angle_before "$FL" "$orl"); }
   result COVER-REOPEN INFO "reopen 0 → 165° in 2.5 s: resumed@${orl:-none} angle ${ora:-none}°; maxNoise after=$(after "$FL" "${orl:-$o0}" | lid_vals noise | max_of)"
   shoot duo-05-reopened-165 inner
   hinge_sweep 120 1.5
-  # The same half-open moment with "Turn the chest round" off, for comparison with duo-02.
-  hinge_set 105
+  # The same half-open moment with "Turn the chest round" off, for comparison with duo-02. R13: from 25° (a closing
+  # sweep, the inner panel lit) to 75° (openness 0.5).
+  hinge_sweep 25 5; hinge_set 25
   launch frames-unturned "screen=run;mode=attract;seed=7;turn=0" 1
-  hinge_sweep 135 4; sleep 2.5; shoot duo-06-half-135-unturned inner
+  hinge_sweep 75 3; sleep 2.5; shoot duo-06-half-75-unturned inner
   result UNTURNED INFO "$(canvas_line "$OUT_ABS/logs/frames-unturned.txt")"
 fi
 
 # ---- pass: UI frames -----------------------------------------------------------------------------------------------
 if [[ " $PASSES " == *" ui "* ]]; then
-  # Home's chest follows the hinge: shut-ish at 120, the little mimic peeks at 150.
-  hinge_set 120 || true
-  launch ui-home "screen=home;progress=mid" 1; shoot duo-ui-home-120 inner
-  hinge_sweep 150 3; sleep 2.5; shoot duo-ui-home-150 inner
+  # Home's chest follows the hinge: shut-ish at 120, the little mimic peeks at 150. R13 (openness θ / 150): barely
+  # open at 25° (0.17; reached by a closing sweep, the inner panel lit), the mimic peeking at 150°.
+  hinge_sweep 25 6; hinge_set 25 || true
+  launch ui-home "screen=home;progress=mid" 1; shoot duo-ui-home-25 inner
+  hinge_sweep 150 6; sleep 2.5; shoot duo-ui-home-150 inner
   # Lesson step 1 (pose) at 150°, then into its R2 90–112° window (REVIEW-1-duo P1-6) for 0.5 s+ (the step should
   # pass by itself, and step 2 must not say "Ease the lid down first": 105° is already in the chest's shut zone).
   # R12 rule 7: at 150° step 1 should read "Close the lid to start" (never "open" an open lid), and after the close
   # step 2 "Now open it… slowly". Frames only (the copy is the App's; HushTests own it).
+  # R13: the pose window is any open laptop pose, 45–150° (loose 30–165° after 4 s), and there is no shut-first gate:
+  # the lesson's chest opens with the lid. 150° is the window's edge, so the "after" frame is at 100°, well inside.
   launch ui-lesson "screen=lesson;lessonStep=1" 1; shoot duo-ui-lesson-1-150 inner
-  hinge_sweep 105 4; sleep 2.5; shoot duo-ui-lesson-after-pose inner
+  hinge_sweep 100 3; sleep 2.5; shoot duo-ui-lesson-after-pose inner
   hinge_sweep 150 2
   launch ui-results "screen=results;seed=7;progress=mid;pilot=casual" 1; sleep 3; shoot duo-ui-results inner
   # R4 (NEEDS App R3: "Codex 9/24 vs 22/24"): the same `mid` preset as ui-home / ui-results, so the three agree.

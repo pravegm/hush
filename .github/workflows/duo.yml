@@ -5,18 +5,18 @@ name: Duo
 # HID event posted inside the simulator). The app asks for portrait itself (demo key orient=portrait, Brim's proven
 # route: there is no CLI rotate and `simctl io … screenConfig` crash-loops SpringBoard), giving the tabletop canvas.
 # Script: ci/duo.sh. Hinge checks (design/ROUND-1.md, ROUND-2.md, ROUND-3.md): SLOW-OPEN, STILL, SLAM (shot on the
-# bite), SLAM-CREAK (R3: an attract slam shot on the CREAK accent), UPRIGHT-NO-PAUSE, CLOSE-PAUSE (70°),
+# bite), SLAM-CREAK (R3: an attract slam shot on the CREAK accent), UPRIGHT-NO-PAUSE, CLOSE-PAUSE (R13: 12°),
 # REOPEN-NO-BITE, COVER-SLOW-CLOSE and COVER-SLOW-REOPEN (R3: the cover display is always a pause), FLAT-OPEN,
 # WATCHDOG and LANDSCAPE-PLAY (R6: never stuck when opened flat or left in landscape) (+ PORTRAIT, POSE-CARD), printed
 # as "<CHECK> PASS|FAIL|INCONCLUSIVE (…)" in logs/run.txt and as a table in the job summary. R6: the landscape drag
-# XCUITest also runs here, on the real Duo landscape (non-fatal, input `uitest`). Frames: closed 105,
-# half 135, wide 160, cover shut, reopened, and UI frames incl. the held book-pose card (pose=book). The App Store Duo
+# XCUITest also runs here, on the real Duo landscape (non-fatal, input `uitest`). Frames (R13, the phone is the chest): closed 5,
+# crack 25, half 75, wide 150, cover shut, reopened, and UI frames incl. the held book-pose card (pose=book). The App Store Duo
 # set is store.yml's (PASSES=store). Manual only (expensive: ~50–80 macOS minutes).
 on:
   workflow_dispatch:
     inputs:
       passes:
-        description: "Passes: hinge (the 12 checks), frames (105/135/160/cover), ui (home, lesson, results, codex, settings, book-pose card, cover); store = the App Store Duo set"
+        description: "Passes: hinge (the 12 checks), frames (5/25/75/150/cover), ui (home, lesson, results, codex, settings, book-pose card, cover); store = the App Store Duo set"
         type: string
         default: "hinge frames ui"
       orient:
