@@ -4031,7 +4031,14 @@ struct R12Tests {
         let shut = beat.lid(at: 10)
         let later = beat.lid(at: 10.3)
         #expect(shut.openness == 0)
+        #expect(shut.inShutZone)
         #expect(later.openness == 0.8)
+        // R14c (CI START-CLOSED): a stand-in (demo with no `lid=`) reads 0 but never as a closed lid.
+        let stand = FixedLidSource()
+        stand.standIn = true
+        #expect(stand.lid(at: 10).openness == 0)
+        #expect(!stand.lid(at: 10).inShutZone)
+        #expect(!stand.lid(at: 11).inShutZone)
     }
 
     @Test func theDemoBagPicksLitItemsOfTheFirstChest() {

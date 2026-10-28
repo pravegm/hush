@@ -268,13 +268,16 @@ struct FeelTests {
 
     // MARK: - The lid from the hinge
 
-    @Test func noHingeMeansAShutStillLid() {
+    /// R14c (CI START-CLOSED): no hinge yet is a still lid at 0 that is NOT in the shut zone: an unknown angle must
+    /// never count as the close that starts a run's first chest.
+    @Test func noHingeMeansAStillLidNeverSeenShut() {
         let source = HingeLidSource()
         #expect(source.hasHinge == false)
         #expect(source.angle == nil)
         let lid = source.lid(at: 1)
-        #expect(lid == LidInput())
-        #expect(lid.inShutZone)
+        #expect(lid == LidInput(openness: 0, speed: 0, inShutZone: false, tooWide: false))
+        #expect(!lid.inShutZone)
+        #expect(source.lid(at: .nan).inShutZone == false)
         #expect(source.isClosing == false)
     }
 
