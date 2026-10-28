@@ -789,11 +789,23 @@ struct PauseRuleTests {
         #expect(ClosingCard.title(lifted: true) == "Hold still…")
         #expect(ClosingCard.detail(lifted: false).contains("candle"))
         #expect(CoverCard.title(midRun: true) == "Open the phone slowly")
-        #expect(CoverCard.detail(midRun: true).contains("from the very first degree"))
-        #expect(CoverCard.detail(midRun: true).hasSuffix("Your candle waits."))
-        #expect(CoverCard.detail(midRun: false).hasSuffix("There's gold in here."))
-        // R3 (P1-4): before the first hinge report.
+        // R14 (UX audit A, E): shorter; shut on Home, opening the phone starts the run, and the card gives the rules.
+        #expect(CoverCard.detail(midRun: true) == "The chest opens with the phone. Your candle waits.")
+        #expect(CoverCard.title(midRun: false) == "Open slowly to play")
+        #expect(CoverCard.detail(midRun: false)
+                == "The chest opens with the phone. Drag loot to your bag, then close the phone to bank it.")
+        // R14: the run's first chest, closed to start, gives the three rules; a later fresh chest keeps its words.
+        #expect(ClosingCard.title(lifted: false, fresh: true, first: true) == "Open slowly. Don't wake it.")
+        #expect(ClosingCard.detail(lifted: false, fresh: true, first: true)
+                == "Drag loot to your bag. Close the phone to bank. Your candle is the clock.")
+        #expect(ClosingCard.title(lifted: false, fresh: true) == "Open the phone slowly for the next chest")
+        #expect(ClosingCard.detail(lifted: false, fresh: true) == "The mimic waits. Your candle does too.")
+        // `first` only counts over a fresh chest.
+        #expect(ClosingCard.title(lifted: false, fresh: false, first: true) == "Open the phone slowly to carry on")
+        // R3 (P1-4): before the first hinge report (it beats the first chest's words).
         #expect(ClosingCard.title(lifted: false, awaitingHinge: true) == "Move the phone a little")
+        #expect(ClosingCard.title(lifted: false, awaitingHinge: true, fresh: true, first: true)
+                == "Move the phone a little")
     }
 }
 
@@ -809,7 +821,7 @@ struct LessonTests {
     }
 
     @Test func poseNeedsHalfASecondInRange() {
-        var s = LessonScript()
+        var s = LessonScript(start: .pose)
         _ = s.update(LessonScript.Input(time: 0, angle: 100))
         _ = s.update(LessonScript.Input(time: 0.3, angle: 105))
         #expect(!s.isPraising)
@@ -827,13 +839,13 @@ struct LessonTests {
     @Test func poseWindowIsAnyLaptopPose() {
         #expect(LessonScript.poseMin == 45)
         #expect(LessonScript.poseMax == 150)
-        var s = LessonScript()
+        var s = LessonScript(start: .pose)
         _ = s.update(LessonScript.Input(time: 0, angle: 160))
         _ = s.update(LessonScript.Input(time: 1.0, angle: 160))
         #expect(!s.isPraising)
         // Wider than the window: a little lower (never "close it to start").
         #expect(s.line(slider: false, angle: 160, hint: nil) == "Close the phone a little")
-        var t = LessonScript()
+        var t = LessonScript(start: .pose)
         _ = t.update(LessonScript.Input(time: 0, angle: 95))
         _ = t.update(LessonScript.Input(time: 0.6, angle: 95))
         #expect(t.isPraising)
@@ -841,7 +853,7 @@ struct LessonTests {
 
     /// R3 (UX P0-1): the lid marker's arrow and the card's line come from one angle branch and never disagree.
     @Test func liftMarkerAndLineAgree() {
-        let s = LessonScript()
+        let s = LessonScript(start: .pose)
         var angles: [Double?] = [nil, Double.nan]
         angles += stride(from: 0.0, through: 180.0, by: 0.5).map { Optional($0) }
         for angle in angles {
@@ -890,7 +902,7 @@ struct LessonTests {
     }
 
     @Test func sliderPoseAndWords() {
-        var s = LessonScript()
+        var s = LessonScript(start: .pose)
         #expect(s.line(slider: true, angle: nil, hint: nil) == "Slide the lever up… slowly.")
         _ = s.update(LessonScript.Input(time: 0, hasHinge: false, openness: 0.01))
         #expect(!s.isPraising)
@@ -1082,6 +1094,40 @@ struct CopyTests {
         #expect(AppRules.showsHint(.candleLow, runs: 500))
         #expect(AppRules.showsHint(.relicDeeper, runs: 500))
         #expect(AppRules.isWarning(.candleLow))
+    }
+
+    /// R14 (founder: "super complicated"; UX audit C): the first two runs teach only the three ideas. The extras
+    /// ("Something glints deeper…", the run tips) wait for run 3; "That's wide enough" never shows; the core lines do.
+    @Test func r14ExtrasWaitForTheThirdRun() {
+        #expect(!AppRules.extrasUnlocked(runs: 0))
+        #expect(!AppRules.extrasUnlocked(runs: 1))
+        #expect(AppRules.extrasUnlocked(runs: 2))
+        #expect(AppRules.extrasUnlocked(runs: 50))
+        #expect(!AppRules.showsHint(.relicDeeper, runs: 0))
+        #expect(!AppRules.showsHint(.relicDeeper, runs: 1))
+        #expect(AppRules.showsHint(.relicDeeper, runs: 2))
+        for runs in [0, 1, 2, AppRules.teachingRuns, 500] {
+            #expect(!AppRules.showsHint(.tooWide, runs: runs), "\(runs)")
+            // The first chest's prompt, the warnings and the robbed chest's line are never held back.
+            for hint in [HeistHint.easeLidDown, .slower, .freeze, .candleLow, .closeForNext] {
+                #expect(AppRules.showsHint(hint, runs: runs), "\(hint) \(runs)")
+            }
+        }
+        for hint in [HeistHint.openSlowly, .dragToBag, .shutToBank] {
+            #expect(AppRules.showsHint(hint, runs: 0), "\(hint)")
+        }
+        // "Close the phone to start" is an instruction now, still a non-teaching line (it never retires).
+        #expect(!AppRules.isTeaching(.easeLidDown))
+        #expect(HushCopy.hint(.easeLidDown, slider: false) == "Close the phone to start")
+        #expect(HushCopy.hint(.easeLidDown, slider: false, lidOpen: true) == "Close the phone to start")
+    }
+
+    /// R14: the lesson's default start is its "open" step (the pose step still exists, but is never started by
+    /// default: any pose plays).
+    @Test func r14TheLessonStartsAtOpen() {
+        #expect(LessonScript().step == .open)
+        #expect(LessonScript(replay: true).step == .open)
+        #expect(LessonScript(start: .pose).step == .pose)
     }
 
     /// "Freeze!" never stays up under a bite.
@@ -2084,11 +2130,18 @@ struct R6Tests {
     }
 
     @Test func thePoseTipRules() {
-        // Home and lesson step 1 only, a Duo, the device landscape, not dismissed.
+        // R14 (founder: any pose plays): the tip never shows on its own, not even on Home or lesson step 1 of a Duo
+        // held landscape; only a forced one (CI's demo) does, still on Home and lesson step 1 alone.
+        #expect(!AppRules.showsPoseTip(duo: true, route: .home, lessonStep: nil, device: .landscapeLeft,
+                                       dismissed: false))
+        #expect(!AppRules.showsPoseTip(duo: true, route: .lesson, lessonStep: 1, device: .landscapeRight,
+                                       dismissed: false))
         #expect(AppRules.showsPoseTip(duo: true, route: .home, lessonStep: nil, device: .landscapeLeft,
-                                      dismissed: false))
+                                      dismissed: false, forced: true))
         #expect(AppRules.showsPoseTip(duo: true, route: .lesson, lessonStep: 1, device: .landscapeRight,
-                                      dismissed: false))
+                                      dismissed: false, forced: true))
+        #expect(!AppRules.showsPoseTip(duo: true, route: .lesson, lessonStep: 2, device: .landscapeRight,
+                                       dismissed: false, forced: true))
         #expect(!AppRules.showsPoseTip(duo: true, route: .lesson, lessonStep: 2, device: .landscapeRight,
                                        dismissed: false))
         for route in [AppRoute.playing, .results, .codex, .badges, .settings, .daily] {
@@ -2436,11 +2489,13 @@ struct R7Tests {
                 == "Nothing banked. Slide the lever down to bank.")
     }
 
-    /// The pure rule: a fresh chest resumes on the lift alone; a chest in play still needs lifted AND still.
-    @Test func aFreshChestNeedsNoStillness() {
+    /// The pure rule: a fresh chest resumes on the lift alone. R14 (founder: "super complicated"): so does every other
+    /// closing pause (closing always banks or ends the chest, nothing is at stake): no "Hold still…" wait.
+    @Test func everyClosingPauseResumesOnTheLift() {
         #expect(AppRules.closingResumes(canResume: false, freshChest: true, lifted: true))
         #expect(!AppRules.closingResumes(canResume: false, freshChest: true, lifted: false))
-        #expect(!AppRules.closingResumes(canResume: false, freshChest: false, lifted: true))
+        #expect(AppRules.closingResumes(canResume: false, freshChest: false, lifted: true))
+        #expect(!AppRules.closingResumes(canResume: false, freshChest: false, lifted: false))
         #expect(AppRules.closingResumes(canResume: true, freshChest: false, lifted: true))
         #expect(AppRules.freshResumeGrace == 0.8)
         // The card over a fresh chest never says "Hold still…".
@@ -2517,7 +2572,7 @@ struct R7Tests {
     /// part is 30…45° and 150…165°.
     @Test func thePoseStepIsLenient() {
         #expect(LessonScript.looseMin == 30 && LessonScript.looseMax == 165 && LessonScript.looseHold == 4)
-        var s = LessonScript()
+        var s = LessonScript(start: .pose)
         for t in [0.0, 1.0, 2.0, 3.0, 3.95] {
             _ = s.update(LessonScript.Input(time: t, angle: 158))
             #expect(!s.isPraising)
@@ -2529,7 +2584,7 @@ struct R7Tests {
         #expect(s.step == .open)
 
         // A wobbly rest between 152 and 163° (±5° hinge accuracy, never in the pose window) passes too.
-        var w = LessonScript()
+        var w = LessonScript(start: .pose)
         var t = 0.0
         var passed = false
         while t < 4.3 {
@@ -2540,7 +2595,7 @@ struct R7Tests {
         }
         #expect(passed)
         // So does a low one (the phone barely open), 31…44°.
-        var low = LessonScript()
+        var low = LessonScript(start: .pose)
         _ = low.update(LessonScript.Input(time: 0, angle: 31))
         _ = low.update(LessonScript.Input(time: 2, angle: 44))
         _ = low.update(LessonScript.Input(time: 4.05, angle: 38))
@@ -2548,12 +2603,12 @@ struct R7Tests {
 
         // Outside 30…165° never passes; leaving the window restarts the clock.
         for angle in [10.0, 29.0, 166.0, 170.0] {
-            var o = LessonScript()
+            var o = LessonScript(start: .pose)
             _ = o.update(LessonScript.Input(time: 0, angle: angle))
             _ = o.update(LessonScript.Input(time: 6, angle: angle))
             #expect(!o.isPraising)
         }
-        var r = LessonScript()
+        var r = LessonScript(start: .pose)
         _ = r.update(LessonScript.Input(time: 0, angle: 160))
         _ = r.update(LessonScript.Input(time: 3, angle: 170))
         _ = r.update(LessonScript.Input(time: 3.1, angle: 160))
@@ -2566,7 +2621,7 @@ struct R7Tests {
     /// Skip shows from step 1 after 20 s of lesson (from the start on a replay).
     @Test func skipComesAfterTwentySeconds() {
         #expect(LessonScript.skipAfter == 20)
-        var s = LessonScript()
+        var s = LessonScript(start: .pose)
         // R13: 170° (out of the 30…165° loose window; 150° is a pose now), so step 1 never passes on its own.
         _ = s.update(LessonScript.Input(time: 5, angle: 170))
         #expect(!s.canSkip)
@@ -3049,8 +3104,11 @@ struct R8Tests {
         #expect(AppRules.poseTipAllowed(closingCard: false, menu: false))
         #expect(!AppRules.poseTipAllowed(closingCard: true, menu: false))
         #expect(!AppRules.poseTipAllowed(closingCard: false, menu: true))
+        // R14: only a forced tip shows at all now; a card still hides it.
         #expect(AppRules.showsPoseTip(duo: true, route: .lesson, lessonStep: 1, device: .landscapeLeft,
-                                      dismissed: false))
+                                      dismissed: false, forced: true))
+        #expect(!AppRules.showsPoseTip(duo: true, route: .lesson, lessonStep: 1, device: .landscapeLeft,
+                                       dismissed: false, forced: true, cardUp: true))
         #expect(!AppRules.showsPoseTip(duo: true, route: .lesson, lessonStep: 1, device: .landscapeLeft,
                                        dismissed: false, cardUp: true))
         #expect(!AppRules.showsPoseTip(duo: true, route: .home, lessonStep: nil, device: .landscapeLeft,
@@ -3553,9 +3611,13 @@ struct R11Tests {
         for hint in HushCopy.allHints {
             #expect(!HushCopy.hint(hint, slider: false).hasPrefix("Ease the lid down"))
         }
-        // R13: the lesson has no "close it first" step (its chest opens with the phone).
+        // R14: every chest starts closed, the lesson's too: with the phone open at the start, close it first.
         let open = LessonScript(start: .open).line(slider: false, angle: nil, hint: .easeLidDown)
-        #expect(open == "Now open it… slowly. Watch the noise.")
+        #expect(open == "Close the phone to start.")
+        #expect(LessonScript(start: .open).line(slider: true, angle: nil, hint: .easeLidDown)
+                == "Slide the lever down to start.")
+        #expect(LessonScript(start: .open).line(slider: false, angle: nil, hint: nil)
+                == "Now open it… slowly. Watch the noise.")
         let lower = LessonScript(start: .pose).line(slider: false, angle: 160, hint: nil)
         #expect(lower == "Close the phone a little")
         let bank = LessonScript(start: .bank).line(slider: false, angle: nil, hint: nil)
@@ -3822,7 +3884,9 @@ struct R12Tests {
     @Test func theRunStartBannerFollowsTheLid() {
         #expect(GameController.startBanner(.run) == "Candle lit. Open it gently.")
         #expect(GameController.startBanner(.run, lidOpen: false) == "Candle lit. Open it gently.")
-        #expect(GameController.startBanner(.run, lidOpen: true) == "Candle lit. Gently does it.")
+        // R14: with the phone open at the start the chest waits for a close (the hint says so): no "candle lit".
+        #expect(GameController.startBanner(.run, lidOpen: true) == "Shh… a sleeping mimic.")
+        #expect(!(GameController.startBanner(.run, lidOpen: true) ?? "").lowercased().contains("open"))
         #expect(HushCopy.wordCount(GameController.startBanner(.run, lidOpen: true) ?? "") <= 6)
         #expect(GameController.startBanner(.attract, lidOpen: true) == nil)
         #expect(GameController.startBanner(.lesson, lidOpen: true) == nil)
@@ -3841,7 +3905,7 @@ struct R12Tests {
     /// Rule 7: chest words; never "open" to an open lid. R13: no "close it first" any more (the lesson's chest opens
     /// with the lid); a lid past the pose window is asked to close a little.
     @Test func theLessonSpeaksChestWords() {
-        let pose = LessonScript()
+        let pose = LessonScript(start: .pose)
         #expect(pose.line(slider: false, angle: 160, hint: nil) == "Close the phone a little")
         #expect(pose.line(slider: false, angle: 100, hint: nil) == "Hold it there…")
         #expect(LessonScript.LiftCue.lower.label == "Close the phone a little")
@@ -3849,7 +3913,8 @@ struct R12Tests {
         #expect(open.line(slider: false, angle: 100, hint: nil, openness: 0) == "Now open it… slowly. Watch the noise.")
         #expect(open.line(slider: false, angle: 125, hint: nil, openness: 0.4) == "Keep going… slowly. Watch the noise.")
         #expect(open.display(slider: false, angle: 125, hint: nil, openness: 0.4).line.hasPrefix("Keep going"))
-        #expect(open.line(slider: false, angle: 125, hint: .easeLidDown, openness: 0.4) == "Keep going… slowly. Watch the noise.")
+        // R14: the lesson's chest starts closed too: open before it was seen shut, it asks for the close.
+        #expect(open.line(slider: false, angle: 125, hint: .easeLidDown, openness: 0.4) == "Close the phone to start.")
         #expect(open.line(slider: true, angle: nil, hint: nil, openness: 0.4).hasSuffix("Watch the noise."))
         #expect(LessonScript(start: .bank).line(slider: false, angle: nil, hint: nil) == "Close the phone to bank it.")
     }
@@ -4002,9 +4067,37 @@ struct R12Tests {
         #expect(DemoBagPlan.bagPoint.y >= FloorSpace.bagMinY)
     }
 
-    // MARK: Every run-start path with the lid open goes straight into an open first chest (rule 2)
+    /// R14: a run started with the phone open waits for the close ("Close the phone to start"). This closes it
+    /// (150 → 2° in 4 s: 16°/s on the lid's scale; the closing pause over the first chest) and reopens it at 25°/s of
+    /// hinge (≈ 11°/s on the lid's scale, under the 14°/s quiet line) into the open first chest.
+    @discardableResult
+    private func openFirstChest(_ hand: DuoHand, to target: Double = 150) -> [HeistEvent] {
+        var out = hand.move(to: 2, seconds: 4) + hand.hold(0.8)
+        out += hand.move(to: target, seconds: max((target - 2) / 25, 0.5))
+        out += hand.hold(0.4)
+        return out
+    }
 
-    @Test func everyRunStartWithTheLidOpenOpensTheFirstChest() {
+    /// R14 (founder: "the game also feels super complicated"): a first launch (no lesson yet, no demo) opens on Home,
+    /// never the forced First Chest.
+    @Test func r14AFirstLaunchOpensHome() {
+        var data = ProgressData()
+        data.lessonDone = false
+        data.runs = 0
+        let c = GameController(store: ProgressStore(inMemory: data), settings: SettingsStore(defaults: nil))
+        c.launch()
+        #expect(c.route == .home)
+        #expect(c.lessonDisplay == nil)
+        done(c)
+    }
+
+    // MARK: R14: every run-start path with the phone open waits for the close, then opens with the phone
+
+    /// R14 (founder: "playing starts with the chest closed right? so ask the user to close the phone if it is not to
+    /// start playing, then the chest should open as the phone opens"). Inverts R12 rule 2 ("a run started with the lid
+    /// up opens at once"): the first chest stays closed (`.ready`, no crack, the candle unburnt) and the plate says
+    /// "Close the phone to start", never "open"; after a close and a reopen it opens with the phone.
+    @Test func everyRunStartWithThePhoneOpenWaitsForTheClose() {
         let paths: [(String, @MainActor (GameController, DuoHand) -> Void)] = [
             ("play", { c, _ in c.play() }),
             ("daily", { c, _ in c.playDaily() }),
@@ -4027,19 +4120,34 @@ struct R12Tests {
             #expect(c.route == .playing, "\(name)")
             var asked: [String] = []
             var lowered = false
-            let events = hand.hold(0.5) { c, s, _, _ in
+            var closeToStart = false
+            var events = hand.hold(0.1)
+            let torchAtStart = hand.last.torchRemaining
+            events += hand.hold(1.5) { c, s, _, _ in
                 if s.hint == .easeLidDown { lowered = true }
+                if self.plateText(c) == "Close the phone to start" { closeToStart = true }
                 if c.hud.lidOpen, let text = self.plateText(c), AppRules.asksToOpen(text) { asked.append(text) }
             }
             #expect(!c.isPaused, "\(name)")
-            #expect(hand.last.phase == .looting, "\(name): \(hand.last.phase)")
-            #expect(has(events, isCrack), "\(name)")
-            #expect(!lowered, "\(name)")
+            #expect(hand.last.phase == .ready, "\(name): \(hand.last.phase)")
+            #expect(!has(events, isCrack), "\(name)")
+            #expect(lowered, "\(name)")
+            #expect(closeToStart, "\(name)")
             #expect(asked.isEmpty, "\(name): \(asked)")
             #expect(c.hud.lidOpen, "\(name)")
+            // "Your candle waits": it doesn't burn before the first chest opens.
+            #expect(torchAtStart > 0, "\(name)")
+            #expect(hand.last.torchRemaining == torchAtStart, "\(name)")
             if c.mode == .run {
-                #expect(c.hud.banner == nil || c.hud.banner == "Candle lit. Gently does it.", "\(name)")
+                #expect(c.hud.banner == nil || c.hud.banner == "Shh… a sleeping mimic.", "\(name)")
             }
+            // Closed, then reopened: the chest opens with the phone.
+            let opened = openFirstChest(hand)
+            #expect(!c.isPaused, "\(name)")
+            #expect(!c.isClosingPaused, "\(name)")
+            #expect(hand.last.phase == .looting, "\(name): \(hand.last.phase)")
+            #expect(has(opened, isCrack), "\(name)")
+            #expect(hand.last.hint != .easeLidDown, "\(name)")
             done(c)
         }
     }
@@ -4057,8 +4165,13 @@ struct R12Tests {
         #expect(c.hud.banner == nil || c.hud.banner == "Candle lit. Open it gently.")
         #expect(c.isClosingPaused)
         #expect(c.closingFresh)
-        #expect(ClosingCard.title(lifted: c.closingLifted, awaitingHinge: c.closingAwaitsHinge, fresh: c.closingFresh)
-                == "Open the phone slowly for the next chest")
+        // R14: the run's first chest, closed to start: the card gives the three rules.
+        #expect(c.closingFirstChest)
+        #expect(ClosingCard.title(lifted: c.closingLifted, awaitingHinge: c.closingAwaitsHinge, fresh: c.closingFresh,
+                                  first: c.closingFirstChest) == "Open slowly. Don't wake it.")
+        #expect(ClosingCard.detail(lifted: c.closingLifted, awaitingHinge: c.closingAwaitsHinge,
+                                   fresh: c.closingFresh, first: c.closingFirstChest)
+                == "Drag loot to your bag. Close the phone to bank. Your candle is the clock.")
         // 2 → 60° in 2.5 s: 23°/s of hinge, 10°/s on the lid's scale (65/150), as quiet as R12's 100 → 125°.
         let events = hand.move(to: 60, seconds: 2.5) + hand.hold(0.3)
         #expect(!c.isClosingPaused)
@@ -4074,6 +4187,8 @@ struct R12Tests {
         let (c, hand) = makeDuo(at: 150)
         c.play()
         hand.hold(0.4)
+        // R14: the first chest waits for a close; open it with the phone first.
+        openFirstChest(hand)
         #expect(hand.last.phase == .looting)
         c.nudgeSessionNoise(to: 1)
         let bit = hand.hold(0.1)
@@ -4132,6 +4247,8 @@ struct R12Tests {
         let (c, hand) = makeDuo(at: 150)
         c.play()
         hand.hold(0.4)
+        // R14: the first chest waits for a close; open it with the phone first.
+        openFirstChest(hand)
         let item = try #require(hand.last.loot.first { $0.place == .inChest && $0.grabbable })
         c.floorTouchBegan(1, at: item.position, time: hand.t)
         c.floorTouchMoved(1, to: CGPoint(x: 335, y: 400), time: hand.t + 1.5)

@@ -507,21 +507,35 @@ struct CoreTests {
     // MARK: Session: the chest loop
 
     /// R12: only the lesson kept the shut-first gate. R13 (founder: "open means open and closed means closed"): the gate
-    /// is gone. The lesson's chest opens with the phone like a run's: no "Ease the lid down first", no wait for the shut
-    /// zone, and from shut it opens on the first opening.
-    @Test func theLessonChestOpensWithTheLid() {
+    /// is gone. R14 (founder: "playing starts with the chest closed"): every first chest starts closed, the lesson's
+    /// like a run's: open at the start it waits for the shut zone ("Close the phone to start"), dark and silent, then
+    /// opens with the phone; from shut it opens on the first opening.
+    @Test func theLessonChestStartsClosedThenOpensWithTheLid() {
         let s: HeistSession = newSession(mode: .lesson)
         #expect(s.snapshot.phase == .ready)
         #expect(s.snapshot.chest?.index == 0)
-        // Lid open at the start: the lesson's chest opens at once, lit.
+        #expect(s.awaitsFirstShut)
+        // Lid open at the start: the lesson's chest waits, closed, for the close.
         let ev: [HeistEvent] = s.step(dt: 1.0 / 60.0, lid: lidAt(0.5))
         #expect(count(ev, isArrived) == 1)
-        #expect(s.snapshot.phase == .looting)
-        #expect(count(ev, isCracked) == 1)
+        #expect(s.snapshot.phase == .ready)
+        #expect(count(ev, isCracked) == 0)
+        #expect(s.snapshot.hint == HeistHint.easeLidDown)
+        #expect(s.awaitsFirstShut)
+        #expect(s.snapshot.loot.allSatisfy { (l: LootState) -> Bool in l.light == 0 && !l.grabbable })
+        // Moving the open lid makes no noise before the chest is opened.
+        _ = run(s, seconds: 0.5, lid: lidAt(0.6, speed: 60))
+        #expect(s.snapshot.noise < 0.001)
+        #expect(s.snapshot.phase == .ready)
+        // Closed to the shut zone, then reopened: it opens with the phone.
+        _ = run(s, seconds: 0.2, lid: lidAt(0.0))
+        #expect(!s.awaitsFirstShut)
         #expect(s.snapshot.hint != HeistHint.easeLidDown)
-        #expect(s.snapshot.loot.contains { (l: LootState) -> Bool in l.light > 0 })
-        let ev1: [HeistEvent] = s.step(dt: 1.0 / 60.0, lid: lidAt(0.6))
-        #expect(count(ev1, isCracked) == 0)
+        let ev1: [HeistEvent] = s.step(dt: 1.0 / 60.0, lid: lidAt(0.1))
+        #expect(s.snapshot.phase == .looting)
+        #expect(count(ev1, isCracked) == 1)
+        let ev1b: [HeistEvent] = s.step(dt: 1.0 / 60.0, lid: lidAt(0.15))
+        #expect(count(ev1b, isCracked) == 0)
         // Lid shut at the start: closed and dark, "Open the phone… slowly", then it opens with the phone.
         let t: HeistSession = newSession(mode: .lesson)
         _ = t.step(dt: 1.0 / 60.0, lid: lidAt(0.0))
@@ -534,11 +548,12 @@ struct CoreTests {
         #expect(count(ev2, isCracked) == 1)
         let ev3: [HeistEvent] = t.step(dt: 1.0 / 60.0, lid: lidAt(0.2))
         #expect(count(ev3, isCracked) == 0)
-        // Never the old gate's prompt, whatever the lid does.
-        for o in [0.0, 0.3, 0.9] {
+        // R14: "Close the phone to start" exactly while the first chest is open before it was seen shut.
+        for o in [0.0, 0.1, 0.3, 0.9] {
             let u: HeistSession = newSession(mode: .lesson)
             _ = u.step(dt: 1.0 / 60.0, lid: lidAt(o))
-            #expect(u.snapshot.hint != HeistHint.easeLidDown)
+            let shutZone: Bool = Lid.input(openness: o, speed: 0).inShutZone
+            #expect((u.snapshot.hint == HeistHint.easeLidDown) == !shutZone, "\(o)")
         }
     }
 
@@ -985,9 +1000,18 @@ struct CoreTests {
     }
 
     @Test func hintPriority() {
-        // R12: the run's first chest is looting at once with the lid up. Slower beats tooWide; freeze beats slower.
+        // R14: the run's first chest waits for the close with the lid up: "Close the phone to start" beats tooWide
+        // (and a fast lid there is silent, so it beats slower too).
         let s: HeistSession = newSession(seed: 111)
         _ = s.step(dt: 1.0 / 120.0, lid: LidInput(openness: 1, speed: 0, inShutZone: false, tooWide: true))
+        #expect(s.snapshot.hint == HeistHint.easeLidDown)
+        _ = s.step(dt: 1.0 / 120.0, lid: LidInput(openness: 1, speed: 40, inShutZone: false, tooWide: true))
+        #expect(s.snapshot.hint == HeistHint.easeLidDown)
+        #expect(s.snapshot.phase == .ready)
+        // Seen shut, then reopened wide: looting. Slower beats tooWide; freeze beats slower.
+        _ = s.step(dt: 1.0 / 120.0, lid: LidInput(openness: 0, speed: 0, inShutZone: true, tooWide: false))
+        _ = s.step(dt: 1.0 / 120.0, lid: LidInput(openness: 1, speed: 0, inShutZone: false, tooWide: true))
+        #expect(s.snapshot.phase == .looting)
         #expect(s.snapshot.hint == HeistHint.tooWide)
         _ = s.step(dt: 1.0 / 120.0, lid: LidInput(openness: 1, speed: 40, inShutZone: false, tooWide: true))
         #expect(s.snapshot.hint == HeistHint.slower)
@@ -1884,15 +1908,35 @@ struct CoreTests {
 
     private func isCloseForNext(_ s: HeistSession) -> Bool { return s.snapshot.hint == HeistHint.closeForNext }
 
-    /// Rules 1–2: a run started with the lid up is simply open: looting on the first step, cracked, the loot lit at the
-    /// current openness, and never "lower the lid". With the lid shut it arrives closed and opens with the phone.
-    /// R13: the lesson too (its shut-first gate is gone).
-    @Test func r12FirstChestOpensAtOnceWithTheLidUp() {
+    /// R14 (founder: "playing starts with the chest closed right? so ask the user to close the phone if it is not to
+    /// start playing, then the chest should open as the phone opens"), inverting R12 rule 2 ("a run started with the
+    /// lid up opens at once"): in every mode the first chest started with the lid up stays closed (`.ready`, dark, no
+    /// crack, "Close the phone to start", the candle unburnt) until the lid is seen shut; then it opens with the phone,
+    /// lit at the current openness. With the lid shut it arrives closed and opens with the phone.
+    @Test func r14FirstChestWithTheLidUpWaitsForTheClose() {
         for mode in [RunMode.run, RunMode.daily(day: 300, scored: true), RunMode.attract, RunMode.lesson] {
             let s: HeistSession = newSession(seed: 7, mode: mode)
             #expect(s.snapshot.phase == .ready)
+            #expect(s.awaitsFirstShut)
+            let ev0: [HeistEvent] = s.step(dt: 1.0 / 60.0, lid: lidAt(0.8))
+            #expect(count(ev0, isArrived) == 1)
+            #expect(count(ev0, isCracked) == 0)
+            let torch0: Double = s.snapshot.torchRemaining
+            let held: [HeistEvent] = run(s, seconds: 3.0, lid: lidAt(0.8))
+            #expect(count(held, isCracked) == 0)
+            #expect(s.snapshot.phase == .ready)
+            #expect(s.snapshot.hint == HeistHint.easeLidDown)
+            #expect(s.snapshot.torchRemaining == torch0)
+            #expect(s.snapshot.loot.allSatisfy { (l: LootState) -> Bool in l.light == 0 && !l.grabbable })
+            #expect(s.isFreshChest)
+            #expect(!s.awaitingClose)
+            #expect(!s.canBankOnShut)
+            #expect(!s.endsEmptyOnShut)
+            // Seen shut, then reopened to 0.8 (one step: not closing): it opens with the phone.
+            _ = s.step(dt: 1.0 / 60.0, lid: lidAt(0))
+            #expect(!s.awaitsFirstShut)
+            #expect(s.snapshot.phase == .ready)
             let ev: [HeistEvent] = s.step(dt: 1.0 / 60.0, lid: lidAt(0.8))
-            #expect(count(ev, isArrived) == 1)
             #expect(count(ev, isCracked) == 1)
             #expect(s.snapshot.phase == .looting)
             #expect(s.snapshot.hint != HeistHint.easeLidDown)
@@ -1922,6 +1966,150 @@ struct CoreTests {
         let ev3: [HeistEvent] = l.step(dt: 1.0 / 60.0, lid: lidAt(0.1))
         #expect(l.snapshot.phase == .looting)
         #expect(count(ev3, isCracked) == 1)
+    }
+
+    /// R14: `noteLidShut()` (the cover display took over, or the closing pause) counts as the first chest seen shut:
+    /// it deals nothing, returns nothing, and the chest then opens with the phone.
+    @Test func r14NoteLidShutIsTheFirstClose() {
+        let s: HeistSession = newSession(seed: 7)
+        _ = s.step(dt: 1.0 / 60.0, lid: lidAt(0.8))
+        #expect(s.awaitsFirstShut)
+        let shutEvents: [HeistEvent] = s.noteLidShut()
+        #expect(shutEvents.isEmpty)
+        #expect(!s.awaitsFirstShut)
+        #expect(s.snapshot.chest?.index == 0)
+        #expect(s.snapshot.phase == .ready)
+        let ev: [HeistEvent] = s.step(dt: 1.0 / 60.0, lid: lidAt(0.5))
+        #expect(count(ev, isArrived) == 0)
+        #expect(count(ev, isCracked) == 1)
+        #expect(s.snapshot.phase == .looting)
+    }
+
+    /// R14: "Your candle waits": the candle doesn't burn while the run's first chest is still closed (shut or open
+    /// before the close), and burns from the moment it opens.
+    @Test func r14TheCandleWaitsForTheFirstChest() {
+        let s: HeistSession = newSession(seed: 7)
+        _ = s.step(dt: 1.0 / 60.0, lid: lidAt(0.6))
+        let t0: Double = s.snapshot.torchRemaining
+        #expect(t0 > 0)
+        run(s, seconds: 2.0, lid: lidAt(0.6))
+        #expect(s.snapshot.torchRemaining == t0)
+        // Seen shut, still closed: it waits.
+        run(s, seconds: 2.0, lid: lidAt(0))
+        #expect(s.snapshot.phase == .ready)
+        #expect(s.snapshot.torchRemaining == t0)
+        // Opened: it burns.
+        run(s, seconds: 1.0, lid: lidAt(0.3))
+        #expect(s.snapshot.phase == .looting)
+        #expect(s.snapshot.torchRemaining < t0 - 0.9)
+        #expect(s.snapshot.torchRemaining > t0 - 1.1)
+    }
+
+    /// R14 (UX audit D): closing the phone always ends the chest. Opened past 0.2 (≈ 30° of the phone) and closed with
+    /// an empty bag, `noteLidShut()` logs it (value 0, not bitten), deals the next chest (its `chestArrived` with the
+    /// next step) and returns nothing; the next chest is dealt closed and opens with the phone. Not under the 0.2 peak
+    /// (a hand settling the phone), not with loot in the bag (that banks), never in the lesson.
+    @Test func r14AnEmptyChestClosedEnds() {
+        #expect(Tuning.emptyShutOpenness == 0.2)
+        let s: HeistSession = newSession(seed: 7)
+        _ = s.step(dt: 1.0 / 60.0, lid: lidAt(0))
+        _ = s.step(dt: 1.0 / 60.0, lid: lidAt(0.3))
+        #expect(s.snapshot.phase == .looting)
+        #expect(s.snapshot.bagValue == 0)
+        #expect(s.endsEmptyOnShut)
+        #expect(!s.canBankOnShut)
+        _ = s.step(dt: 1.0 / 60.0, lid: lidAt(0))
+        let log0: Int = s.partialResult().chestLog.count
+        let shut: [HeistEvent] = s.noteLidShut()
+        #expect(shut.isEmpty)
+        #expect(!s.endsEmptyOnShut)
+        #expect(s.snapshot.chest?.index == 1)
+        #expect(s.snapshot.phase == .ready)
+        #expect(!s.awaitsFirstShut)
+        #expect(!s.awaitingClose)
+        let log: [ChestOutcome] = s.partialResult().chestLog
+        #expect(log.count == log0)
+        #expect(log.count == 1)
+        #expect(log.first?.value == 0)
+        #expect(log.first?.bitten == false)
+        #expect(s.partialResult().chestsBanked == 0)
+        #expect(s.partialResult().chestsOpened == 1)
+        let next: [HeistEvent] = s.step(dt: 1.0 / 60.0, lid: lidAt(0))
+        #expect(count(next, isArrived) == 1)
+        #expect(count(next, isCracked) == 0)
+        let open: [HeistEvent] = s.step(dt: 1.0 / 60.0, lid: lidAt(0.3))
+        #expect(count(open, isCracked) == 1)
+        #expect(s.snapshot.phase == .looting)
+
+        // Opened no further than 0.2: not ended, nothing dealt.
+        let low: HeistSession = newSession(seed: 7)
+        _ = low.step(dt: 1.0 / 60.0, lid: lidAt(0))
+        _ = low.step(dt: 1.0 / 60.0, lid: lidAt(0.15))
+        #expect(low.snapshot.phase == .looting)
+        #expect(!low.endsEmptyOnShut)
+        _ = low.step(dt: 1.0 / 60.0, lid: lidAt(0))
+        let lowShut: [HeistEvent] = low.noteLidShut()
+        #expect(lowShut.isEmpty)
+        #expect(low.snapshot.chest?.index == 0)
+        #expect(low.snapshot.phase == .looting)
+        #expect(low.partialResult().chestLog.count == 1)   // only the open chest, counted as it stands
+
+        // Loot in the bag: it banks instead.
+        let (b, _) = lootingSession(seed: 7)
+        guard let k = shallowest(b.snapshot) else {
+            Issue.record("no item")
+            return
+        }
+        _ = bagItem(b, k)
+        _ = b.step(dt: 1.0 / 60.0, lid: lidAt(0.5))
+        #expect(b.snapshot.bagValue > 0)
+        #expect(!b.endsEmptyOnShut)
+        #expect(b.canBankOnShut)
+
+        // The lesson (one chest): never.
+        let l: HeistSession = newSession(mode: .lesson)
+        _ = l.step(dt: 1.0 / 60.0, lid: lidAt(0))
+        _ = l.step(dt: 1.0 / 60.0, lid: lidAt(0.5))
+        #expect(l.snapshot.phase == .looting)
+        #expect(!l.endsEmptyOnShut)
+        _ = l.noteLidShut()
+        #expect(l.snapshot.chest?.index == 0)
+    }
+
+    /// R14 (suspected app bug, reported to the App/Core owner): `peakOpenness` also grows while the run's first chest
+    /// waits `.ready` for the close, so a first chest started with the phone open, closed, then barely reopened (0.1,
+    /// under the 0.2 line) already counts as opened wide and `endsEmptyOnShut` ends it on the next close. Expected: the
+    /// peak counts from the moment the chest opens. When Core is fixed this known issue stops recording: drop the
+    /// `withKnownIssue` wrapper.
+    @Test func r14ThePeakCountsFromTheOpening() {
+        let s: HeistSession = newSession(seed: 7)
+        _ = s.step(dt: 1.0 / 60.0, lid: lidAt(0.8))
+        _ = s.step(dt: 1.0 / 60.0, lid: lidAt(0))
+        _ = s.step(dt: 1.0 / 60.0, lid: lidAt(0.1))
+        #expect(s.snapshot.phase == .looting)
+        withKnownIssue("HeistSession.play: peakOpenness isn't reset when the first chest opens") {
+            #expect(!s.endsEmptyOnShut)
+        }
+    }
+
+    /// R14 (UX audit E): a fast drag makes noise, so it says "Slower…" (bites never feel random); a slow one doesn't.
+    @Test func r14AFastDragSaysSlower() {
+        let (s, _) = lootingSession(seed: 7)
+        guard let k = shallowest(s.snapshot) else {
+            Issue.record("no item")
+            return
+        }
+        let item: LootItem = s.snapshot.loot[k].item
+        _ = s.step(dt: 1.0 / 120.0, lid: lidAt(min(1, item.depth + 0.08)))
+        let p: CGPoint = s.snapshot.loot[k].position
+        _ = s.touchBegan(id: 1, at: p, time: 10)
+        // 20 pt in 0.5 s: 40 pt/s, far under the 350 pt/s quiet line.
+        _ = s.touchMoved(id: 1, to: CGPoint(x: p.x, y: p.y + 20), time: 10.5)
+        #expect(s.snapshot.hint != HeistHint.slower)
+        // 200 pt in 0.1 s: 2000 pt/s.
+        _ = s.touchMoved(id: 1, to: CGPoint(x: p.x, y: p.y + 220), time: 10.6)
+        #expect(Tuning.dragQuietSpeed == 350)
+        #expect(s.snapshot.hint == HeistHint.slower)
     }
 
     /// Rule 4, after a bite: the robbed chest stays open and empty with only "Close the phone for the next chest" (the
@@ -2018,11 +2206,15 @@ struct CoreTests {
         let resumed: [HeistEvent] = n.step(dt: 1.0 / 60.0, lid: lidAt(0.6))
         #expect(count(resumed, isArrived) == 1)
         #expect(n.snapshot.phase == .looting)
-        // Without a chest awaiting, noteLidShut does nothing.
-        let idx: Int? = n.snapshot.chest?.index
+        // R14 (closing the phone always ends the chest): without a chest awaiting, this one, opened to 0.6 with an
+        // empty bag, is logged and the next is dealt. (Over a chest barely opened, noteLidShut does nothing:
+        // `r14AnEmptyChestClosedEnds`.)
+        let idx: Int = n.snapshot.chest?.index ?? -1
+        #expect(n.endsEmptyOnShut)
         n.noteLidShut()
-        #expect(n.snapshot.chest?.index == idx)
-        #expect(n.snapshot.phase == .looting)
+        #expect(n.snapshot.chest?.index == idx + 1)
+        #expect(n.snapshot.phase == .ready)
+        #expect(!n.awaitingClose)
         // The candle can go out while the robbed chest waits: the run ends as usual, and nothing is awaiting.
         let (o, _) = lootingSession(seed: 71)
         _ = biteWithTheLidOpen(o)
