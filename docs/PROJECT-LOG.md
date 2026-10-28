@@ -53,3 +53,28 @@
 - The founder created the App Store Connect record (**Apple ID 6827663529**, link https://apps.apple.com/app/id6827663529, live
   from launch day), added the four ASC secrets and turned on GitHub Pages (https://pravegm.github.io/hush/ answers 200).
 - **TestFlight 1.0 (1) uploaded** (run 40551080405, R4 commit; archive unsigned + ad-hoc entitlements, App Store signature by the cloud-managed certificate). R4 CI 40546513602 green: 278 tests + the turned-drag XCUITest.
+
+### 27–28 Oct, night: the founder's real-Duo test of TF 1.0 (1), then rounds 6–8 unsupervised
+- **Founder (evening, going to sleep):** "lots of issues i saw when i tested. when i open the whole phone it gets
+  stuck and there is no way for me to continue playing. please fix all issues", plus 8 hours of unsupervised work.
+- **Diagnosis:** opened flat and held, iOS rotates to landscape. Back in tabletop a Duo never rotates back, and play
+  was gated on portrait behind the blocking book card. A dead end.
+- **R6 "any way up":** the game draws itself with quarter turns k, from the physical blurring half, in ANY interface
+  orientation.
+  - There is no blocking card.
+  - The closing card has "Carry on" after 3 s and a watchdog after 6 s.
+  - Flat (172–180°) keeps playing.
+  - There is an on-device event log with Copy.
+  - CI: 313 tests green; the landscape drag XCUITest passed.
+- **R7 "real hands"** (`design/DEVICE-RISKS-1.md`, which predicts the founder's other issues from Squish, Brim and
+  Swoop device history):
+  - quiet 14 °/s, closing quiet 28 °/s, a 0.08 s loud onset;
+  - estimator breakaway, deadband and snap rules; resume hysteresis 92/88;
+  - fresh-chest resume; press-and-hold pause on the Duo;
+  - a lenient lesson; Lid sensitivity and Vibration settings; the raw hinge trace in Diagnostics.
+  - CI: 342 tests green.
+- **Duo sim run 40612801283 (R7): 12 / 13 PASS**, including the new FLAT-OPEN, LANDSCAPE-PLAY and WATCHDOG. The one
+  FAIL was the check wrongly requiring a portrait inner canvas; now fixed.
+- **TestFlight 1.0 (2) uploaded** (run 40614564978): R6 + R7.
+- **QA-5 never-stuck audit:** no P0; 4 P1s (wrong way up after a run, a cover card on an open Duo, a silent hinge
+  after a cover trip, the landscape UI test racing and skipping). **R8** is fixing them.
