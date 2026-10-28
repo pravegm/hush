@@ -240,11 +240,26 @@ final class SceneLootView {
         return near * (1 - smooth(0.15, 0.45, l))
     }
 
-    func update(dt: Double, loot: [LootState], hideBagged: Bool, light: CGFloat, openness: Double = 0) {
+    /// R11 (tester 11, frame 15: the relic card's handle over a coin behind it): an item in the chest whose drawn circle
+    /// meets `rect` (grown by `margin`) is faded by `level` (1: hidden). Pure; tested.
+    static func cardCoverAlpha(at p: CGPoint, radius: CGFloat, rect: CGRect, level: CGFloat,
+                               margin: CGFloat = ChestLayout.relicCardLootMargin) -> CGFloat {
+        let k = min(max(level.isFinite ? level : 0, 0), 1)
+        guard k > 0, !rect.isNull, rect.width > 0, p.x.isFinite, p.y.isFinite else { return 1 }
+        let r = rect.insetBy(dx: -margin, dy: -margin)
+        return SceneMoments.circle(p, max(radius, 0), touches: r) ? 1 - k : 1
+    }
+
+    /// R11: items in the chest drawn (alpha > 0.05) where the relic card covers them this frame (tests: always 0).
+    private(set) var underCardVisible = 0
+
+    func update(dt: Double, loot: [LootState], hideBagged: Bool, light: CGFloat, openness: Double = 0,
+                cardRect: CGRect = .null, cardLevel: CGFloat = 0) {
         time += dt
         frameStamp &+= 1
         var visible = 0
         var glimmering = 0
+        var underCard = 0
         var held: CGPoint?
         var heldA: CGFloat?
         let mouth = CGPoint(x: ChestLayout.mouthPoint.x - root.position.x, y: ChestLayout.mouthPoint.y - root.position.y)
@@ -380,6 +395,17 @@ final class SceneLootView {
                     slot.glimmer.setScale(0.7 + 0.35 * CGFloat(pulse))
                     glimmering += 1
                 }
+                // R11: hidden under the relic card (and a margin round it) while the card is up.
+                if cardLevel > 0 {
+                    let c = CGPoint(x: p.x + root.position.x, y: p.y + root.position.y)
+                    let a = SceneLootView.cardCoverAlpha(at: c, radius: SceneLootView.drawnRadius(r) * b, rect: cardRect,
+                                                         level: cardLevel)
+                    if a < 1 {
+                        slot.node.alpha = a
+                        if a <= 0.01 { slot.node.isHidden = true }
+                        if !slot.node.isHidden && a > 0.05 && slot.art.alpha > 0.002 { underCard += 1 }
+                    }
+                }
             case .held:
                 slot.node.isHidden = false
                 // R4 (juror P2, tester 8: "IN E…"): a held item rides over the loot and the shutter but UNDER the
@@ -438,6 +464,7 @@ final class SceneLootView {
         }
         visibleCount = visible
         glimmerCount = glimmering
+        underCardVisible = underCard
         heldPoint = held
         heldAlpha = heldA
     }

@@ -223,6 +223,33 @@ final class ChestScene: SKScene {
     /// The last golden "×n" popped over a revealed item ("" before any).
     private(set) var lastGoldenPop = ""
 
+    // MARK: R11 (juror P2-1, tester 11: callouts never touch the App's plate)
+
+    /// FOR THE APP: a scene callout is on screen ("CREAK!", the bank stack, the bite, the relic card, "Next chest…").
+    /// Hide the hint plate while it is true (one prompt at a time). Either way the scene keeps its callouts
+    /// `ChestLayout.calloutGap` (12) view points under the plate.
+    var calloutActive: Bool { moments.calloutActive }
+    /// Optional, FOR THE APP: the hint plate as drawn (canvas rect, y up), or nil (the scene then assumes the tallest
+    /// plate, `ChestLayout.hintPlateViewHeight` view points, centred at `ChestLayout.hintPlateMidY`). A given rect can
+    /// only lower the callouts, never raise them into the estimate.
+    var hintPlateCanvasRect: CGRect?
+    /// The highest a callout's top may reach this frame (canvas y), and the callouts' tops as placed (tests).
+    var calloutCeiling: CGFloat { ChestLayout.calloutCeiling(viewScale: hud.viewScale, plate: hintPlateCanvasRect) }
+    var creakCalloutTop: CGFloat { moments.creakTop }
+    var bankStackTop: CGFloat { moments.bankStackTop }
+    var creakCenterY: CGFloat { moments.creakCenterY }
+    var bankEyebrowCenterY: CGFloat { moments.bankEyebrowCenterY }
+    var nextChestCenterY: CGFloat { moments.nextChestCenterY }
+    /// R11: in-chest items drawn under the relic card this frame (always 0), and the card as drawn.
+    var lootUnderRelicCard: Int { lootView.underCardVisible }
+    var relicCardRect: CGRect { moments.relicCardRect }
+    /// R11: the chain tab's furthest-right drawn edge so far (canvas x), "not safe yet" as drawn, the IN BAG number.
+    var chainTabDrawnMaxX: CGFloat { hud.chainDrawnMaxX }
+    var bagSublabelFrame: CGRect { hud.bagSublabelFrame }
+    var bagSublabelFontSize: CGFloat { hud.bagSublabelFontSize }
+    var bagNumberCenter: CGPoint { hud.bagNumberCenter }
+    var bagNumberScale: CGFloat { hud.bagNumberScale }
+
     private let world: SKNode
     private let shaker: SKNode
     private let overlay: SKNode
@@ -440,6 +467,8 @@ final class ChestScene: SKScene {
     func render(dt: Double, events: [HeistEvent]) {
         animTime += dt
         let s = snapshot
+        // R11: the callouts' ceiling under the App's plate at this view scale (before the events place any popup).
+        moments.calloutCeiling = calloutCeiling
         handle(events, snapshot: s)
 
         // Keep the chest's dress and plate in step with the snapshot even without an arrival event.
@@ -452,7 +481,8 @@ final class ChestScene: SKScene {
         lootView.root.position = CGPoint(x: 0, y: mf.chestOffset)
         lid.jaw.position = CGPoint(x: 0, y: mf.jawDrop)
         floor.update(dt: dt, snapshot: s, light: light, reduceMotion: reduceMotion, cover: mf.interiorCover)
-        lootView.update(dt: dt, loot: s.loot, hideBagged: mf.hideBagged, light: light, openness: s.openness)
+        lootView.update(dt: dt, loot: s.loot, hideBagged: mf.hideBagged, light: light, openness: s.openness,
+                        cardRect: moments.relicCardRect, cardLevel: moments.relicCardLevel)
         hud.update(dt: dt, snapshot: s, light: light, reduceMotion: reduceMotion)
         hud.dimSeat(moments.biteActive, dt: dt)
         lid.update(dt: dt, snapshot: s, light: light, wakeOverride: mf.wakeOverride, teethOverride: mf.teethOverride,
@@ -577,8 +607,9 @@ final class ChestScene: SKScene {
                         lastGoldenPop = text
                         // (Kept under the App's hint band at the back edge.)
                         // R5: 372 → 356, so it also stays under a hint plate kept 20 pt clear of the fold.
-                        moments.popup(text, at: CGPoint(x: p.x, y: min(p.y + 30, 356)), color: ScenePaint.ui(pal.gold),
-                                      rise: 14)
+                        // R11: and 12 view pt under the plate as a phone draws it (taller in canvas points).
+                        let y = min(p.y + 30, 356, moments.popupCeiling(rise: 14))
+                        moments.popup(text, at: CGPoint(x: p.x, y: y), color: ScenePaint.ui(pal.gold), rise: 14)
                     }
                 }
             case .itemPicked(let id, _):
@@ -601,7 +632,8 @@ final class ChestScene: SKScene {
             case .oilAdded(let seconds):
                 hud.flare()
                 let fp = hud.flamePoint
-                moments.popup("+\(Int(seconds.rounded()))s", at: CGPoint(x: fp.x + 56, y: min(fp.y + 20, 330)),
+                moments.popup("+\(Int(seconds.rounded()))s",
+                              at: CGPoint(x: fp.x + 56, y: min(fp.y + 20, 330, moments.popupCeiling(rise: 40))),
                               color: ScenePaint.ui(pal.amber), rise: 40)
                 fx.sparkBurst(at: fp, count: 6, color: ScenePaint.ui(pal.amber), speed: 120, size: 18)
             case .stageChanged:
@@ -725,15 +757,24 @@ final class ChestScene: SKScene {
 
     /// R9b diagnostics (CI's Duo drag: `touches=0/0/0`): every touch the scene receives, wherever it lands, and where
     /// (canvas points, plus the raw view point). Read by the App's demo-only `debug.state`.
+    /// R11 (QA-6 P2-1): DEBUG builds only. Release does no per-touch work for them (no second `location(in:)`, no
+    /// string); the properties still compile there and read 0 / "-".
+    #if DEBUG
     private(set) var rawTouchesBegan = 0
     private(set) var lastRawTouch = "none"
+    #else
+    var rawTouchesBegan: Int { 0 }
+    var lastRawTouch: String { "-" }
+    #endif
 
     override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
         for t in touches {
-            rawTouchesBegan += 1
             let c = t.location(in: world)
+            #if DEBUG
+            rawTouchesBegan += 1
             let v = view.map { t.location(in: $0) } ?? .zero
             lastRawTouch = "canvas(\(Int(c.x)),\(Int(c.y)))view(\(Int(v.x)),\(Int(v.y)))"
+            #endif
             beginTouch(ObjectIdentifier(t).hashValue, canvas: c, time: t.timestamp)
         }
     }

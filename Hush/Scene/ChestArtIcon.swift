@@ -319,3 +319,325 @@ extension ChestArt {
         Painter.fill(ctx, p, RGBA(hex: 0xFFF6DA))
     }
 }
+
+// MARK: - R11: the praise ink, and the Game Center badges (juror P2-7, tester 11, frame 40)
+
+/// A badge's bezel metal (the App's `BadgePainter.Tier`, by name): four badges each, first steps to the big ones.
+enum BadgeMetal: String, CaseIterable, Sendable {
+    case bronze, silver, gold
+}
+
+/// What a badge shows in its velvet: one of the game's relics, or (R11, Heavy Bag) a tied sack of gold.
+enum BadgeGlyph: Equatable, Sendable {
+    case relic(RelicShape)
+    case sack
+}
+
+extension ChestArt {
+    /// R11 (juror P2-7, R4 carry-over: "Cream instead of green for 'Banked! Gently does it.'"): the ink for praise on a
+    /// plate. A burnished gold-brown on parchment (≥ 4.5 : 1 on both ends of its gradient; never green), the game's gold
+    /// on leather, the urgent plate's own light gold. FOR THE APP: `PlateArt.calm` can become
+    /// `Color(hush: ChestArt.praiseInk(.parchment))`.
+    static func praiseInk(_ style: PlateStyle) -> RGBA {
+        switch style {
+        case .parchment: return RGBA(hex: 0x7A4300)
+        case .leather: return palette.gold
+        case .urgent: return plateColors(.urgent).accent
+        }
+    }
+
+    /// R11 (juror P2-7, tester 11: "the Heavy Bag icon looks like a little person or statue"): the badge's glyph for a
+    /// motif. The idol is Heavy Bag's (its motif is unique in `BadgePainter.motifs`), so it becomes a sack of gold;
+    /// the Codex's "Idol of the Sleepy God" relic keeps its idol.
+    static func badgeGlyph(_ motif: RelicShape) -> BadgeGlyph { motif == .idol ? .sack : .relic(motif) }
+
+    /// The glyph's art (y up, centred, in the relic art's units). FOR THE APP: in `BadgePainter.paint`,
+    /// `ChestArt.badgeGlyphArt(motif, radius: 50)` replaces `ChestArt.relicArt(motif, radius: 50)`.
+    static func badgeGlyphArt(_ motif: RelicShape, radius: CGFloat) -> LootArt {
+        switch badgeGlyph(motif) {
+        case .sack: return sackArt(radius: radius)
+        case .relic(let shape): return relicArt(shape, radius: radius)
+        }
+    }
+
+    /// A plump sack of gold, its neck tied with a cord, coins peeking over the ruffle, a stamped coin on its belly.
+    /// Wider at the bottom than the neck (a bag, not a figure: no head, no shoulders). Pure; tested.
+    static func sackArt(radius: CGFloat) -> LootArt {
+        let r = max(radius, 1)
+        var s = ArtSketch(r)
+        // The body: a teardrop sack, narrow at the tie, round and heavy at the foot.
+        let body = CGMutablePath()
+        body.move(to: s.p(-0.26, 0.4))
+        body.addCurve(to: s.p(-0.9, -0.42), control1: s.p(-0.5, 0.22), control2: s.p(-0.92, 0.02))
+        body.addCurve(to: s.p(0, -0.94), control1: s.p(-0.88, -0.8), control2: s.p(-0.5, -0.94))
+        body.addCurve(to: s.p(0.9, -0.42), control1: s.p(0.5, -0.94), control2: s.p(0.88, -0.8))
+        body.addCurve(to: s.p(0.26, 0.4), control1: s.p(0.92, 0.02), control2: s.p(0.5, 0.22))
+        body.closeSubpath()
+        s.part(body)
+        // The ruffled mouth above the tie.
+        s.poly([(-0.3, 0.46), (-0.56, 0.78), (-0.24, 0.66), (0, 0.84), (0.24, 0.66), (0.56, 0.78), (0.3, 0.46)])
+        // Two coins peeking out of it.
+        s.oval(-0.14, 0.8, 0.17, 0.12)
+        s.oval(0.16, 0.86, 0.15, 0.11)
+        // The cord round the neck, its knot and two loose ends.
+        s.rrect(-0.36, 0.36, 0.72, 0.14, 0.06)
+        s.oval(0.3, 0.43, 0.1, 0.1)
+        s.line([(0.34, 0.36), (0.5, 0.08)])
+        s.line([(0.3, 0.35), (0.38, 0.04)])
+        // The cord's twist, the ruffle's folds and the sack's two creases.
+        s.line([(-0.22, 0.36), (-0.16, 0.5)])
+        s.line([(-0.02, 0.36), (0.04, 0.5)])
+        s.line([(-0.24, 0.66), (-0.3, 0.48)])
+        s.line([(0.24, 0.66), (0.3, 0.48)])
+        let crease = CGMutablePath()
+        crease.move(to: s.p(-0.5, 0.06))
+        crease.addQuadCurve(to: s.p(-0.62, -0.5), control: s.p(-0.7, -0.2))
+        crease.move(to: s.p(0.42, 0.08))
+        crease.addQuadCurve(to: s.p(0.6, -0.36), control: s.p(0.64, -0.1))
+        s.detail.addPath(crease)
+        // The stamped coin: a ring with a star, and the peeking coins' rims.
+        s.detailOval(0, -0.38, 0.27, 0.27)
+        var star: [(CGFloat, CGFloat)] = []
+        for k in 0..<10 {
+            let a = CGFloat.pi / 2 + CGFloat(k) * .pi / 5
+            let rr: CGFloat = k % 2 == 0 ? 0.17 : 0.07
+            star.append((cos(a) * rr, -0.38 + sin(a) * rr))
+        }
+        s.closedLine(star)
+        s.detailOval(-0.14, 0.8, 0.1, 0.06)
+        s.detailOval(0.16, 0.86, 0.09, 0.055)
+        // Shade on the right flank, a shine on the left.
+        let shadeP = CGMutablePath()
+        shadeP.move(to: s.p(0.3, 0.3))
+        shadeP.addCurve(to: s.p(0.9, -0.42), control1: s.p(0.6, 0.12), control2: s.p(0.92, 0.0))
+        shadeP.addCurve(to: s.p(0.2, -0.92), control1: s.p(0.88, -0.8), control2: s.p(0.56, -0.93))
+        shadeP.addCurve(to: s.p(0.3, 0.3), control1: s.p(0.62, -0.5), control2: s.p(0.56, -0.04))
+        shadeP.closeSubpath()
+        s.shade.addPath(shadeP)
+        s.shineOval(-0.54, -0.18, 0.1, 0.24)
+        s.shineOval(-0.2, 0.84, 0.05, 0.03)
+        return s.build()
+    }
+
+    // MARK: Badge medallion
+
+    /// The bezel's metal ramp (light, mid, dark) for a tier; a dull pewter when the badge isn't earned yet.
+    static func badgeMetalColors(_ metal: BadgeMetal, earned: Bool) -> (light: RGBA, mid: RGBA, dark: RGBA) {
+        guard earned else { return (RGBA(hex: 0x9AA6A3), RGBA(hex: 0x6E7A77), RGBA(hex: 0x3E4846)) }
+        switch metal {
+        case .bronze: return (RGBA(hex: 0xF4B678), RGBA(hex: 0xC27A3E), RGBA(hex: 0x6E3614))
+        case .silver: return (RGBA(hex: 0xF4F8F6), RGBA(hex: 0xB4C0BE), RGBA(hex: 0x66726F))
+        case .gold: return (RGBA(hex: 0xFFE7A6), RGBA(hex: 0xE0A63A), RGBA(hex: 0x8E5A12))
+        }
+    }
+
+    /// The glyph's palette per tier (the App's own, kept): bronze, silver or gold.
+    static func badgeGlyphColors(_ metal: BadgeMetal) -> (fill: RGBA, rim: RGBA, glint: RGBA) {
+        switch metal {
+        case .bronze: return (RGBA(hex: 0xE59A55), RGBA(hex: 0x6A3412), RGBA(hex: 0xFFE2B4))
+        case .silver: return (RGBA(hex: 0xD8E2EA), RGBA(hex: 0x56626F), RGBA(hex: 0xFFFFFF))
+        case .gold: return (RGBA(hex: 0xFFC94A), RGBA(hex: 0x8A5A12), RGBA(hex: 0xFFF4CC))
+        }
+    }
+
+    /// The bezel's radii in the badge's 1024-unit space: the milled edge's tooth tips and roots, the raised ring's
+    /// outer and inner edges, the sunk lip round the velvet, and the number of milled teeth.
+    static let badgeMillOuter: CGFloat = 408
+    static let badgeMillInner: CGFloat = 388
+    static let badgeRingOuter: CGFloat = 392
+    static let badgeRingInner: CGFloat = 322
+    static let badgeVelvetRadius: CGFloat = 304
+    static let badgeMillTeeth = 60
+
+    /// R11 (juror P2-7 "milled rims instead of porthole rings", tester 11 frame 40): a Game Center badge, `side` points
+    /// square: the dungeon ground with candlelight, a struck-metal bezel (a milled edge, a raised ring lit from the
+    /// top-left with a laurel in relief and a star at its crown, a sunk lip), the velvet, and the glyph in the tier's
+    /// palette (a cream silhouette until earned). No rivets, no porthole. Cached. FOR THE APP: `AchievementBadge` can
+    /// draw `Image(decorative: ChestArt.badgeImage(...), scale: 1)` in its frame instead of `BadgePainter.paint`.
+    static func badgeImage(motif: RelicShape, metal: BadgeMetal, earned: Bool, side: CGFloat = 1024,
+                           scale: CGFloat = 1) -> CGImage? {
+        let w = max(side.isFinite ? side.rounded() : 1024, 16)
+        let key = "badge|\(motif.rawValue)|\(metal.rawValue)|\(earned)|\(Int(w))|\(Int(scale * 100))"
+        return ArtImageCache.shared.image(key) {
+            renderImage(width: w, height: w, scale: scale) { ctx in
+                ctx.scaleBy(x: w / 1024, y: w / 1024)
+                drawBadge(ctx, glyph: badgeGlyph(motif), metal: metal, earned: earned)
+            }
+        }
+    }
+
+    /// The badge in a 1024 × 1024 unit space (y up).
+    static func drawBadge(_ ctx: CGContext, glyph: BadgeGlyph, metal: BadgeMetal, earned: Bool) {
+        ctx.setLineJoin(.round)
+        ctx.setLineCap(.round)
+        let c = CGPoint(x: 512, y: 512)
+        let full = CGRect(x: 0, y: 0, width: 1024, height: 1024)
+        // The ground: the badge page's dungeon, warm candlelight behind the medal.
+        Painter.gradient(ctx, Painter.rect(full), [RGBA(hex: 0x061012), RGBA(hex: 0x10292C)], [0, 1],
+                         from: CGPoint(x: 512, y: 0), to: CGPoint(x: 512, y: 1024))
+        let glow = earned ? 0.3 : 0.08
+        Painter.radial(ctx, [RGBA(hex: 0xFFB45E, alpha: glow), RGBA(hex: 0xFFB45E, alpha: 0)], [0, 1],
+                       center: CGPoint(x: 512, y: 554), radius: 560)
+        // A soft drop shadow under the medal.
+        Painter.radial(ctx, [RGBA(0, 0, 0, 0.6), RGBA(0, 0, 0, 0.6), RGBA(0, 0, 0, 0)], [0, 0.82, 1],
+                       center: CGPoint(x: 512, y: 494), radius: 450)
+        let m = badgeMetalColors(metal, earned: earned)
+        drawBadgeMilling(ctx, center: c, metal: m)
+        drawBadgeRing(ctx, center: c, metal: m)
+        drawBadgeLaurel(ctx, center: c, metal: m)
+        // The sunk lip and the velvet.
+        let lip = Painter.circle(c, badgeRingInner)
+        Painter.fill(ctx, lip, m.dark)
+        Painter.stroke(ctx, lip, outline, width: 8, 0.9)
+        let velvet = Painter.circle(c, badgeVelvetRadius)
+        let v = earned ? [RGBA(hex: 0x7A2848), palette.velvet, RGBA(hex: 0x2E0A1A)]
+            : [RGBA(hex: 0x2A3436), RGBA(hex: 0x1A2224), RGBA(hex: 0x0E1416)]
+        ctx.saveGState()
+        ctx.addPath(velvet)
+        ctx.clip()
+        Painter.radial(ctx, v, [0, 0.55, 1], center: CGPoint(x: 470, y: 604), radius: 400, extend: true)
+        // Its depth: the lip's shadow falls on the velvet's top edge.
+        Painter.stroke(ctx, Painter.circle(CGPoint(x: 516, y: 500), badgeVelvetRadius + 4), RGBA(0, 0, 0), width: 26,
+                       0.35)
+        ctx.restoreGState()
+        Painter.stroke(ctx, velvet, outline, width: 10, 0.95)
+        // The glyph, 66 % of the velvet, never over the bezel.
+        drawBadgeGlyph(ctx, glyph, metal: metal, earned: earned, box: CGRect(x: 300, y: 300, width: 424, height: 424))
+    }
+
+    /// The milled edge: square teeth round the rim, struck in the darker metal, each tooth catching the light.
+    private static func drawBadgeMilling(_ ctx: CGContext, center c: CGPoint,
+                                         metal m: (light: RGBA, mid: RGBA, dark: RGBA)) {
+        let p = badgeMillingPath(center: c)
+        Painter.stroke(ctx, p, outline, width: 10, 0.95)
+        Painter.gradient(ctx, p, [m.light, m.mid, m.dark], [0, 0.45, 1], from: CGPoint(x: c.x - 300, y: c.y + 330),
+                         to: CGPoint(x: c.x + 300, y: c.y - 330))
+        Painter.stroke(ctx, Painter.circle(c, badgeMillInner - 2), outline, width: 4, 0.5)
+    }
+
+    /// The milled edge's outline: `badgeMillTeeth` square teeth between `badgeMillInner` and `badgeMillOuter`.
+    /// Pure; tested.
+    static func badgeMillingPath(center c: CGPoint) -> CGPath {
+        let n = badgeMillTeeth
+        var pts: [CGPoint] = []
+        pts.reserveCapacity(n * 4)
+        for i in 0..<n {
+            let a0 = CGFloat(i) / CGFloat(n) * 2 * .pi
+            let step = 2 * CGFloat.pi / CGFloat(n)
+            let profile: [(CGFloat, CGFloat)] = [(0, badgeMillInner), (0.1, badgeMillOuter), (0.52, badgeMillOuter),
+                                                 (0.62, badgeMillInner)]
+            for (t, rr) in profile {
+                let a = a0 + step * t
+                pts.append(CGPoint(x: c.x + cos(a) * rr, y: c.y + sin(a) * rr))
+            }
+        }
+        return Painter.polygon(pts)
+    }
+
+    /// The raised ring: lit from the top-left, a bright bevel on its outer top-left edge and a dark one bottom-right,
+    /// reversed on its inner edge (it steps down to the velvet).
+    private static func drawBadgeRing(_ ctx: CGContext, center c: CGPoint,
+                                      metal m: (light: RGBA, mid: RGBA, dark: RGBA)) {
+        let outer = Painter.circle(c, badgeRingOuter)
+        Painter.stroke(ctx, outer, outline, width: 10, 0.95)
+        Painter.gradient(ctx, outer, [ScenePaint.lighter(m.light, 0.2), m.light, m.mid, m.dark], [0, 0.3, 0.62, 1],
+                         from: CGPoint(x: c.x - 280, y: c.y + 300), to: CGPoint(x: c.x + 280, y: c.y - 300))
+        let topLeft = Painter.polygon([CGPoint(x: c.x - 520, y: c.y - 120), CGPoint(x: c.x + 120, y: c.y + 520),
+                                       CGPoint(x: c.x - 520, y: c.y + 520)])
+        let bottomRight = Painter.polygon([CGPoint(x: c.x - 120, y: c.y - 520), CGPoint(x: c.x + 520, y: c.y + 120),
+                                           CGPoint(x: c.x + 520, y: c.y - 520)])
+        let bevels: [(CGPath, CGFloat, RGBA, Double)] = [(topLeft, badgeRingOuter - 9, RGBA(1, 1, 1), 0.45),
+                                                          (bottomRight, badgeRingOuter - 9, RGBA(0, 0, 0), 0.35),
+                                                          (topLeft, badgeRingInner + 9, RGBA(0, 0, 0), 0.35),
+                                                          (bottomRight, badgeRingInner + 9, RGBA(1, 1, 1), 0.3)]
+        for (clip, edgeR, color, a) in bevels {
+            ctx.saveGState()
+            ctx.addPath(clip)
+            ctx.clip()
+            Painter.stroke(ctx, Painter.circle(c, edgeR), color, width: 9, a)
+            ctx.restoreGState()
+        }
+    }
+
+    /// The laurel in relief round the ring: two branches of leaves rising from a tie at the foot to a star at the
+    /// crown. Each piece is struck: a dark shadow down-right, a light edge up-left, then the metal.
+    private static func drawBadgeLaurel(_ ctx: CGContext, center c: CGPoint,
+                                        metal m: (light: RGBA, mid: RGBA, dark: RGBA)) {
+        let mid = (badgeRingOuter + badgeRingInner) / 2
+        let leaves = CGMutablePath()
+        for side in [CGFloat(-1), 1] {
+            for k in 0..<9 {
+                // From the foot (−90°) up the side to just short of the crown (+90°).
+                let deg = -72 + CGFloat(k) * 17
+                let a = (side < 0 ? 180 - deg : deg) * .pi / 180
+                let out: CGFloat = k % 2 == 0 ? 9 : -9
+                let p = CGPoint(x: c.x + cos(a) * (mid + out), y: c.y + sin(a) * (mid + out))
+                // Along the ring (pointing up the branch), tilted outward or inward.
+                let tangent = a + side * .pi / 2
+                let tilt: CGFloat = (k % 2 == 0 ? 0.42 : -0.42) * side
+                let t = CGAffineTransform(translationX: p.x, y: p.y).rotated(by: tangent + tilt)
+                leaves.addEllipse(in: CGRect(x: -22, y: -8.5, width: 44, height: 17), transform: t)
+            }
+        }
+        // The crown's star and the foot's tie.
+        var star: [CGPoint] = []
+        let top = CGPoint(x: c.x, y: c.y + mid)
+        for k in 0..<10 {
+            let a = CGFloat.pi / 2 + CGFloat(k) * .pi / 5
+            let rr: CGFloat = k % 2 == 0 ? 24 : 10
+            star.append(CGPoint(x: top.x + cos(a) * rr, y: top.y + sin(a) * rr))
+        }
+        let foot = CGPoint(x: c.x, y: c.y - mid)
+        let tie = CGMutablePath()
+        ArtPrim.polygon(tie, [CGPoint(x: foot.x, y: foot.y), CGPoint(x: foot.x - 26, y: foot.y + 14),
+                              CGPoint(x: foot.x - 26, y: foot.y - 14)])
+        ArtPrim.polygon(tie, [CGPoint(x: foot.x, y: foot.y), CGPoint(x: foot.x + 26, y: foot.y - 14),
+                              CGPoint(x: foot.x + 26, y: foot.y + 14)])
+        leaves.addPath(Painter.polygon(star))
+        leaves.addPath(tie)
+        leaves.addPath(Painter.circle(foot, 7))
+        // Struck: shadow, light edge, metal, a fine outline.
+        let strikes: [(CGFloat, CGFloat, RGBA, Double)] = [(4, -4, m.dark, 0.95),
+                                                            (-2.5, 2.5, ScenePaint.lighter(m.light, 0.3), 1)]
+        for (dx, dy, color, a) in strikes {
+            var shift = CGAffineTransform(translationX: dx, y: dy)
+            if let moved = leaves.copy(using: &shift) { Painter.fill(ctx, moved, color, a) }
+        }
+        Painter.fill(ctx, leaves, m.mid)
+        Painter.stroke(ctx, leaves, outline, width: 2.4, 0.45)
+    }
+
+    /// The glyph in `box` (y up): the tier's palette, rim detail, shine and velvet holes; or a cream silhouette until
+    /// earned (the App's R3 rule).
+    private static func drawBadgeGlyph(_ ctx: CGContext, _ glyph: BadgeGlyph, metal: BadgeMetal, earned: Bool,
+                                       box: CGRect) {
+        let art: LootArt
+        switch glyph {
+        case .sack: art = sackArt(radius: 50)
+        case .relic(let shape): art = relicArt(shape, radius: 50)
+        }
+        let bb = art.silhouette.boundingBoxOfPath
+        guard bb.width > 0, bb.height > 0 else { return }
+        let pad = art.outlineWidth
+        let s = min(box.width / (bb.width + 2 * pad), box.height / (bb.height + 2 * pad))
+        ctx.saveGState()
+        ctx.translateBy(x: box.midX - bb.midX * s, y: box.midY - bb.midY * s)
+        ctx.scaleBy(x: s, y: s)
+        ctx.setLineJoin(.round)
+        ctx.setLineCap(.round)
+        if !earned {
+            Painter.stroke(ctx, art.silhouette, outline, width: art.outlineWidth, 0.6)
+            Painter.fill(ctx, art.silhouette, RGBA(hex: 0xF7ECD6, alpha: 0.38))
+            ctx.restoreGState()
+            return
+        }
+        let col = badgeGlyphColors(metal)
+        for p in art.parts { Painter.stroke(ctx, p, outline, width: art.outlineWidth * 2, 1) }
+        for p in art.parts { Painter.fill(ctx, p, col.fill) }
+        if !art.shade.isEmpty { Painter.fill(ctx, art.shade, col.rim, 0.3) }
+        Painter.stroke(ctx, art.detail, col.rim, width: max(art.detailWidth, 0.5), 1)
+        Painter.fill(ctx, art.shine, col.glint)
+        if !art.holes.isEmpty { Painter.fill(ctx, art.holes, palette.velvet) }
+        ctx.restoreGState()
+    }
+}

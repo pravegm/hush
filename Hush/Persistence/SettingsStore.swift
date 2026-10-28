@@ -34,10 +34,21 @@ struct SettingsData: Codable, Equatable {
         turnRound = (try? c.decodeIfPresent(Bool.self, forKey: .turnRound)) ?? true
         reduceMotion = (try? c.decodeIfPresent(Bool.self, forKey: .reduceMotion)) ?? false
         // R7: an unknown or mistyped value falls back to the default (it never fails the whole decode).
-        lidSensitivity = (try? c.decodeIfPresent(LidSensitivity.self, forKey: .lidSensitivity)) ?? .normal
+        // R11: the option is shown as "Strict" but stored as Core's raw "careful" (so every save made since R7 still
+        // reads as Strict); a "strict" written by anything else reads the same.
+        let rawSensitivity: String? = try? c.decodeIfPresent(String.self, forKey: .lidSensitivity)
+        lidSensitivity = Self.sensitivity(stored: rawSensitivity)
         let chosen: HapticStrength? = try? c.decodeIfPresent(HapticStrength.self, forKey: .vibration)
         vibration = chosen
         if let v = chosen { hapticsOn = v != .off }
+    }
+
+    /// R11: a stored Lid sensitivity: Core's raw values ("forgiving", "normal", "careful" = Strict), "strict" as an
+    /// alias, anything else (or nothing) Normal. Pure; tested.
+    static func sensitivity(stored raw: String?) -> LidSensitivity {
+        guard let raw else { return .normal }
+        if let s = LidSensitivity(rawValue: raw) { return s }
+        return raw.lowercased() == "strict" ? .careful : .normal
     }
 }
 

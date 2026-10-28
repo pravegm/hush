@@ -64,6 +64,11 @@ import UIKit
 //                                 then `HUSH-T carry on …`. CI's odd-k tap test (HushUITests).
 // - `golden=1`                    (R2) run/attract: the first seed (from `seed=`) whose chest #3 is a golden mimic;
 //                                 its arrival logs `HUSH-T event chestArrived … golden=1`.
+// - `hint=holdToPause`            (R11) with `fold=1` in a run: the press-and-hold pause coin shows "Hold to pause"
+//                                 beside it and its ring half full (`HUSH-T hold hint forced`).
+// - `midRun=1`                    (R11) `screen=cover`: over a run ("Open to carry on"), like `mode=run`.
+// - `escape=1`                    (R11) `screen=cover`: the "Already open?" plate at once (Carry on / Home), which a
+//                                 forced cover never offers by itself (`HUSH-T cover escape shown forced …`).
 //
 // Log lines: `HUSH-T demo '<args>' starts`, `HUSH-T canvas <w>x<h> fold=<0|1> turned=<0|1> k=<0…3>` (R6: the real
 // window; turned = k == 2), `HUSH-T iface <o>`, `HUSH-T carry on …`, `HUSH-T watchdog resume …`, `HUSH-T hint tooWide`,
@@ -159,6 +164,12 @@ struct DemoMode: Equatable {
     var quarter: Int?
     /// `hold=closing` (R8, QA-5 P2-7): a run starts on the closing card, held whatever drives the lid, until "Carry on".
     var holdClosing = false
+    /// `hint=holdToPause` (R11): the press-and-hold coin shows "Hold to pause" and a half-full ring (needs a fold).
+    var holdHint = false
+    /// `midRun=1` (R11): `screen=cover` over a run (like `mode=run`).
+    var midRun = false
+    /// `escape=1` (R11): `screen=cover` shows its "Already open?" plate at once.
+    var coverEscape = false
 
     init(raw: String) { self.raw = raw }
 
@@ -227,6 +238,9 @@ struct DemoMode: Equatable {
             case "quarter":
                 if let n = Int(value), (0...3).contains(n) { config.quarter = n }
             case "hold": config.holdClosing = value.lowercased() == "closing"
+            case "hint": config.holdHint = value.lowercased() == "holdtopause"
+            case "midRun": config.midRun = flag(value)
+            case "escape": config.coverEscape = flag(value)
             default: break
             }
         }
@@ -471,12 +485,22 @@ enum BadgeExport {
         var written = 0
         for (index, def) in Achievements.all.enumerated() {
             let id = GameCenterManager.gameCenterID(def.id)
-            let badge = AchievementBadge(def: def, index: index).frame(width: side, height: side)
-            let renderer = ImageRenderer(content: badge)
-            renderer.proposedSize = ProposedViewSize(width: side, height: side)
-            renderer.scale = 1
-            renderer.isOpaque = true
-            guard let cgImage = renderer.cgImage, let data = IconExport.opaquePNG(cgImage, side: side) else {
+            // R11 (Scene R11): the Scene's struck-metal badge at 1024 × 1, the same art as the Badges page; the SwiftUI
+            // render only if it returns nothing.
+            let scene = BadgePainter.image(motif: BadgePainter.motif(index: index), tier: BadgePainter.tier(index: index),
+                                           earned: true, side: side, scale: 1)
+            let drawn: CGImage?
+            if let scene {
+                drawn = scene
+            } else {
+                let badge = AchievementBadge(def: def, index: index).frame(width: side, height: side)
+                let renderer = ImageRenderer(content: badge)
+                renderer.proposedSize = ProposedViewSize(width: side, height: side)
+                renderer.scale = 1
+                renderer.isOpaque = true
+                drawn = renderer.cgImage
+            }
+            guard let cgImage = drawn, let data = IconExport.opaquePNG(cgImage, side: side) else {
                 AppTrace.t("HUSH-T badges failed \(id): no image")
                 continue
             }

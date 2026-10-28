@@ -870,7 +870,8 @@ struct LessonTests {
     @Test func theBankStepSaysBank() {
         let s = LessonScript(start: .bank)
         #expect(s.line(slider: true, angle: nil, hint: nil) == "Slide the lever down to bank it.")
-        #expect(s.line(slider: false, angle: nil, hint: nil) == "Ease the lid down to upright to bank it.")
+        // R11 (UX P2-2): one "to".
+        #expect(s.line(slider: false, angle: nil, hint: nil) == "Ease the lid back upright to bank it.")
     }
 
     @Test func sliderPoseAndWords() {
@@ -1128,7 +1129,8 @@ struct CopyTests {
 
     @Test func homeCaptionTeaches() {
         #expect(HomeView.caption(HomeLid(openness: 0, speed: 0), hinge: true) == "Lift the lid… slowly.")
-        #expect(HomeView.caption(HomeLid(openness: 0, speed: 0), hinge: false) == "Slide its lid up… slowly.")
+        // R11 (tester 11): the lever's own words on a phone.
+        #expect(HomeView.caption(HomeLid(openness: 0, speed: 0), hinge: false) == "Slide the lever up… slowly.")
         #expect(HomeView.caption(HomeLid(openness: 0.5, speed: 0), hinge: true).contains("peeking"))
         #expect(HomeView.caption(HomeLid(openness: 0.5, speed: 80), hinge: true).contains("mimic"))
     }
@@ -2388,7 +2390,8 @@ struct R7Tests {
         #expect(HushCopy.wordCount(HushCopy.bankLid) <= 6)
         #expect(HushCopy.stakes(slider: false).last?.text == "Ease the lid down to bank")
         let bank = LessonScript(start: .bank).line(slider: false, angle: nil, hint: nil)
-        #expect(bank.contains("to upright"))
+        // R11: "back upright" (one "to"; it read "down to upright to bank it").
+        #expect(bank.contains("upright"))
         // No fold copy says "shut" (a hand told "shut" folds the Duo all the way, onto the cover display).
         var lines = HushCopy.allHints.map { HushCopy.hint($0, slider: false) }
         lines += HushCopy.stakes(slider: false).map(\.text)
@@ -2637,7 +2640,8 @@ struct R7Tests {
     @Test func theSettingsRowsSayWhatTheyDo() {
         #expect(AppRules.sensitivityTitle == "Lid sensitivity")
         #expect(AppRules.vibrationTitle == "Vibration")
-        #expect(LidSensitivity.allCases.map { AppRules.sensitivityName($0) } == ["Forgiving", "Normal", "Careful"])
+        // R11 (tester 11): the third is shown as "Strict" (stored as "careful").
+        #expect(LidSensitivity.allCases.map { AppRules.sensitivityName($0) } == ["Forgiving", "Normal", "Strict"])
         #expect(HapticStrength.allCases.map(\.title) == ["Off", "Normal", "Strong"])
         for s in LidSensitivity.allCases {
             #expect(AppRules.sensitivityDetail(s).contains("The scored Daily always plays Normal."))
@@ -3309,5 +3313,352 @@ struct R10Tests {
         // The ratio is the portrait scene's own geometry (600 × 480 aspect-fit, a 400-unit box, a 330-unit chest).
         #expect(PortraitScenes.size == CGSize(width: 600, height: 480))
         #expect(MimicPortraitScene.box == 400)
+    }
+}
+
+// MARK: - R11 (design/ROUND-11.md App items 1–9, design/notes/app-R11.md): last polish before launch
+
+/// R11: Forgiving is findable (option lines, "Strict", the Results nudge), a first Skip teaches the gist, the lever's
+/// words on phone Home, the copy fixes, VoiceOver on the never-stuck cards, the Duo Settings split, the QA-6 P2s and
+/// the stronger Results fade.
+@MainActor
+struct R11Tests {
+    private func makeController(lessonDone: Bool = true, runs: Int = 10) -> GameController {
+        var data = ProgressData()
+        data.lessonDone = lessonDone
+        data.runs = runs
+        return GameController(store: ProgressStore(inMemory: data), settings: SettingsStore(defaults: nil))
+    }
+
+    /// A live hinge run on the Duo's inner display (no hinge report yet: held on the closing card).
+    private func makeFoldRun() -> GameController {
+        let controller = makeController()
+        controller.updateCanvas(CGSize(width: 669, height: 951), hasFold: true, quarterTurns: 2)
+        controller.play()
+        return controller
+    }
+
+    private func height<V: View>(_ view: V, width: CGFloat, size: DynamicTypeSize = .large) -> CGFloat {
+        let host = UIHostingController(rootView: AnyView(view.environment(\.dynamicTypeSize, size)))
+        return host.sizeThatFits(in: CGSize(width: width, height: 10_000)).height
+    }
+
+    // MARK: Item 4: phone Home speaks of the lever (tester 11, three rounds running)
+
+    /// Phone Home's resting caption is the lever's words, word for word the lesson's step 1 and the run's hint, never
+    /// "its lid" (the source of "Slide its lid up… slowly." was `HomeView.caption`'s phone branch).
+    @Test func phoneHomeUsesLeverWords() {
+        let rest = HomeView.caption(HomeLid(openness: 0, speed: 0), hinge: false)
+        #expect(rest == HomeView.phoneCaption)
+        #expect(rest.lowercased().contains("lever"))
+        #expect(!rest.lowercased().contains("lid"))
+        #expect(rest == LessonScript(start: .pose).line(slider: true, angle: nil, hint: nil))
+        #expect(rest.hasPrefix(HushCopy.hint(.openSlowly, slider: true)))
+        // The Duo keeps the lid's words.
+        #expect(HomeView.caption(HomeLid(openness: 0, speed: 0), hinge: true) == "Lift the lid… slowly.")
+    }
+
+    // MARK: Item 1: Forgiving is findable; "Careful" is "Strict"
+
+    @Test func everySensitivityOptionSaysWhenToPickIt() {
+        #expect(AppRules.sensitivityLine(.forgiving) == "For a stiff hinge or shaky hands. Easier to stay quiet.")
+        #expect(AppRules.sensitivityLine(.normal) == "If it wakes while you're being gentle, try Forgiving.")
+        #expect(AppRules.sensitivityLine(.careful) == "For thieves who never creak.")
+        // The scored Daily line stays, whatever is chosen.
+        for s in LidSensitivity.allCases {
+            #expect(AppRules.sensitivityDetail(s) == AppRules.scoredDailyLine)
+        }
+        #expect(AppRules.scoredDailyLine == "The scored Daily always plays Normal.")
+        #expect(AppRules.sensitivityName(.careful) == "Strict")
+        #expect(!LidSensitivity.allCases.map { AppRules.sensitivityName($0) }.contains("Careful"))
+    }
+
+    /// The rename keeps every save: "careful" (R7–R10) decodes to Strict, "strict" too, and Strict is written back
+    /// as "careful".
+    @Test func strictIsStoredAsCareful() throws {
+        let old = try #require(SettingsStore.decode(Data(#"{"lidSensitivity": "careful"}"#.utf8)))
+        #expect(old.lidSensitivity == .careful)
+        #expect(AppRules.sensitivityName(old.lidSensitivity) == "Strict")
+        let alias = try #require(SettingsStore.decode(Data(#"{"lidSensitivity": "strict"}"#.utf8)))
+        #expect(alias.lidSensitivity == .careful)
+        let number = try #require(SettingsStore.decode(Data(#"{"lidSensitivity": 2, "soundOn": false}"#.utf8)))
+        #expect(number.lidSensitivity == .normal)
+        #expect(!number.soundOn)
+        #expect(SettingsData.sensitivity(stored: nil) == .normal)
+        #expect(SettingsData.sensitivity(stored: "forgiving") == .forgiving)
+        #expect(SettingsData.sensitivity(stored: "wild") == .normal)
+        var strict = SettingsData()
+        strict.lidSensitivity = .careful
+        let raw = try #require(SettingsStore.encode(strict))
+        let text = String(decoding: raw, as: UTF8.self)
+        #expect(text.contains("\"careful\""))
+        let back = try #require(SettingsStore.decode(raw))
+        #expect(back.lidSensitivity == .careful)
+        // Through the store, on the device.
+        let suite = "hush.tests.r11.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        defaults.set(Data(#"{"lidSensitivity": "careful"}"#.utf8), forKey: SettingsStore.key)
+        let store = SettingsStore(defaults: defaults)
+        #expect(store.lidSensitivity == .careful)
+    }
+
+    /// The nudge fires once, only at Normal, only after ≥ 3 bites in one of the first 2 runs, never on the scored
+    /// Daily, the lesson or attract.
+    @Test func theForgivingNudgeRule() {
+        let n = AppRules.self
+        #expect(n.offersForgivingNudge(mode: .run, bites: 3, runsSoFar: 1, sensitivity: .normal, seen: false))
+        #expect(n.offersForgivingNudge(mode: .run, bites: 5, runsSoFar: 2, sensitivity: .normal, seen: false))
+        #expect(n.offersForgivingNudge(mode: .daily(day: 4, scored: false), bites: 4, runsSoFar: 1,
+                                       sensitivity: .normal, seen: false))
+        // Once ever.
+        #expect(!n.offersForgivingNudge(mode: .run, bites: 5, runsSoFar: 1, sensitivity: .normal, seen: true))
+        // Never at Forgiving or Strict.
+        #expect(!n.offersForgivingNudge(mode: .run, bites: 5, runsSoFar: 1, sensitivity: .forgiving, seen: false))
+        #expect(!n.offersForgivingNudge(mode: .run, bites: 5, runsSoFar: 1, sensitivity: .careful, seen: false))
+        // Too few bites, too late.
+        #expect(!n.offersForgivingNudge(mode: .run, bites: 2, runsSoFar: 1, sensitivity: .normal, seen: false))
+        #expect(!n.offersForgivingNudge(mode: .run, bites: 6, runsSoFar: 3, sensitivity: .normal, seen: false))
+        #expect(!n.offersForgivingNudge(mode: .run, bites: 6, runsSoFar: 0, sensitivity: .normal, seen: false))
+        // Never on the scored Daily, the lesson or attract.
+        #expect(!n.offersForgivingNudge(mode: .daily(day: 4, scored: true), bites: 6, runsSoFar: 1,
+                                        sensitivity: .normal, seen: false))
+        #expect(!n.offersForgivingNudge(mode: .lesson, bites: 6, runsSoFar: 1, sensitivity: .normal, seen: false))
+        #expect(!n.offersForgivingNudge(mode: .attract, bites: 6, runsSoFar: 1, sensitivity: .normal, seen: false))
+        #expect(AppRules.forgivingNudgeLine == "Keeps waking? Try a forgiving lid.")
+        #expect(AppRules.forgivingNudgeButton == "Make it forgiving")
+        #expect(AppRules.forgivingNudgeDone == "Forgiving on. Change it in Settings.")
+        // A summary offers nothing unless told.
+        #expect(!ResultSummary(result: makeRun(), outcome: RecordOutcome(), title: "", story: "", rankTitle: "",
+                               nextRankTitle: nil, rankProgressBefore: 0, rankProgressAfter: 0, againLabel: "")
+            .offersForgiving)
+    }
+
+    /// "Make it forgiving" sets the player's Lid sensitivity (the next run plays it).
+    @Test func makeItForgivingSetsTheLid() {
+        let c = makeController(runs: 1)
+        #expect(c.settings.lidSensitivity == .normal)
+        c.makeLidForgiving()
+        #expect(c.settings.lidSensitivity == .forgiving)
+    }
+
+    // MARK: Item 2: a first Skip lands on the stakes card
+
+    @Test func aFirstSkipTeachesTheGist() {
+        var s = LessonScript()
+        let before = s.display(slider: false, angle: nil, hint: nil)
+        s.skipToStakes()
+        let d = s.display(slider: false, angle: nil, hint: nil)
+        #expect(d.isFinal)
+        #expect(d.gist)
+        #expect(d.finalCardTitle == "Here's the gist, little thief.")
+        #expect(LessonDisplay.announcement(from: before, to: d) == AppRules.gistTitle)
+        // Reached normally, it is still "Lovely work…".
+        let earned = LessonScript(start: .done).display(slider: false, angle: nil, hint: nil)
+        #expect(!earned.gist)
+        #expect(earned.finalCardTitle == LessonDisplay.finalTitle)
+
+        // The controller: a first lesson's Skip stays in the lesson, on the card; "Got it" starts the first run.
+        let c = makeController(lessonDone: false, runs: 0)
+        c.startLesson(replay: false)
+        c.skipLesson()
+        #expect(c.route == .lesson)
+        #expect(c.lessonDisplay?.isFinal == true)
+        #expect(c.lessonDisplay?.gist == true)
+        #expect(c.store.data.lessonDone)
+        c.finishLesson()
+        #expect(c.route == .playing)
+        c.goHome()
+        // A replay's Skip still goes Home.
+        let r = makeController()
+        r.startLesson(replay: true, at: .open)
+        r.skipLesson()
+        #expect(r.route == .home)
+    }
+
+    /// The stakes card says how to pause on a Duo's floor (≤ 6 words), not on a tight fold floor or a phone, and the
+    /// Duo's four-row card still fits its floor half at the default size.
+    @Test func theStakesCardSaysHowToPause() {
+        let duoRows = LessonFinalCard.rows(slider: false, tight: false)
+        #expect(duoRows.count == 4)
+        #expect(duoRows.last?.text == "Close the lid to pause")
+        #expect(duoRows.last?.icon == .pause)
+        #expect(LessonFinalCard.rows(slider: false, tight: true).count == 3)
+        #expect(LessonFinalCard.rows(slider: true, tight: false).count == 3)
+        for slider in [true, false] { #expect(HushCopy.wordCount(HushCopy.pauseStake(slider: slider).text) <= 6) }
+        #expect(!HushCopy.pauseStake(slider: false).text.lowercased().contains("shut"))
+
+        let c = makeController()
+        c.updateCanvas(CGSize(width: 669, height: 951), hasFold: true, quarterTurns: 2)
+        #expect(!c.sliderWording)
+        let duo = AppCanvas(size: CGSize(width: 669, height: 951), insets: EdgeInsets(), hasFold: true, turned: true)
+        #expect(!duo.tightFloor)
+        let card = LessonFinalCard(controller: c, compact: duo.isCompact, width: LessonFinalCard.width(duo),
+                                   tight: duo.tightFloor)
+        let cardHeight = height(card, width: duo.size.width)
+        #expect(cardHeight > 200)
+        #expect(cardHeight <= duo.floorHalf.height, "Final card \(cardHeight) > \(duo.floorHalf.height)")
+    }
+
+    // MARK: Item 4: copy
+
+    @Test func theCopyFixes() {
+        #expect(HushCopy.hint(.easeLidDown, slider: false) == "Lower the lid a little first")
+        #expect(HushCopy.wordCount(HushCopy.hint(.easeLidDown, slider: false)) <= 6)
+        // "Ease the lid down" now only ever means bank.
+        for hint in HushCopy.allHints where hint != .shutToBank {
+            #expect(!HushCopy.hint(hint, slider: false).hasPrefix("Ease the lid down"))
+        }
+        let open = LessonScript(start: .open).line(slider: false, angle: nil, hint: .easeLidDown)
+        #expect(open == "Lower the lid a little first.")
+        let lower = LessonScript(start: .pose).line(slider: false, angle: 140, hint: nil)
+        #expect(lower == "Lower the lid a little, nearly upright…")
+        let bank = LessonScript(start: .bank).line(slider: false, angle: nil, hint: nil)
+        #expect(bank == "Ease the lid back upright to bank it.")
+        #expect(bank.components(separatedBy: " to ").count == 2)   // one "to"
+        let five = RunResult(mode: .run, seed: 1, gold: 900, seconds: 100, chestsOpened: 8, chestsBanked: 3,
+                             hushed: 0, bites: 5, relics: [], bestChestValue: 300, itemsBagged: 12,
+                             highestTier: .iron, lostToBites: 400)
+        #expect(AppRules.causeLine(five) == "The mimic bit you 5 times, and your candle burned out.")
+        #expect(AppRules.causeLine(makeRun(bites: 1)) == "The mimic bit you once, and your candle burned out.")
+        #expect(AppRules.causeLine(makeRun(bites: 0)) == "Your candle burned out.")
+    }
+
+    // MARK: Item 5: "Hushed!" only on a Hushed bank (not a bug: frames 07b/14 and 19 were different runs)
+
+    /// The bank's "Hushed!" (the scene's eyebrow and VoiceOver) comes from `banked(hushed:)` alone: ci19s 07b and 14
+    /// logged `hushed=1` (the perfect pilot), 19 was the novice's run (no Hushed bank, "0 Hushed").
+    @Test func hushedIsSaidOnlyForAHushedBank() {
+        #expect(HushCopy.announcement(.banked(value: 179, items: 6, hushed: false)) == "Banked 179 gold.")
+        #expect(HushCopy.announcement(.banked(value: 179, items: 6, hushed: false), chain: 1.1) == "Banked 179 gold.")
+        #expect(HushCopy.announcement(.banked(value: 197, items: 6, hushed: true)) == "Hushed! Banked 197 gold.")
+    }
+
+    // MARK: Item 6: VoiceOver
+
+    @Test func voiceOverHearsTheChainAndTheEscapes() {
+        let events: [HeistEvent] = [.banked(value: 197, items: 6, hushed: true), .chainUp(count: 1, multiplier: 1.1)]
+        let m = GameController.chainMultiplier(in: events)
+        #expect(m == 1.1)
+        #expect(GameController.chainMultiplier(in: [.banked(value: 9, items: 1, hushed: false)]) == nil)
+        #expect(HushCopy.announcement(events[0], chain: m) == "Hushed! Banked 197 gold. Hush Chain, times 1.1.")
+        #expect(HushCopy.announcement(.chainUp(count: 1, multiplier: 1.1)) == nil)
+        #expect(AppRules.escapeAnnouncement(midRun: true) == "Carry on is ready.")
+        #expect(AppRules.escapeAnnouncement(midRun: false).contains("Home"))
+        // A VoiceOver double-tap pauses at once: the hint says what it does, not "press and hold".
+        #expect(PauseCoin.accessibilityHintText == "Pauses the chest")
+        #expect(!PauseCoin.accessibilityHintText.lowercased().contains("hold"))
+    }
+
+    // MARK: Item 7: the Duo Settings lid group fits
+
+    @Test func playSoundOnSilentMovedToTheFloor() {
+        #expect(!SettingsView.lidGroup.contains(SettingsView.silentTitle))
+        #expect(SettingsView.lidGroup == ["Sound", "Vibration", "Lid sensitivity"])
+        #expect(SettingsView.floorGroup(duo: true) == [SettingsView.silentTitle, SettingsView.turnTitle, "Reduce motion"])
+        #expect(SettingsView.floorGroup(duo: false) == [SettingsView.silentTitle, "Reduce motion"])
+        // QA-6 P2-4: VoiceOver reads the lid half (the title) first, however the halves are drawn.
+        #expect(PageScaffold<EmptyView>.lidReadingPriority > PageScaffold<EmptyView>.floorReadingPriority)
+    }
+
+    // MARK: Item 8: QA-6 P2s
+
+    /// P2-2: a healthy hinge at rest re-delivers after the 3 s refresh, so the words never flip to "Move the lid a
+    /// little" (the copy check is a second later and finds the report).
+    @Test func theClosingCardNoLongerFlickersAtThreeSeconds() {
+        let c = makeFoldRun()
+        #expect(c.isClosingPaused)
+        let before = c.hingeRefresh
+        let refreshed = c.closingSilenceRefresh()
+        #expect(refreshed)
+        #expect(c.hingeRefresh == before + 1)
+        c.hingeSample(angle: 60, time: CACurrentMediaTime() + 0.05)
+        let flipped = c.closingSilenceCopy()
+        #expect(!flipped)
+        #expect(!c.closingAwaitsHinge)
+        #expect(AppRules.closingCopyCheckDelay >= 0.5)
+        c.goHome()
+        OrientationLock.setMenuHold(false)
+    }
+
+    /// P2-3: the cover card re-subscribes a hinge silent since it went up, once.
+    @Test func theCoverCardRefreshesASilentHinge() {
+        let c = makeController()
+        c.hingeSample(angle: 120, time: CACurrentMediaTime() - 1)
+        c.setPose(.cover, canvas: CGSize(width: 466, height: 678))
+        let before = c.hingeRefresh
+        let silent = c.coverSilenceCheck()
+        #expect(silent)
+        #expect(c.hingeRefresh == before + 1)
+        c.hingeSample(angle: 120, time: CACurrentMediaTime() + 0.05)
+        let again = c.coverSilenceCheck()
+        #expect(!again)
+        c.setPose(.play, canvas: CGSize(width: 669, height: 951))
+        OrientationLock.setMenuHold(false)
+    }
+
+    /// P2-5: a system sheet is never held sideways: menus don't hold while one is up.
+    @Test func aSystemSheetIsNeverHeld() {
+        #expect(AppRules.menuHoldCountsMenus(systemSheetUp: false))
+        #expect(!AppRules.menuHoldCountsMenus(systemSheetUp: true))
+        var hold = MenuOrientationHold()
+        let on = hold.update(duo: true, menus: true, inner: true, angle: 120, stableFor: 2)
+        #expect(on)
+        let sheet = hold.update(duo: true, menus: AppRules.menuHoldCountsMenus(systemSheetUp: true), inner: true,
+                                angle: 120, stableFor: 2)
+        #expect(!sheet)
+    }
+
+    /// Scene R11 wired: the badges (page, Results, the Game Center export) are the Scene's milled-bezel image, in the
+    /// tier's metal, and Heavy Bag's glyph is the sack.
+    @Test func theBadgesAreTheScenesStruckMetal() {
+        #expect(BadgePainter.metal(.bronze) == .bronze)
+        #expect(BadgePainter.metal(.silver) == .silver)
+        #expect(BadgePainter.metal(.gold) == .gold)
+        #expect(BadgePainter.metal(BadgePainter.tier(index: 11)) == .gold)
+        let small = BadgePainter.image(motif: BadgePainter.motif(index: 5), tier: .silver, earned: false, side: 76,
+                                       scale: 2)
+        #expect(small != nil)
+        #expect(BadgePainter.image(motif: .key, tier: .bronze, earned: true, side: 0, scale: 1) == nil)
+        #expect(ChestArt.badgeGlyph(BadgePainter.motif(index: 5)) == .sack)
+    }
+
+    /// The scene's callouts take the plate's hint away while they show (ROUND-11 Scene 1).
+    @Test func theHintStepsAsideForASceneCallout() {
+        #expect(AppRules.hintYieldsToScene(sceneCallout: true))
+        #expect(!AppRules.hintYieldsToScene(sceneCallout: false))
+    }
+
+    // MARK: Items 3 and 9: demo keys; the closing card at AX sizes; the Results fade
+
+    @Test func theNewDemoKeysParse() {
+        let hold = DemoMode.parse("screen=run;mode=run;seed=7;lid=0.6;fold=1;turn=0;hint=holdToPause")
+        #expect(hold.holdHint && hold.fold)
+        let cover = DemoMode.parse("screen=cover;midRun=1;escape=1")
+        #expect(cover.effectiveScreen == .cover && cover.midRun && cover.coverEscape)
+        let plain = DemoMode.parse("screen=cover")
+        #expect(!plain.midRun && !plain.coverEscape && !plain.holdHint)
+        #expect(PauseCoin.demoFill > 0 && PauseCoin.demoFill < 1)
+    }
+
+    @Test func theClosingCardFitsOrScrollsAtTheAccessibilitySizes() {
+        #expect(ClosingCard.fitsByStages(.accessibility1))
+        #expect(ClosingCard.fitsByStages(.accessibility5))
+        #expect(!ClosingCard.fitsByStages(.xxxLarge))
+        #expect(!ClosingCard.fitsByStages(.large))
+    }
+
+    /// Item 9 (tester 11 frame 20): a cut-off card under the fade reads as "more below": a taller, steeper fade.
+    @Test func theResultsFadeSaysMoreBelow() {
+        #expect(FadingScroll<EmptyView>.fadeHeight >= 48)
+        let stops = FadingScroll<EmptyView>.fadeStops(fade: 0.3)
+        #expect(stops.first?.opacity == 1)
+        #expect(stops.last?.opacity == 0)
+        #expect(stops.last?.location == 1)
+        #expect(stops.contains { $0.opacity > 0 && $0.opacity < 0.5 })
+        // Content that fits is never faded.
+        let none = FadingScroll<EmptyView>.fadeStops(fade: 0)
+        #expect(none.allSatisfy { $0.opacity == 1 })
+        #expect(FadingScroll<EmptyView>.fadeMaxFraction <= 0.4)
     }
 }

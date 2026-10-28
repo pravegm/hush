@@ -48,11 +48,16 @@ struct LessonDisplay: Equatable {
     /// R3 (UX P0-1): the lid marker's cue in the pose step, from the SAME angle branch as the line (nil: no lid marker,
     /// e.g. the lever on a phone).
     var liftCue: LessonScript.LiftCue? = nil
+    /// R11 (UX P1-2): the first lesson was skipped: the stakes card is "the gist", not "Lovely work…".
+    var gist: Bool = false
+
+    /// The final card's title for this display. Pure; tested.
+    var finalCardTitle: String { gist ? AppRules.gistTitle : LessonDisplay.finalTitle }
 
     /// R4 (QA-3 P2, UX P2-9): what VoiceOver hears when the lesson moves on: a new step, a praise beat, a warning, the
     /// final card. Nil when nothing new is said (the pose step's line following the angle isn't re-read). Pure; tested.
     static func announcement(from old: LessonDisplay?, to new: LessonDisplay) -> String? {
-        if new.isFinal { return old?.isFinal == true ? nil : LessonDisplay.finalTitle }
+        if new.isFinal { return old?.isFinal == true ? nil : new.finalCardTitle }
         guard let old else { return new.line }
         if old.step != new.step || old.praise != new.praise || old.warning != new.warning || old.isFinal {
             return new.line
@@ -185,10 +190,22 @@ struct LessonScript: Equatable {
     private var calmPending = false
     /// R2 (QA-1 P2-1): banks made before the Freeze step was taught. The first sends the lesson round once more.
     private(set) var earlyBanks = 0
+    /// R11 (UX P1-2): a first lesson's Skip jumped straight to the stakes card.
+    private(set) var skippedToGist = false
 
     init(start: Step = .pose, replay: Bool = false) {
         self.step = start
         self.replay = replay
+    }
+
+    /// R11 (UX P1-2): Skip on a FIRST lesson lands on the stakes card ("Here's the gist, little thief."), so a player
+    /// stuck at step 1 still learns the candle, the bite and the bank before the first run. No praise beat.
+    mutating func skipToStakes() {
+        praiseLine = nil
+        praiseUntil = nil
+        next = nil
+        skippedToGist = true
+        enter(.done, at: time)
     }
 
     /// Skip is offered after step 2 (or any time on a replay). R7 (ROUND-7 App 3): also from step 1 once the lesson
@@ -381,13 +398,15 @@ struct LessonScript: Equatable {
             if slider { return "Slide the lever up… slowly." }
             switch Self.liftCue(angle: angle) {
             case .lift: return "Stand your Duo like a little laptop."
-            case .lower: return "Close the lid a little, nearly upright…"
+            // R11 (UX P2-2): "Lower", the pose step's own verb (the only "close" left in the lesson).
+            case .lower: return "Lower the lid a little, nearly upright…"
             case .liftMore: return "Lift it a little more…"
             case .hold: return "Hold it there…"
             }
         case .open:
+            // R11 (UX P2-2): "Ease the lid down" means bank; here the lid only has to come under 110°.
             if hint == .easeLidDown {
-                return slider ? "Slide the lever all the way down first." : "Ease the lid down first."
+                return slider ? "Slide the lever all the way down first." : "Lower the lid a little first."
             }
             return slider ? "Slide the lever up… slowly. Watch the noise." : "Open the lid… slowly. Watch the noise."
         case .grab:
@@ -398,7 +417,8 @@ struct LessonScript: Equatable {
             return movedDuringFreeze ? "Freeze! Not a twitch." : "It's stirring. Freeze!"
         case .bank:
             // R7 (DEVICE-RISKS-1 item 3): never "shut" (the game's shut is upright, 100°; a hand folds the Duo shut).
-            return slider ? "Slide the lever down to bank it." : "Ease the lid down to upright to bank it."
+            // R11 (UX P2-2, ROUND-11 App 4): one "to" (it read "down to upright to bank it").
+            return slider ? "Slide the lever down to bank it." : "Ease the lid back upright to bank it."
         case .done:
             return "Candle out = run over"
         }
@@ -412,6 +432,7 @@ struct LessonScript: Equatable {
                              marksLid: marks, isFinal: step == .done && praiseLine == nil,
                              usesSlider: slider,
                              pointsAtMeter: praiseLine == nil && (step == .open || (step == .freeze && stirred)),
-                             liftCue: marks && !slider && !isSlower ? Self.liftCue(angle: angle) : nil)
+                             liftCue: marks && !slider && !isSlower ? Self.liftCue(angle: angle) : nil,
+                             gist: skippedToGist)
     }
 }

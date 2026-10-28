@@ -151,6 +151,35 @@ final class SceneMoments {
     /// R4: the share of the interior's light the between-chests shadow lets through (1 open … ≈ 0.4 shut).
     private(set) var interiorLight: CGFloat = 1
 
+    // MARK: R11: callouts keep 12 pt under the App's plate (juror P2-1, tester 11)
+
+    /// The highest a callout's top may reach (canvas y), set by the scene before every frame
+    /// (`ChestLayout.calloutCeiling(viewScale:plate:)`).
+    var calloutCeiling: CGFloat = ChestLayout.calloutCeiling(viewScale: 1)
+    /// How far "CREAK!" and the bank stack (with "Next chest…") are moved down this frame (0 in the lesson: its card
+    /// is at the bottom and nothing of the App's sits at the top).
+    private(set) var creakDrop: CGFloat = 0
+    private(set) var stackDrop: CGFloat = 0
+    /// The callouts' highest points as placed (canvas y; tests).
+    var creakTop: CGFloat { ChestLayout.creakTop - creakDrop }
+    var bankStackTop: CGFloat { ChestLayout.bankStackTop - stackDrop }
+    /// Where "CREAK!", "Hushed!" and "Next chest…" are placed now (canvas y; tests).
+    var creakCenterY: CGFloat { creakLabel.node.position.y }
+    var bankEyebrowCenterY: CGFloat { bankEyebrow.node.position.y }
+    var nextChestCenterY: CGFloat { nextLabel.node.position.y }
+    /// A scene callout is on screen (CREAK!, the bank stack, the bite, the relic card, "Next chest…"). The App may hide
+    /// its hint plate meanwhile (one prompt at a time); the drop above keeps the gap even if it doesn't.
+    var calloutActive: Bool { creakShowing || bankActive || biteActive || bannerShowing || nextChestShowing }
+    /// R11 (tester 11, frame 15): the relic card as drawn now (canvas, its pop included) and how opaque it is (0 when
+    /// hidden). The loot under it is hidden by this much (`SceneLootView`).
+    private(set) var relicCardRect: CGRect = .null
+    private(set) var relicCardLevel: CGFloat = 0
+
+    /// The highest a short rising popup (`size` pt, rising `rise`) may START so its top stays under the ceiling.
+    func popupCeiling(rise: CGFloat, size: CGFloat = 26) -> CGFloat {
+        calloutCeiling - max(rise, 0) - size * 0.42
+    }
+
     init() {
         let pal = ChestArt.palette
         let canvas = ChestLayout.canvas
@@ -201,7 +230,7 @@ final class SceneMoments {
         lossN.node.isHidden = true
 
         // R3: the bank's one centred stack, in the brass / cream palette (no green).
-        let eyebrowN = SceneLabel(size: 26, color: ScenePaint.ui(pal.candle))
+        let eyebrowN = SceneLabel(size: ChestLayout.bankEyebrowFontSize, color: ScenePaint.ui(pal.candle))
         eyebrowN.set("Hushed!")
         eyebrowN.node.position = CGPoint(x: canvas.width / 2, y: ChestLayout.bankEyebrowY)
         eyebrowN.node.isHidden = true
@@ -215,8 +244,8 @@ final class SceneMoments {
         subN.node.isHidden = true
 
         // R3: "CREAK!" (a slam that didn't bite): cream with a thick brown edge, tilted.
-        let creakN = SceneLabel(size: 46, color: ScenePaint.ui(pal.text), outline: ScenePaint.ui(RGBA(hex: 0x5A1E08)),
-                                strokeWidth: -8)
+        let creakN = SceneLabel(size: ChestLayout.creakFontSize, color: ScenePaint.ui(pal.text),
+                                outline: ScenePaint.ui(RGBA(hex: 0x5A1E08)), strokeWidth: -8)
         creakN.set("CREAK!")
         creakN.node.position = ChestLayout.creakPoint
         creakN.node.zRotation = -0.08
@@ -375,6 +404,8 @@ final class SceneMoments {
         nextLevel = 0
         interiorLight = 1
         throat.alpha = 0
+        relicCardRect = .null
+        relicCardLevel = 0
     }
 
     static func tierName(_ t: ChestTier) -> String {
@@ -414,7 +445,8 @@ final class SceneMoments {
         biteLost = max(lostValue, 0)
         biteLoss.set(biteLost > 0 ? "−\(SceneNumber.gold(biteLost))" : "")
         if seconds.isFinite && seconds > 0 {
-            popup("−\(Int(seconds.rounded()))s", at: CGPoint(x: candle.x + 56, y: min(candle.y + 10, 336)),
+            popup("−\(Int(seconds.rounded()))s",
+                  at: CGPoint(x: candle.x + 56, y: min(candle.y + 10, 336, popupCeiling(rise: 46))),
                   color: ScenePaint.ui(ChestArt.palette.danger), delay: 0.2, rise: 46)
         }
     }
@@ -529,6 +561,16 @@ final class SceneMoments {
         var f = SceneMomentFrame()
         let pal = ChestArt.palette
         let w = ChestLayout.canvas.width
+
+        // R11: drop the callouts under the App's plate (never in the lesson).
+        let lesson = s.mode == .lesson
+        creakDrop = lesson ? 0 : ChestLayout.calloutDrop(top: ChestLayout.creakTop, ceiling: calloutCeiling)
+        stackDrop = lesson ? 0 : ChestLayout.calloutDrop(top: ChestLayout.bankStackTop, ceiling: calloutCeiling)
+        creakLabel.node.position = CGPoint(x: ChestLayout.creakPoint.x, y: ChestLayout.creakPoint.y - creakDrop)
+        bankEyebrow.node.position = CGPoint(x: w / 2, y: ChestLayout.bankEyebrowY - stackDrop)
+        bankValue.node.position = CGPoint(x: w / 2, y: ChestLayout.bankTitleY - stackDrop)
+        bankSub.node.position = CGPoint(x: w / 2, y: ChestLayout.bankSubY - stackDrop)
+        nextLabel.node.position = CGPoint(x: ChestLayout.nextChestPoint.x, y: ChestLayout.nextChestPoint.y - stackDrop)
 
         // The interior's shutter: down while the chest is "between chests"; the moments below move it.
         var cover: CGFloat = exited ? 1 : 0
@@ -729,11 +771,16 @@ final class SceneMoments {
             relicCard.alpha = fade
             bannerRays.zRotation = reduceMotion ? 0 : CGFloat(a) * 0.6
             bannerRays.setScale(SceneMoments.popScale(a) * (1 + 0.05 * CGFloat(sin(a * 3))))
-            relicCard.setScale(reduceMotion ? 1 : SceneMoments.popScale(a))
+            let cardScale = reduceMotion ? 1 : SceneMoments.popScale(a)
+            relicCard.setScale(cardScale)
             bannerArt.zRotation = reduceMotion ? 0 : 0.1 * CGFloat(sin(a * 2.4))
+            relicCardRect = ChestLayout.relicCardRect(scale: cardScale)
+            relicCardLevel = fade
         } else {
             bannerRays.isHidden = true
             relicCard.isHidden = true
+            relicCardRect = .null
+            relicCardLevel = 0
         }
 
         // R4 (UX P2-4): "Next chest…" between chests (not in the lesson, not over the relic card, not at the end).

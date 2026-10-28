@@ -20,6 +20,8 @@ struct ResultsView: View {
     @State private var scrollHeight: CGFloat = 0
     @State private var stripBottom: CGFloat = 0
     @State private var portraitFit: CGFloat? = nil
+    /// R11 (UX P1-1): the nudge's "Make it forgiving" was tapped.
+    @State private var forgivingChosen = false
 
     /// The phone column's coordinate space (the scroll's content, so scrolling never moves what's measured in it).
     static let columnSpace = "hush.results.column"
@@ -134,6 +136,9 @@ struct ResultsView: View {
                 }
             }
             .accessibilityElement(children: .combine)
+            if summary.offersForgiving {
+                forgivingNudge(c)
+            }
             MimicPortraitView(scene: controller.portraits.results, fps: min(controller.preferredFPS, 60))
                 .frame(height: max(portrait, Self.minPortrait))
             HStack(alignment: .center, spacing: 12) {
@@ -169,6 +174,32 @@ struct ResultsView: View {
                 .padding(.horizontal, 20)
                 .padding(.top, 2)
         }
+    }
+
+    /// R11 (UX P1-1): the one-time nudge under the cause line: "Keeps waking? Try a forgiving lid." with a small leather
+    /// "Make it forgiving", which sets Forgiving and becomes "Forgiving on. Change it in Settings."
+    private func forgivingNudge(_ c: Bool) -> some View {
+        VStack(spacing: 6) {
+            Text(forgivingChosen ? AppRules.forgivingNudgeDone : AppRules.forgivingNudgeLine)
+                .font(HushType.caption(c).weight(.semibold))
+                .foregroundStyle(PlateArt.text(.parchment))
+                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
+            if !forgivingChosen {
+                HushButton(kind: .leather, height: HushTheme.minTap, compact: true, action: {
+                    controller.makeLidForgiving()
+                    forgivingChosen = true
+                }) {
+                    Text(AppRules.forgivingNudgeButton)
+                }
+                .frame(maxWidth: 240)
+                .accessibilityHint(AppRules.sensitivityLine(.forgiving))
+                .accessibilityIdentifier("results.forgiving")
+            }
+        }
+        .hushPlate(.parchment, padding: 10, radius: 16)
+        .padding(.horizontal, 24)
+        .animation(HushTheme.settle(controller.reduceMotion), value: forgivingChosen)
     }
 
     private func goldBankedLabel(_ c: Bool) -> some View {
@@ -310,8 +341,19 @@ struct FadingScroll<Content: View>: View {
 
     /// R4 (QA-3 P2-8, frames 41/45): the chevron's own strip under the scroll, so it never sits on the totals.
     static var chevronStrip: CGFloat { 18 }   // computed: a generic type can't store a static
-    /// R5: the height of the fade at the foot of an overflowing scroll (the mask below).
-    static var fadeHeight: CGFloat { 36 }
+    /// R5: the height of the fade at the foot of an overflowing scroll (the mask below). R11 (ROUND-11 App 9, tester
+    /// 11 frame 20: a half-visible card read as clipped, not "scroll for more"): 36 → 56, and steeper (`fadeStops`).
+    static var fadeHeight: CGFloat { 56 }
+    /// R11: the most of the view the fade may take.
+    static var fadeMaxFraction: CGFloat { 0.35 }
+
+    /// R11: the mask's stops over the fade (location within the view, opacity): fully shown above it, under half by
+    /// its middle, gone at the foot, so a cut-off card dissolves instead of ending on a hard edge. Pure; tested.
+    static func fadeStops(fade: CGFloat) -> [(location: CGFloat, opacity: Double)] {
+        let f = min(max(fade.isFinite ? fade : 0, 0), 1)
+        guard f > 0 else { return [(0, 1), (1, 1)] }
+        return [(0, 1), (1 - f, 1), (1 - f * 0.45, 0.35), (1, 0)]
+    }
 
     var body: some View {
         let fades = state.overflows && !state.atEnd
@@ -319,8 +361,8 @@ struct FadingScroll<Content: View>: View {
             scroll(fades: fades)
             if state.overflows {
                 Image(systemName: "chevron.compact.down")
-                    .font(.system(size: 22, weight: .bold))
-                    .foregroundStyle(HushTheme.goldLight.opacity(0.85))
+                    .font(.system(size: 26, weight: .heavy))
+                    .foregroundStyle(HushTheme.goldLight)
                     .frame(height: Self.chevronStrip)
                     .opacity(fades ? 1 : 0)
                     .allowsHitTesting(false)
@@ -343,9 +385,10 @@ struct FadingScroll<Content: View>: View {
         }
         .mask {
             GeometryReader { g in
-                let fade = fades ? min(Self.fadeHeight / max(g.size.height, 1), 0.3) : 0
-                LinearGradient(stops: [.init(color: .black, location: 0), .init(color: .black, location: 1 - fade),
-                                       .init(color: .black.opacity(fades ? 0 : 1), location: 1)],
+                let fade = fades ? min(Self.fadeHeight / max(g.size.height, 1), Self.fadeMaxFraction) : 0
+                LinearGradient(stops: Self.fadeStops(fade: fade).map {
+                                   Gradient.Stop(color: .black.opacity($0.opacity), location: $0.location)
+                               },
                                startPoint: .top, endPoint: .bottom)
             }
         }

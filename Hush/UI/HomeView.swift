@@ -103,8 +103,13 @@ struct HomeView: View {
         if lid.openness > 0.85 { return "It's watching you." }
         if lid.openness > 0.3 { return "Shh… something's peeking." }
         // R4 (tester 8): the phone's words are the lever's ("slide"), the same verb the run and the lesson use.
-        return hinge ? "Lift the lid… slowly." : "Slide its lid up… slowly."
+        // R11 (tester 11, the third round running: "Slide its lid up" vs the game's "Slide the lever up"): the lever's
+        // own words, exactly the lesson's and the run's line (`phoneCaption`; a drag up on the chest still lifts it).
+        return hinge ? "Lift the lid… slowly." : Self.phoneCaption
     }
+
+    /// R11: the phone Home caption, word for word the lesson's step-1 line and the run's `openSlowly` hint. Tested.
+    static let phoneCaption = "Slide the lever up… slowly."
 }
 
 /// R3 (UX P2-12, brief "Home has no dead space"): the phone's floor half opens with the thief's standing: the best

@@ -52,22 +52,20 @@ extension AppRules {
     static let vibrationTitle = "Vibration"
 
     /// The row's option names. Pure; tested.
+    /// R11 (tester 11: "Careful" read as a quieter lid): the third option is "Strict". Its stored raw value stays
+    /// "careful" (Core's `LidSensitivity.careful`), so a saved choice still decodes to it.
     static func sensitivityName(_ s: LidSensitivity) -> String {
         switch s {
         case .forgiving: return "Forgiving"
         case .normal: return "Normal"
-        case .careful: return "Careful"
+        case .careful: return "Strict"
         }
     }
 
-    /// The row's detail line: what the choice does, and that the scored Daily always plays Normal. Pure; tested.
+    /// The row's detail line: that the scored Daily always plays Normal. R11 (UX P1-1): what each choice is FOR is now
+    /// on its own line under the pills (`sensitivityLine`), whichever is chosen. Pure; tested.
     static func sensitivityDetail(_ chosen: LidSensitivity) -> String {
-        let daily = "The scored Daily always plays Normal."
-        switch chosen {
-        case .forgiving: return "A jerky hinge makes less noise. " + daily
-        case .normal: return "How much noise the lid makes. " + daily
-        case .careful: return "Every creak counts for more. " + daily
-        }
+        scoredDailyLine
     }
 
     /// The Vibration row's detail line. Pure.

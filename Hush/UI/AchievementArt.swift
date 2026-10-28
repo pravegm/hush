@@ -101,15 +101,25 @@ struct AchievementBadge: View {
     let index: Int
     var side: CGFloat = 1024
     var earned = true
+    @Environment(\.displayScale) private var displayScale
 
     var body: some View {
         let motif = BadgePainter.motif(index: index)
         let tier = BadgePainter.tier(index: index)
         let earned = self.earned
+        let pixelScale = displayScale > 0 ? displayScale : 1
         Canvas(opaque: false, rendersAsynchronously: false) { context, size in
-            let scale = min(size.width, size.height) / 1024
-            context.scaleBy(x: scale, y: scale)
-            BadgePainter.paint(&context, motif: motif, tier: tier, earned: earned)
+            let rect = CGRect(origin: .zero, size: size)
+            // R11 (juror P2-7, tester 11 frame 40, Scene R11): the Scene's struck-metal badge (a milled bezel, Heavy
+            // Bag a sack of gold); the R2 painter only if it returns nothing.
+            if let image = BadgePainter.image(motif: motif, tier: tier, earned: earned,
+                                              side: min(size.width, size.height), scale: pixelScale) {
+                context.draw(Image(decorative: image, scale: pixelScale), in: rect)
+            } else {
+                let scale = min(size.width, size.height) / 1024
+                context.scaleBy(x: scale, y: scale)
+                BadgePainter.paint(&context, motif: motif, tier: tier, earned: earned)
+            }
         }
         .frame(width: side, height: side)
         .accessibilityHidden(true)
@@ -135,6 +145,22 @@ enum BadgePainter {
         if index >= 8 { return .gold }
         if index >= 4 { return .silver }
         return .bronze
+    }
+
+    /// R11: the Scene's bezel metal for a tier (by name). Pure; tested.
+    static func metal(_ tier: Tier) -> BadgeMetal {
+        switch tier {
+        case .bronze: return .bronze
+        case .silver: return .silver
+        case .gold: return .gold
+        }
+    }
+
+    /// R11 (Scene R11): the whole badge as the Scene draws it (`ChestArt.badgeImage`), `side` points at `scale` pixels a
+    /// point (the Game Center export: 1024, 1). Nil if it can't be drawn.
+    static func image(motif: RelicShape, tier: Tier, earned: Bool, side: CGFloat, scale: CGFloat) -> CGImage? {
+        guard side.isFinite, side > 0, scale.isFinite, scale > 0 else { return nil }
+        return ChestArt.badgeImage(motif: motif, metal: metal(tier), earned: earned, side: side, scale: scale)
     }
 
     static let night = Color(hushHex: 0x061012)
@@ -174,8 +200,8 @@ enum BadgePainter {
             : [Color(hushHex: 0x2A3436), Color(hushHex: 0x1A2224), Color(hushHex: 0x0E1416)]
         ctx.fill(inner, with: .radialGradient(Gradient(colors: velvet), center: CGPoint(x: 470, y: 420), startRadius: 0,
                                               endRadius: 400))
-        // The relic, 66 % of the velvet, never over the rim.
-        let art = ChestArt.relicArt(motif, radius: 50)
+        // The relic, 66 % of the velvet, never over the rim. R11: the badge glyph (Heavy Bag's idol is a sack).
+        let art = ChestArt.badgeGlyphArt(motif, radius: 50)
         let box = CGRect(x: 512 - 212, y: 512 - 212, width: 424, height: 424)
         let palette: LootPalette
         switch tier {

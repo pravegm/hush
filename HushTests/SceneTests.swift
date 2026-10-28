@@ -1638,6 +1638,305 @@ struct SceneTests {
         #expect(interior > CGFloat(0.999))
     }
 
+    // MARK: R11 (design/ROUND-11.md, Scene items 1–7)
+
+    /// Item 1 (juror P2-1, tester 11, frames 13b, 13c, 14): every callout keeps ≥ 12 view pt under the App's hint plate
+    /// at every scale ("CREAK!", the bank stack; CHOMP! never reaches it), a plate the App hands over can only lower
+    /// them, and the lesson (no plate at the top) keeps R3's places.
+    @Test @MainActor func calloutsKeepTwelvePointsUnderTheHintPlate() {
+        #expect(abs(ChestLayout.hintPlateMidY - HUDLayout.hintPlateRect.midY) < CGFloat(0.5))
+        for s in [ChestLayout.minViewScale, CGFloat(0.6), CGFloat(0.8), CGFloat(1)] {
+            let ceiling = ChestLayout.calloutCeiling(viewScale: s)
+            let plateBottom = ChestLayout.hintPlateBottom(viewScale: s)
+            #expect((plateBottom - ceiling) * s >= ChestLayout.calloutGap - 0.01)
+            // The App's plate (≤ 48 view pt, centred in its band) never reaches below the estimate.
+            #expect(HUDLayout.hintPlateRect.midY - ChestLayout.hintPlateViewHeight / 2 / s >= plateBottom - 0.01)
+            let creakDrop = ChestLayout.calloutDrop(top: ChestLayout.creakTop, ceiling: ceiling)
+            let stackDrop = ChestLayout.calloutDrop(top: ChestLayout.bankStackTop, ceiling: ceiling)
+            #expect(ChestLayout.creakTop - creakDrop <= ceiling + 0.01)
+            #expect(ChestLayout.bankStackTop - stackDrop <= ceiling + 0.01)
+            #expect(ChestLayout.titlePoint.y + ChestLayout.calloutHalfHeight(fontSize: 72) <= ceiling + 0.01)
+            // The dropped stack's last line ("Next chest…") stays in the interior, over the meter.
+            let nextBottom = ChestLayout.nextChestPoint.y - stackDrop - ChestLayout.calloutHalfHeight(fontSize: 22)
+            #expect(nextBottom >= ChestLayout.meterRect.maxY + 8)
+        }
+        let lowPlate = CGRect(x: 100, y: 360, width: 300, height: 60)
+        #expect(abs(ChestLayout.calloutCeiling(viewScale: 1, plate: lowPlate) - CGFloat(348)) < CGFloat(0.01))
+        let highPlate = CGRect(x: 100, y: 420, width: 300, height: 20)
+        #expect(abs(ChestLayout.calloutCeiling(viewScale: 1, plate: highPlate) - ChestLayout.calloutCeiling(viewScale: 1))
+                < CGFloat(0.01))
+
+        // The scene, on the CI phone (0.6): a creak, then a Hushed bank with a chain.
+        let scene = ChestScene(layout: SceneTests.phone)
+        scene.viewScale = 0.6
+        let driver = SceneFakeDriver()
+        scene.driver = driver
+        driver.startChest(SceneFakeDriver.chest(tier: .wooden, index: 1))
+        var clock = 0.0
+        driver.openTo(0.9)
+        driver.bag([0, 1])
+        driver.snap.bagValue = 100
+        SceneFakeDriver.run(scene, frames: 120, clock: &clock)
+        #expect(!scene.calloutActive)
+        scene.showCreak()
+        SceneFakeDriver.run(scene, frames: 14, clock: &clock)
+        #expect(scene.creakShowing)
+        #expect(scene.calloutActive)
+        let plateBottom = ChestLayout.hintPlateBottom(viewScale: 0.6)
+        #expect((plateBottom - scene.creakCalloutTop) * 0.6 >= ChestLayout.calloutGap - 0.01)
+        #expect(scene.creakCenterY < ChestLayout.creakPoint.y - 1)
+        SceneFakeDriver.run(scene, frames: 120, clock: &clock)
+        #expect(!scene.creakShowing)
+        #expect(!scene.calloutActive)
+        driver.openTo(0)
+        driver.snap.phase = .banked(elapsed: 0)
+        driver.snap.banked = 110
+        driver.snap.bagValue = 0
+        driver.snap.chain = 1
+        driver.pending = [.banked(value: 110, items: 2, hushed: true), .chainUp(count: 1, multiplier: 1.1)]
+        SceneFakeDriver.run(scene, frames: 60, clock: &clock)
+        #expect(scene.bankActive)
+        #expect(scene.calloutActive)
+        #expect((plateBottom - scene.bankStackTop) * 0.6 >= ChestLayout.calloutGap - 0.01)
+        #expect(scene.bankEyebrowCenterY < ChestLayout.bankEyebrowY - 1)
+        #expect(scene.nextChestCenterY < ChestLayout.nextChestPoint.y)
+
+        // The lesson: its card is at the bottom and nothing of the App's is at the top, so nothing moves.
+        let lesson = ChestScene(layout: SceneTests.phone)
+        lesson.viewScale = 0.6
+        let d2 = SceneFakeDriver()
+        lesson.driver = d2
+        d2.snap.mode = .lesson
+        d2.startChest(SceneFakeDriver.chest(tier: .wooden, index: 0))
+        var c2 = 0.0
+        SceneFakeDriver.run(lesson, frames: 10, clock: &c2)
+        #expect(abs(lesson.bankEyebrowCenterY - ChestLayout.bankEyebrowY) < CGFloat(0.01))
+        #expect(abs(lesson.creakCenterY - ChestLayout.creakPoint.y) < CGFloat(0.01))
+    }
+
+    /// Item 2 (tester 11, frame 14): the CHAIN pill ends ≥ 12 screen pt short of the front-right bracket on the CI
+    /// phone, and nothing it does (the pop, the crack's jolt) ever carries it further right.
+    @Test @MainActor func chainPillNeverRunsIntoTheBracket() {
+        let gap = ChestLayout.frontRightBracketMinX - ChestLayout.chainRect.maxX
+        #expect(gap >= ChestLayout.chainBracketGap - 0.001)
+        #expect(gap * 0.6 >= CGFloat(11.99))
+        let scene = ChestScene(layout: SceneTests.phone)
+        let driver = SceneFakeDriver()
+        scene.driver = driver
+        driver.startChest(SceneFakeDriver.chest(tier: .iron, index: 2))
+        var clock = 0.0
+        driver.openTo(0.9)
+        driver.bag([0])
+        driver.snap.bagValue = 20
+        SceneFakeDriver.run(scene, frames: 30, clock: &clock)
+        driver.snap.phase = .banked(elapsed: 0)
+        driver.snap.banked = 22
+        driver.snap.bagValue = 0
+        driver.snap.chain = 3
+        driver.pending = [.banked(value: 22, items: 1, hushed: true), .chainUp(count: 3, multiplier: 1.3)]
+        for _ in 0..<80 { SceneFakeDriver.run(scene, frames: 1, clock: &clock) }
+        #expect(scene.chainBadgeShowing)
+        driver.snap.chain = 0
+        driver.pending = [.chainBroken(count: 3)]
+        for _ in 0..<120 { SceneFakeDriver.run(scene, frames: 1, clock: &clock) }
+        #expect(scene.chainTabDrawnMaxX <= ChestLayout.chainRect.maxX + 0.01)
+        #expect(scene.chainTabDrawnMaxX > ChestLayout.chainRect.midX)
+    }
+
+    /// Item 3 (juror P2-4, tester 11, frame 16): the royal chest's jewels are never under the candle, its countdown,
+    /// the pause coin's seat (any scale), the hint plate (any scale), the HUD or the fold strip.
+    @Test func royalJewelsStayClearOfTheHUD() {
+        let r = ChestLayout.royalJewelRadius
+        #expect(ChestLayout.royalFloorJewels.count >= 3)
+        let scales: [CGFloat] = [ChestLayout.minViewScale, 0.6, 0.8, 1]
+        for j in ChestLayout.royalFloorJewels {
+            let box = CGRect(x: j.x - r, y: j.y - r, width: 2 * r, height: 2 * r)
+            #expect(ChestLayout.frameRect.contains(box))
+            #expect(box.maxY <= ChestLayout.rimInner.maxY)
+            for hud in [ChestLayout.torchRect, ChestLayout.countdownRect, ChestLayout.meterRect, ChestLayout.chainRect,
+                        ChestLayout.counterRect, ChestLayout.bagValueRect, ChestLayout.pouchRect] {
+                #expect(!box.intersects(hud))
+            }
+            for s in scales {
+                #expect(!box.intersects(ChestLayout.pauseSeat(viewScale: s)))
+                let band = HUDLayout.hintPlateRect
+                let plate = CGRect(x: band.minX, y: ChestLayout.hintPlateBottom(viewScale: s), width: band.width,
+                                   height: ChestLayout.floorTop - ChestLayout.hintPlateBottom(viewScale: s))
+                #expect(!box.intersects(plate))
+            }
+        }
+    }
+
+    /// Item 4 (frame 16): the "0:10" chip keeps ≥ 12 screen pt from the candle at every phone scale.
+    @Test @MainActor func countdownChipKeepsOffTheCandle() {
+        let gap = ChestLayout.countdownRect.minX - ChestLayout.torchRect.maxX
+        #expect(gap >= ChestLayout.countdownCandleGap - 0.001)
+        #expect(gap * ChestLayout.minViewScale >= CGFloat(11.99))
+        #expect(ChestLayout.countdownRect.minY > ChestLayout.meterRect.maxY)
+        #expect(ChestLayout.countdownRect.minY >= ChestLayout.candleBaseY - 16)
+        let scene = ChestScene(layout: SceneTests.phone)
+        let driver = SceneFakeDriver()
+        scene.driver = driver
+        driver.startChest(SceneFakeDriver.chest(tier: .royal, index: 9))
+        var clock = 0.0
+        driver.snap.torchTotal = 100
+        driver.snap.torchRemaining = 10
+        SceneFakeDriver.run(scene, frames: 10, clock: &clock)
+        #expect(scene.candleCountdown == "0:10")
+    }
+
+    /// Item 5 (tester 11, frames 07, 12, 16): "not safe yet" is ≥ 13 screen pt on the CI phone, inside the IN BAG
+    /// plate and clear of the pouch; the number rises (and settles back) to make room for it.
+    @Test @MainActor func notSafeYetIsLegible() {
+        #expect(ChestLayout.bagSublabelSize * 0.6 >= CGFloat(13))
+        #expect(ChestLayout.bagNumberLiftY > ChestLayout.plateNumberY)
+        #expect(ChestLayout.bagSublabelY > ChestLayout.bagValueRect.minY + 12)
+        let scene = ChestScene(layout: SceneTests.phone)
+        let driver = SceneFakeDriver()
+        scene.driver = driver
+        driver.startChest(SceneFakeDriver.chest(tier: .wooden, index: 0))
+        var clock = 0.0
+        driver.openTo(0.9)
+        driver.bag([0, 1])
+        driver.snap.bagValue = 179
+        SceneFakeDriver.run(scene, frames: 90, clock: &clock)
+        #expect(scene.bagSublabelShowing)
+        #expect(scene.bagSublabelFontSize >= ChestLayout.bagSublabelSize - 0.01)
+        let f = scene.bagSublabelFrame
+        #expect(f.width > CGFloat(60))
+        #expect(f.minX >= ChestLayout.bagValueLeft - 0.01)
+        #expect(f.maxX <= ChestLayout.pouchRect.minX - 4)
+        #expect(f.minY >= ChestLayout.bagValueRect.minY)
+        #expect(f.midY < scene.bagNumberCenter.y - 15)
+        #expect(abs(scene.bagNumberCenter.y - ChestLayout.bagNumberLiftY) < CGFloat(0.5))
+        #expect(abs(scene.bagNumberScale - ChestLayout.bagNumberLiftScale) < CGFloat(0.02))
+        // An empty bag: the words go and the number settles back level with BANKED's.
+        driver.loseBag()
+        driver.snap.bagValue = 0
+        SceneFakeDriver.run(scene, frames: 90, clock: &clock)
+        #expect(!scene.bagSublabelShowing)
+        #expect(abs(scene.bagNumberCenter.y - ChestLayout.plateNumberY) < CGFloat(0.5))
+    }
+
+    /// Item 6 (juror P2-7): praise on a plate is gold or cream, never green, and reads (≥ 4.5 : 1) on every plate.
+    @Test func praiseInkIsGoldAndReads() {
+        for style in PlateStyle.allCases {
+            let ink = ChestArt.praiseInk(style)
+            let plate = ChestArt.plateColors(style)
+            #expect(ScenePaint.contrast(ink, plate.fill) >= 4.5)
+            #expect(ScenePaint.contrast(ink, plate.fillDark) >= 4.5)
+            // Warm: red over green over blue (no moss, no teal).
+            #expect(ink.r > ink.g && ink.g >= ink.b)
+        }
+    }
+
+    /// Item 6 (juror P2-7, tester 11, frame 40): Heavy Bag's glyph is a sack (heavy at the foot, tied at the neck: no
+    /// head, no shoulders), only Heavy Bag's; the badge is a milled bezel (teeth all round the rim), not a porthole.
+    @Test func heavyBagIsASackOnAMilledBezel() {
+        #expect(ChestArt.badgeGlyph(.idol) == .sack)
+        #expect(ChestArt.badgeGlyph(.crown) == .relic(.crown))
+        let heavy = Achievements.all.firstIndex(where: { $0.id == Achievements.heavyBag.id }) ?? -1
+        #expect(ChestArt.badgeGlyph(BadgePainter.motif(index: heavy)) == .sack)
+        let sacks = BadgePainter.motifs.filter { ChestArt.badgeGlyph($0) == .sack }.count
+        #expect(sacks == 1)
+        let sack = ChestArt.sackArt(radius: 50)
+        for x in [CGFloat(-40), CGFloat(40)] {
+            #expect(sack.silhouette.contains(CGPoint(x: x, y: -22)))
+            #expect(!sack.silhouette.contains(CGPoint(x: x * 0.65, y: 23)))
+        }
+        let bb = sack.silhouette.boundingBoxOfPath
+        #expect(bb.minX >= CGFloat(-50.01) && bb.maxX <= CGFloat(50.01))
+        #expect(bb.minY >= CGFloat(-50.01) && bb.maxY <= CGFloat(50.01))
+        #expect(ChestArt.badgeGlyphArt(.idol, radius: 50).parts.count == sack.parts.count)
+
+        // The milled edge: square teeth between its two radii, all round.
+        #expect(ChestArt.badgeMillOuter > ChestArt.badgeRingOuter && ChestArt.badgeMillInner < ChestArt.badgeRingOuter)
+        let mill = ChestArt.badgeMillingPath(center: CGPoint(x: 512, y: 512))
+        let mb = mill.boundingBoxOfPath
+        #expect(abs(mb.width - 2 * ChestArt.badgeMillOuter) < CGFloat(2))
+        let cases: [(BadgeMetal, Bool)] = [(.gold, true), (.bronze, true), (.silver, false)]
+        for (metal, earned) in cases {
+            guard let img = ChestArt.badgeImage(motif: .idol, metal: metal, earned: earned, side: 512) else {
+                Issue.record("no badge image")
+                continue
+            }
+            #expect(img.width == 512 && img.height == 512)
+            let px = SceneTests.pixels(img)
+            #expect(px.data[3] > 250)
+            // Round the milled band, over the lit top-left: metal, gap, metal… (a porthole ring would be solid).
+            // (Between the raised ring's outline, which ends at 397, and the tooth tips at 408.)
+            let rad = CGFloat(403) / 1024 * 512
+            var bright: [Bool] = []
+            for step in 0...280 {
+                let a = (100 + Double(step) * 0.25) * Double.pi / 180
+                let x = Int((256 + cos(a) * Double(rad)).rounded())
+                let y = Int((256 - sin(a) * Double(rad)).rounded())
+                let c = px.rgb(x, y)
+                bright.append(0.2126 * c.0 + 0.7152 * c.1 + 0.0722 * c.2 > 0.12)
+            }
+            var flips = 0
+            for i in 1..<bright.count where bright[i] != bright[i - 1] { flips += 1 }
+            #expect(flips >= 16)
+        }
+    }
+
+    /// Item 7 (tester 11, frame 15): no loot peeks out from under the relic card (an item under its right handle is
+    /// hidden while the card is up), and it is drawn again once the card has gone.
+    @Test @MainActor func relicCardHidesTheLootUnderIt() {
+        let card = ChestLayout.relicCardRect(scale: 1)
+        #expect(SceneLootView.cardCoverAlpha(at: CGPoint(x: card.maxX + 4, y: card.midY), radius: 10, rect: card,
+                                             level: 1) < CGFloat(0.01))
+        #expect(SceneLootView.cardCoverAlpha(at: CGPoint(x: card.maxX + 60, y: card.midY), radius: 10, rect: card,
+                                             level: 1) > CGFloat(0.99))
+        #expect(SceneLootView.cardCoverAlpha(at: CGPoint(x: card.midX, y: card.midY), radius: 10, rect: card,
+                                             level: 0) > CGFloat(0.99))
+        guard !RelicCatalog.all.isEmpty, let relic = RelicCatalog.all.first else { return }
+        let scene = ChestScene(layout: SceneTests.phone)
+        let driver = SceneFakeDriver()
+        scene.driver = driver
+        driver.startChest(SceneFakeDriver.chest(tier: .gilded, index: 5))
+        var clock = 0.0
+        driver.openTo(0.95)
+        // The gem lies under the card's right handle (canvas ≈ (520, 194), frame 15's coin).
+        if let i = driver.snap.loot.firstIndex(where: { $0.id == 2 }) {
+            driver.snap.loot[i].position = ChestLayout.floor(fromCanvas: CGPoint(x: 520, y: 194))
+        }
+        driver.bag([0, 1])
+        driver.snap.bagValue = 40
+        SceneFakeDriver.run(scene, frames: 60, clock: &clock)
+        let before = scene.visibleLoot
+        driver.snap.phase = .banked(elapsed: 0)
+        driver.snap.banked = 40
+        driver.snap.bagValue = 0
+        driver.pending = [.banked(value: 40, items: 2, hushed: false), .relicFound(relic.id)]
+        var fullFrames = 0
+        for _ in 0..<260 {
+            SceneFakeDriver.run(scene, frames: 1, clock: &clock)
+            if scene.relicCardFullyShown {
+                fullFrames += 1
+                #expect(scene.lootUnderRelicCard == 0)
+                #expect(scene.relicCardRect.intersects(CGRect(x: 488, y: 162, width: 64, height: 64)))
+            }
+        }
+        #expect(fullFrames > 10)
+        SceneFakeDriver.run(scene, frames: 240, clock: &clock)
+        #expect(!scene.relicBannerShowing)
+        #expect(scene.visibleLoot >= 1)
+        #expect(before >= 1)
+    }
+
+    /// QA-6 P2-1: the raw-touch diagnostics exist in DEBUG (tests, CI demo builds) and start empty.
+    @Test @MainActor func rawTouchDiagnosticsStartEmpty() {
+        let scene = ChestScene(layout: SceneTests.phone)
+        #if DEBUG
+        #expect(scene.rawTouchesBegan == 0)
+        #expect(scene.lastRawTouch == "none")
+        #else
+        #expect(scene.rawTouchesBegan == 0)
+        #expect(scene.lastRawTouch == "-")
+        #endif
+    }
+
     // MARK: R6
 
     /// The window sizes of ROUND-6 item 3 (landscape and portrait), plus the Duo canvas and a phone.

@@ -54,11 +54,13 @@ enum ChestLayout {
     /// x 414) so the tab can read "CHAIN ×1.2" on one line at ≥ 11 screen pt; the well keeps its 20 segments.
     // R5b (CI 40597779067): "CHAIN ×1.5" drew 118.75 pt wide in a 112 pt column, so the meter gave up 14 more pt
     // (x 56…400) and the chain tab moved left into it.
-    static let meterRect = CGRect(x: 56, y: 104, width: 344, height: 32)
-    static let meterWell = CGRect(x: 142, y: 109, width: 210, height: 22)
+    // R11 (tester 11, frame 14: the CHAIN pill ran into the front-right bracket): 14 pt shorter again (x 56…386) so
+    // the chain tab ends `chainBracketGap` short of the bracket. The well keeps its 20 segments (10 pt each).
+    static let meterRect = CGRect(x: 56, y: 104, width: 330, height: 32)
+    static let meterWell = CGRect(x: 140, y: 109, width: 200, height: 22)
     static let meterSegments = 20
     static let meterLabelCenter = CGPoint(x: 99, y: 120)
-    static let meterTeethCenter = CGPoint(x: 376, y: 120)
+    static let meterTeethCenter = CGPoint(x: 361, y: 120)
     /// R4 (UX P2-6): the meter's word follows the stage, so it never relies on colour alone (`ChestCopy.meterWord`).
     static let meterLabelWidth: CGFloat = 72
 
@@ -114,19 +116,27 @@ enum ChestLayout {
     static let candleMaxHeight: CGFloat = 214
     static var candleX: CGFloat { torchRect.midX }
     /// R3: the candle-low countdown ("0:12") hangs BESIDE the candle's brass dish, never over the candle.
-    static let countdownRect = CGRect(x: 58, y: 146, width: 78, height: 40)
+    /// R11 (tester 11, frame 16: "the 0:10 chip sits on the candle"): `countdownCandleGap` (22 canvas pt, ≥ 12 screen
+    /// pt at every phone scale) clear of the candle's tube and dish (it was 8), and a little higher (y 150…190).
+    static let countdownCandleGap: CGFloat = 22
+    static let countdownRect = CGRect(x: 16 + 34 + 22, y: 150, width: 78, height: 40)
 
     /// R3: the Hush Chain tab on the front rim, right of the meter, inside the frame. R4: LEFT of the front-right
     /// bracket (x ≤ 590 < 594): 80 canvas pt (≈ 48 screen pt on a phone) from the edge. R5 (UX P2-4, testers 9 and
     /// 10): ONE line, "CHAIN ×1.2" (no "GOLD": it never reads as a second gold multiplier beside the plate's seal), at
     /// `chainFontSize`; the tab grew leftwards (x 424…590) into the room the shorter meter left. The linked-rings
     /// medallion sits over the tab's left clasp.
-    static let chainRect = CGRect(x: 410, y: 98, width: 180, height: 44)
+    /// R11 (tester 11, frame 14: "the CHAIN pill runs into the riveted plate on the right"): the tab ends
+    /// `chainBracketGap` short of the front-right bracket (x 394…574: ≥ 12 screen pt on the CI phone, 20 on the Duo)
+    /// and never grows towards it (its pop is the medallion's alone; its crack shake only jolts left).
+    static let chainRect = CGRect(x: 394, y: 98, width: 180, height: 44)
     /// The medallion (over the tab's left clasp).
-    static let chainCenter = CGPoint(x: 421, y: 120)
+    static let chainCenter = CGPoint(x: 405, y: 120)
     static let chainRadius: CGFloat = 15
     /// The tab's text column (between the medallion and the right clasp + 8 pt) and its one line.
-    static let chainTextRect = CGRect(x: 437, y: 106, width: 124, height: 30)
+    static let chainTextRect = CGRect(x: 421, y: 106, width: 124, height: 30)
+    /// R11: canvas points kept between the chain tab and the front-right bracket (12 screen pt at the CI phone's 0.6).
+    static let chainBracketGap: CGFloat = 20
     static var chainTextX: CGFloat { chainTextRect.midX }
     static let chainTextY: CGFloat = 120
     /// R5: the tab's type (canvas pt): 20 pt is ≥ 11 screen pt at the smallest phone scale (0.55); it may shrink to
@@ -145,7 +155,13 @@ enum ChestLayout {
     static let plateLabelY: CGFloat = 78
     static let plateNumberY: CGFloat = 44
     /// R3 (decision 3): "not safe yet" under the IN BAG number while the bag holds loot.
-    static let bagSublabelY: CGFloat = 21
+    /// R11 (tester 11, frames 07, 12, 16: "very small and tight against the bottom of the box"): 12 → 22 canvas pt
+    /// (13.2 screen pt on the CI phone), heavy rather than black, and lifted (y 21 → 29) off the plate's stitching. While
+    /// it shows, the IN BAG number rises to `bagNumberLiftY` at `bagNumberLiftScale` to make the room.
+    static let bagSublabelY: CGFloat = 29
+    static let bagSublabelSize: CGFloat = 22
+    static let bagNumberLiftY: CGFloat = 55
+    static let bagNumberLiftScale: CGFloat = 0.9
 
     /// BANKED (right plate): the number right-aligned beside a coin stack, the label above it.
     static let counterRect = CGRect(x: 424, y: 12, width: 230, height: 80)
@@ -178,6 +194,77 @@ enum ChestLayout {
     static let creakPoint = CGPoint(x: 335, y: 356)
     /// R4 (UX P2-4): "Next chest…" in the dimmed interior between chests (under the bank stack's lowest line).
     static let nextChestPoint = CGPoint(x: 335, y: 236)
+
+    // MARK: R11: callouts never touch the App's plate (juror P2-1, tester 11: frames 13b, 13c, 14)
+
+    /// The gap (VIEW points) kept between the App's hint plate and any scene callout under it.
+    static let calloutGap: CGFloat = 12
+    /// The tallest hint plate the App draws, in VIEW points (its one-line plate is ≈ 41 pt on a phone, ≤ 48 on the
+    /// Duo, where it fills the 48 pt band). The scene assumes this when the App hasn't said where its plate is.
+    static let hintPlateViewHeight: CGFloat = 48
+    /// The App keeps its plate `hintPlateFoldClearance` clear of the fold (`HUDLayout.clearOfFold`), centred in what
+    /// is left of the hint band: canvas y 388…436, so its middle is y 412.
+    static let hintPlateFoldClearance: CGFloat = 20
+    static var hintPlateMidY: CGFloat { min(hintBand.midY, floorTop - hintPlateFoldClearance - hintBand.height / 2) }
+
+    /// Where the App's plate's bottom edge lands at `viewScale` (canvas y): its view height turned into canvas points
+    /// about the plate's middle, never less than the band's own half height. Pure; tested.
+    static func hintPlateBottom(viewScale: CGFloat) -> CGFloat {
+        let s = viewScale.isFinite && viewScale > 0.05 ? viewScale : 1
+        return hintPlateMidY - max(hintBand.height / 2, hintPlateViewHeight / 2 / s)
+    }
+
+    /// The highest a callout's top may reach (canvas y): `calloutGap` view points under the App's plate. `plate`, when
+    /// the App hands it over (`ChestScene.hintPlateCanvasRect`), can only lower it (the estimate stays the floor of
+    /// safety). Pure; tested.
+    static func calloutCeiling(viewScale: CGFloat, plate: CGRect? = nil) -> CGFloat {
+        let s = viewScale.isFinite && viewScale > 0.05 ? viewScale : 1
+        var bottom = hintPlateBottom(viewScale: s)
+        if let p = plate, p.minY.isFinite, p.width > 0, p.height > 0 { bottom = min(bottom, p.minY) }
+        return bottom - calloutGap / s
+    }
+
+    /// A callout line's half height (canvas pt) for its type size, at the pop's peak (×1.2): caps plus the outline
+    /// (SKLabelNode centres the caps on the node's position). Pure.
+    static func calloutHalfHeight(fontSize: CGFloat) -> CGFloat { fontSize * 0.42 * 1.2 }
+
+    /// "CREAK!" (46 pt, tilted −0.08 rad, wobbling ±0.06): its highest point above `creakPoint` at the pop's peak.
+    static let creakFontSize: CGFloat = 46
+    static var creakHalfHeight: CGFloat {
+        calloutHalfHeight(fontSize: creakFontSize) + sin(CGFloat(0.14)) * creakFontSize * 1.75 * 1.2
+    }
+    /// The bank stack's top line ("Hushed!", 26 pt): its highest point.
+    static let bankEyebrowFontSize: CGFloat = 26
+    static var bankStackTop: CGFloat { bankEyebrowY + calloutHalfHeight(fontSize: bankEyebrowFontSize) }
+    static var creakTop: CGFloat { creakPoint.y + creakHalfHeight }
+    /// The furthest a callout is moved down (it stays in the interior, over the "Next chest…" line's room).
+    static let maxCalloutDrop: CGFloat = 60
+
+    /// How far a callout whose top is at `top` moves down to stay under `ceiling` (0 when it already does). Pure.
+    static func calloutDrop(top: CGFloat, ceiling: CGFloat) -> CGFloat {
+        guard top.isFinite, ceiling.isFinite else { return 0 }
+        return min(max(top - ceiling, 0), maxCalloutDrop)
+    }
+
+    // MARK: R11: the royal chest's jewels (juror P2-4, tester 11, frame 16)
+
+    /// The royal floor's set jewels (canvas centres) and their radius. They were on the candle (left rim), under the
+    /// hint plate's left cap and under the pause coin (back rim, half under the fold strip too). Now: one on each front
+    /// bracket's corner (left of the meter, right of the chain tab) and one on the right rim between its straps, below
+    /// the pause seat at every scale. Never under the candle, the countdown, the coin, the plate or the HUD (tested).
+    static let royalJewelRadius: CGFloat = 12
+    static let royalFloorJewels: [CGPoint] = [CGPoint(x: 25, y: 119), CGPoint(x: 645, y: 119), CGPoint(x: 645, y: 280)]
+
+    // MARK: R11: the relic card hides the loot under it (tester 11, frame 15)
+
+    /// Loot is hidden this far round the relic card as drawn (canvas pt), so no item peeks out from under a handle.
+    static let relicCardLootMargin: CGFloat = 14
+    /// The relic card's rect at `scale` (its pop), centred on `relicBannerPoint`.
+    static func relicCardRect(scale: CGFloat) -> CGRect {
+        let k = scale.isFinite && scale > 0 ? scale : 1
+        let w = relicCardSize.width * k, h = relicCardSize.height * k
+        return CGRect(x: relicBannerPoint.x - w / 2, y: relicBannerPoint.y - h / 2, width: w, height: h)
+    }
 
     // MARK: Lid (local to the lid half: origin at the fold edge's left end, y up)
 

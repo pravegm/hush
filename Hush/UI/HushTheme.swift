@@ -237,8 +237,9 @@ enum PlateArt {
     static func text(_ style: PlateStyle) -> Color { Color(hush: ChestArt.plateColors(style).text) }
     static func accent(_ style: PlateStyle) -> Color { Color(hush: ChestArt.plateColors(style).accent) }
     static func muted(_ style: PlateStyle) -> Color { Color(hush: ChestArt.plateColors(style).muted) }
-    /// "Phew. Snoring again." and "Hold it there…" on parchment: a deep moss that reads on the paper.
-    static let calm = Color(hushHex: 0x2E6B4E)
+    /// "Phew. Snoring again.", "Banked! Gently does it." and "Hold it there…" on parchment. R11 (juror P2-7, Scene R11):
+    /// the Scene's praise ink, a burnished gold-brown (≥ 4.5 : 1 on the paper), never the old moss green.
+    static let calm = Color(hush: ChestArt.praiseInk(.parchment))
 }
 
 struct PlateBackground: View {

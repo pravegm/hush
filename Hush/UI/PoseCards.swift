@@ -279,6 +279,8 @@ struct CoverCard: View {
     var escape = false
     var onCarryOn: () -> Void = {}
     var onHome: () -> Void = {}
+    /// R11 (QA-6 P2-10, UX P2-1): VoiceOver moves to the escape's first button when the plate appears.
+    @AccessibilityFocusState private var escapeFocused: Bool
 
     /// Pure; tested.
     static func title(midRun: Bool) -> String { midRun ? "Open to carry on" : "Open me… gently" }
@@ -335,6 +337,10 @@ struct CoverCard: View {
             portrait.reduceMotion = reduceMotion
             // R3 (Scene): asleep, a sliver open, the eye glinting through the seam, the chest filling the card.
             portrait.applyCoverStyle()
+            if escape { escapeFocused = true }
+        }
+        .onChange(of: escape) { _, on in
+            if on { escapeFocused = true }
         }
         .accessibilityElement(children: .contain)
     }
@@ -351,9 +357,15 @@ struct CoverCard: View {
                     Text(Self.carryOnLabel)
                 }
                 .accessibilityHint("Resumes the chest now")
-            }
-            HushButton(kind: .leather, height: HushTheme.minTap, compact: true, action: onHome) {
-                Text(Self.homeLabel)
+                .accessibilityFocused($escapeFocused)
+                HushButton(kind: .leather, height: HushTheme.minTap, compact: true, action: onHome) {
+                    Text(Self.homeLabel)
+                }
+            } else {
+                HushButton(kind: .leather, height: HushTheme.minTap, compact: true, action: onHome) {
+                    Text(Self.homeLabel)
+                }
+                .accessibilityFocused($escapeFocused)
             }
         }
         .frame(width: max(width, 200))

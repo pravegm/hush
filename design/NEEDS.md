@@ -346,3 +346,21 @@ For CI (details in `design/notes/app-R8.md`, from `design/QA-5.md`). No existing
   (`menu=` is new, at the end). **Never in demo runs** (DemoOrientation's asks would be refused), so no scenario changes.
 - **Settings (P2-2):** "Turn the chest round" now applies when Settings closes (`HUSH-T turn round applied <0|1>`); the
   row adds "Turns round when you close Settings." while a change waits.
+
+## App engineer (R11)
+For CI (details in `design/notes/app-R11.md`). No existing demo key or log line changed meaning.
+- **New frames in `ci/scenarios.txt`:** 48-pose-tip, 49-hold-to-pause, 50-cover-already-open, 51-closing-carry-on-axxxl
+  (Accessibility XXXL), 52-results-forgiving. Captions 01, 19, 24, 39 and 43 now describe the R11 copy.
+- **New demo keys (DEBUG):** `hint=holdToPause` (`HUSH-T hold hint forced`), `midRun=1` and `escape=1` for
+  `screen=cover` (`HUSH-T cover escape shown forced midRun=<0|1>`).
+- **New log lines:** `HUSH-T lesson skipped to the gist`, `HUSH-T forgiving nudge shown bites=<n> runs=<n>`,
+  `HUSH-T forgiving chosen on results`, `HUSH-T hinge refresh cover silent`.
+- **Timing:** the closing card still re-subscribes a silent hinge at 3 s (`HUSH-T hinge refresh closing silent`), but
+  "Move the lid a little" now waits 1 s more for a report (QA-6 P2-2).
+- **duo.sh (not mine to edit, cheap if you want them):** re-shoot `duo-ui-settings` on R11 (the lid group is now Sound,
+  Vibration and Lid sensitivity with its three option lines, and must fit without the fade; "Play sound on silent" heads
+  the floor card), and add `launch ui-cover-escape "screen=cover;midRun=1;escape=1" 1` and
+  `launch ui-hold-hint "screen=run;mode=run;seed=7;lid=0.6;hint=holdToPause" 1`, each with a `shoot … inner`.
+- **Scene R11 wired:** `ChestScene.calloutActive` hides the hint (`AppRules.hintYieldsToScene`), the praise ink and the
+  struck-metal badges (page, Results, the `screen=badges` export) are in. `ChestScene.hintPlateCanvasRect` is left nil
+  on purpose (the plate hugs its text; the scene's tallest-plate estimate is the safe floor).

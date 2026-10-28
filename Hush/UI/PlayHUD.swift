@@ -5,7 +5,8 @@ import SwiftUI
 enum HushCopy {
     static func hint(_ hint: HeistHint, slider: Bool) -> String {
         switch hint {
-        case .easeLidDown: return slider ? "Slide the lever down first" : "Ease the lid down first"
+        // R11 (UX P2-2): "Ease the lid down" is the bank's phrase; before looting the lid only has to come lower.
+        case .easeLidDown: return slider ? "Slide the lever down first" : "Lower the lid a little first"
         case .openSlowly: return slider ? "Slide the lever up… slowly" : "Open the lid… slowly"
         case .slower: return "Slower…"
         case .freeze: return "Freeze!"
@@ -38,8 +39,16 @@ enum HushCopy {
         ]
     }
 
+    /// R11 (ROUND-11 App 2, UX P2-5): the stakes card's fourth row, how to pause: closing the lid on a fold (the
+    /// closing pause), the coin on a phone. ≤ 6 words; tested.
+    static func pauseStake(slider: Bool) -> StakeRow {
+        StakeRow(icon: .pause, text: slider ? "Tap the coin to pause" : "Close the lid to pause")
+    }
+
     /// R3 (UX P1-9): what VoiceOver hears as it happens (nil: nothing to say). Pure; tested.
-    static func announcement(_ event: HeistEvent) -> String? {
+    /// R11 (UX P2-5): a Hushed bank that raises the Hush Chain says so (`chain`: the bank's `chainUp` multiplier, from
+    /// the same frame's events).
+    static func announcement(_ event: HeistEvent, chain: Double? = nil) -> String? {
         switch event {
         case let .stageChanged(from, to) where to > from:
             switch to {
@@ -49,7 +58,10 @@ enum HushCopy {
             }
         case let .bitten(lost): return lost > 0 ? "Chomp! Lost \(lost.formatted()) gold." : "Chomp!"
         case let .banked(value, _, hushed):
-            return hushed ? "Hushed! Banked \(value.formatted()) gold." : "Banked \(value.formatted()) gold."
+            guard hushed else { return "Banked \(value.formatted()) gold." }
+            let line = "Hushed! Banked \(value.formatted()) gold."
+            guard let m = chain, m.isFinite, m > 1 else { return line }
+            return line + " Hush Chain, times \(String(format: "%.1f", m))."
         case .torchLow: return "Your candle is low."
         default: return nil
         }
@@ -137,7 +149,7 @@ struct PlayLayer: View {
                 // R7 (ROUND-7 App 2): on a Duo, mid-chest, a 0.35 s press-and-hold (a ring fills); a tap says
                 // "Hold to pause". Elsewhere a tap.
                 PauseCoin(needsHold: controller.pauseNeedsHold, reduceMotion: controller.reduceMotion,
-                          scale: fit.textScale) { controller.openMenu() }
+                          scale: fit.textScale, demoHint: controller.demoHoldHint) { controller.openMenu() }
                     .opacity(hud.biting ? 0 : 1)
                     .allowsHitTesting(!hud.biting)
                     .accessibilityHidden(hud.biting)
@@ -333,60 +345,94 @@ struct ClosingCard: View {
         return lifted ? "Then we tiptoe on." : "The mimic waits. Your candle does too."
     }
 
+    @Environment(\.dynamicTypeSize) private var typeSize
+    /// R11 (UX P2-1): VoiceOver moves to Carry on when it appears.
+    @AccessibilityFocusState private var carryOnFocused: Bool
+
+    /// R11 (UX P2-4, ROUND-11 App 3): at the accessibility sizes the card fits or scrolls: the full card, then without
+    /// the diagram and the detail line, then a bottom-anchored fading scroll (Carry on and Home stay whole). The default
+    /// sizes keep R6–R10's plate exactly. Pure; tested.
+    static func fitsByStages(_ size: DynamicTypeSize) -> Bool { size.isAccessibilitySize }
+
     var body: some View {
         let c = info.isCompact
-        let lifted = controller.closingLifted
-        let waiting = controller.closingAwaitsHinge
-        let fresh = controller.closingFresh
         let area = info.fit.viewRect(canvas: HUDLayout.cardArea)
+        let width = max(min(area.width - 40, 440), 220)
         ZStack {
             Color.black.opacity(0.5)
                 .contentShape(Rectangle())
                 .onTapGesture {}
-            VStack(spacing: c ? 8 : 12) {
-                HStack(spacing: 14) {
+            if Self.fitsByStages(typeSize) {
+                // Laid out in the floor half (the card may be taller than the band between the meter and the fold).
+                let floor = info.floorHalf
+                ViewThatFits(in: .vertical) {
+                    plate(c, width: width, full: true)
+                    plate(c, width: width, full: false)
+                    FadingScroll(anchor: .bottom) { plate(c, width: width, full: false) }
+                }
+                .frame(maxHeight: max(floor.height - 16, 120))
+                .position(x: floor.midX, y: floor.midY)
+            } else {
+                plate(c, width: width, full: true)
+                    .position(x: area.midX, y: area.midY)
+            }
+        }
+        .onChange(of: controller.closingEscape) { _, on in
+            if on { carryOnFocused = true }
+        }
+    }
+
+    private func plate(_ c: Bool, width: CGFloat, full: Bool) -> some View {
+        let lifted = controller.closingLifted
+        let waiting = controller.closingAwaitsHinge
+        let fresh = controller.closingFresh
+        return VStack(spacing: c ? 8 : 12) {
+            HStack(spacing: 14) {
+                if full {
                     DuoDiagram(style: .tabletop(angle: 115), reduceMotion: controller.reduceMotion || lifted)
                         .frame(width: 96, height: 62)
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(Self.title(lifted: lifted, awaitingHinge: waiting, fresh: fresh))
-                            .font(HushType.headline(c))
-                            .foregroundStyle(HushTheme.parchment)
-                            .fixedSize(horizontal: false, vertical: true)
+                }
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(Self.title(lifted: lifted, awaitingHinge: waiting, fresh: fresh))
+                        .font(HushType.headline(c))
+                        .foregroundStyle(HushTheme.parchment)
+                        .fixedSize(horizontal: false, vertical: true)
+                    if full {
                         Text(Self.detail(lifted: lifted, awaitingHinge: waiting, fresh: fresh))
                             .font(HushType.caption(c))
                             .foregroundStyle(HushTheme.mist)
                             .fixedSize(horizontal: false, vertical: true)
                     }
-                    .frame(maxWidth: .infinity, alignment: .leading)
                 }
-                .accessibilityElement(children: .combine)
-                if controller.isScoredDaily {
-                    Text("Leaving keeps the gold you've banked.")
-                        .font(HushType.caption(c))
-                        .foregroundStyle(HushTheme.haze)
-                        .multilineTextAlignment(.center)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-                // R6 (ROUND-6 App 6, never stuck): after 3 s, a big "Carry on" that resumes at once, whatever the
-                // hinge says (the watchdog does the same by itself after 6 s with the lid open).
-                if controller.closingEscape {
-                    HushButton(kind: .primary, height: c ? 56 : HushTheme.primaryHeight, compact: c, confirm: true,
-                               action: { controller.carryOn() }) {
-                        Text(Self.carryOn)
-                    }
-                    .accessibilityHint("Resumes the chest now")
-                    .transition(.opacity)
-                }
-                HushButton(kind: .leather, height: HushTheme.minTap, compact: c, action: { controller.goHome() }) {
-                    Text("Home")
-                }
-                .frame(maxWidth: controller.closingEscape ? .infinity : 220)
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
-            .animation(HushTheme.settle(controller.reduceMotion), value: controller.closingEscape)
-            .frame(width: max(min(area.width - 40, 440), 220))
-            .hushPlate(padding: 14, radius: 22)
-            .position(x: area.midX, y: area.midY)
+            .accessibilityElement(children: .combine)
+            if controller.isScoredDaily {
+                Text("Leaving keeps the gold you've banked.")
+                    .font(HushType.caption(c))
+                    .foregroundStyle(HushTheme.haze)
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            // R6 (ROUND-6 App 6, never stuck): after 3 s, a big "Carry on" that resumes at once, whatever the
+            // hinge says (the watchdog does the same by itself after 6 s with the lid open).
+            if controller.closingEscape {
+                HushButton(kind: .primary, height: c ? 56 : HushTheme.primaryHeight, compact: c, confirm: true,
+                           action: { controller.carryOn() }) {
+                    Text(Self.carryOn)
+                }
+                .accessibilityHint("Resumes the chest now")
+                .accessibilityFocused($carryOnFocused)
+                .transition(.opacity)
+            }
+            HushButton(kind: .leather, height: HushTheme.minTap, compact: c, action: { controller.goHome() }) {
+                Text("Home")
+            }
+            .frame(maxWidth: controller.closingEscape ? .infinity : 220)
         }
+        .animation(HushTheme.settle(controller.reduceMotion), value: controller.closingEscape)
+        .frame(width: width)
+        .hushPlate(padding: 14, radius: 22)
     }
 }
 
@@ -598,15 +644,23 @@ struct LessonFinalCard: View {
     /// The width the card is laid out for on `info`. Pure; tested.
     static func width(_ info: AppCanvas) -> CGFloat { min(info.size.width - 32, 400) }
 
+    /// R11 (ROUND-11 App 2, UX P2-5): the stakes rows: the candle, the bite, the bank, then, on a Duo's full floor, how
+    /// to pause ("Close the lid to pause"). Not on a short fold floor (`tight`) or a phone (its pause is the plain tap
+    /// coin, and the card must fit its floor half at the default size). Pure; tested.
+    static func rows(slider: Bool, tight: Bool) -> [StakeRow] {
+        HushCopy.stakes(slider: slider) + (slider || tight ? [] : [HushCopy.pauseStake(slider: slider)])
+    }
+
     var body: some View {
         VStack(spacing: tight ? 8 : 14) {
-            Text(LessonDisplay.finalTitle)
+            // R11 (UX P1-2): a skipped first lesson's card is "the gist" (it hasn't earned "Lovely work…").
+            Text(controller.lessonDisplay?.finalCardTitle ?? LessonDisplay.finalTitle)
                 .font(HushType.title(compact || tight))
                 .foregroundStyle(HushTheme.parchment)
                 .multilineTextAlignment(.center)
                 .fixedSize(horizontal: false, vertical: true)
             VStack(alignment: .leading, spacing: tight ? 6 : 10) {
-                ForEach(HushCopy.stakes(slider: controller.sliderWording), id: \.text) { row in
+                ForEach(Self.rows(slider: controller.sliderWording, tight: tight), id: \.text) { row in
                     HStack(spacing: 12) {
                         PlateGlyphView(glyph: row.icon, side: tight ? 24 : 28)
                             .frame(width: 30)
@@ -642,9 +696,15 @@ struct PauseCoin: View {
     let needsHold: Bool
     let reduceMotion: Bool
     var scale: CGFloat = 1
+    /// R11 (ROUND-11 App 3, demo `hint=holdToPause`): show "Hold to pause" and a half-full ring for CI's frame.
+    var demoHint = false
     let action: () -> Void
 
     static let visual: CGFloat = 50
+    /// R11 (UX P2-1): VoiceOver's double-tap pauses at once (the hold is for fingers), so its hint says what it does.
+    static let accessibilityHintText = "Pauses the chest"
+    /// R11: the demo frame's ring.
+    static let demoFill: CGFloat = 0.5
 
     @State private var pressStart: Date?
     @State private var fill: CGFloat = 0
@@ -666,7 +726,7 @@ struct PauseCoin: View {
     private var holdCoin: some View {
         ZStack {
             Circle()
-                .stroke(Color.black.opacity(pressStart == nil ? 0 : 0.35), lineWidth: 5)
+                .stroke(Color.black.opacity(pressStart == nil && !demoHint ? 0 : 0.35), lineWidth: 5)
                 .frame(width: Self.visual + 12, height: Self.visual + 12)
             Circle()
                 .trim(from: 0, to: fill)
@@ -684,10 +744,15 @@ struct PauseCoin: View {
                 .onEnded { _ in end() }
         )
         .overlay(alignment: .trailing) { holdHint }
+        .onAppear {
+            guard demoHint else { return }
+            fill = Self.demoFill
+            hintShown = true
+        }
         .onDisappear { reset() }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("Pause")
-        .accessibilityHint("Press and hold to pause")
+        .accessibilityHint(Self.accessibilityHintText)
         .accessibilityAddTraits(.isButton)
         .accessibilityAction { action() }
     }

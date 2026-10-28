@@ -212,22 +212,29 @@ extension SceneTextures {
                 filigree(ctx, c, toward: CGPoint(x: bed.midX, y: bed.midY), st.band)
             }
         }
-        if st.gems {
-            gemStud(ctx, CGPoint(x: rim.minX / 2, y: 280), RGBA(hex: 0xEC3352))
-            gemStud(ctx, CGPoint(x: (rim.maxX + fr.maxX) / 2, y: 280), RGBA(hex: 0x3C7CEE))
-            gemStud(ctx, CGPoint(x: 120, y: rim.maxY + 6), RGBA(hex: 0x2CC67C))
-            gemStud(ctx, CGPoint(x: 550, y: rim.maxY + 6), RGBA(hex: 0xA95CE4))
-        }
         // Studs along the side rims.
         var sy = fr.minY + 46
         // R4: no studs on the right rim where the pause seat may sit (it grows on phones: down to y ≈ 342).
         let socketBottom = ChestLayout.pauseSeat(viewScale: ChestLayout.minViewScale).minY - 6
+        let jewels = st.gems ? ChestLayout.royalFloorJewels : []
+        let jr = ChestLayout.royalJewelRadius
         while sy < fr.maxY - 16 {
-            if !(st.bands && (abs(sy - 217) < 20 || abs(sy - 363) < 20)) && !(st.gems && abs(sy - 280) < 20) {
-                Painter.rivet(ctx, CGPoint(x: 12, y: sy), 3.6, st.stud)
-                if sy < socketBottom { Painter.rivet(ctx, CGPoint(x: fr.maxX - 12, y: sy), 3.6, st.stud) }
+            if !(st.bands && (abs(sy - 217) < 20 || abs(sy - 363) < 20)) {
+                for x in [CGFloat(12), fr.maxX - 12] where x < fr.midX || sy < socketBottom {
+                    // (No stud under a jewel.)
+                    if jewels.contains(where: { abs($0.x - x) < jr + 8 && abs($0.y - sy) < jr + 8 }) { continue }
+                    Painter.rivet(ctx, CGPoint(x: x, y: sy), 3.6, st.stud)
+                }
             }
             sy += 44
+        }
+        // R11 (juror P2-4, tester 11, frame 16): the royal jewels sit where nothing of the HUD or the App covers them
+        // (`ChestLayout.royalFloorJewels`): on the front brackets' corners and on the right rim between its straps.
+        // They were on the candle, under the hint plate's cap and under the pause coin, and the back-rim pair was half
+        // under the fold strip.
+        let jewelColors = [RGBA(hex: 0xEC3352), RGBA(hex: 0xA95CE4), RGBA(hex: 0x3C7CEE)]
+        for (i, c) in jewels.enumerated() {
+            gemStud(ctx, c, jewelColors[i % jewelColors.count], size: jr)
         }
     }
 
@@ -1111,7 +1118,7 @@ extension SceneTextures {
     /// R3: the meter plate's shape in white (tint it: the slam's red flash).
     static var meterFlash: SKTexture {
         let m = ChestLayout.meterRect
-        return make("meter-flash-r5", width: m.width, height: m.height) { ctx, s in
+        return make("meter-flash-r11", width: m.width, height: m.height) { ctx, s in
             Painter.fill(ctx, Painter.roundRect(CGRect(origin: .zero, size: s).insetBy(dx: 1.5, dy: 1.5), s.height / 2),
                          RGBA(1, 1, 1))
         }
@@ -1119,13 +1126,13 @@ extension SceneTextures {
 
     static var meterPlate: SKTexture {
         let m = ChestLayout.meterRect
-        return make("meter-plate-r5", width: m.width, height: m.height) { ctx, s in
+        return make("meter-plate-r11", width: m.width, height: m.height) { ctx, s in
             let body = Painter.roundRect(CGRect(origin: .zero, size: s).insetBy(dx: 1.5, dy: 1.5), s.height / 2)
             Painter.chunky(ctx, body, ScenePaint.brass, outline: 1.5, light: 0.4, shade: 0.4,
                            from: CGPoint(x: 0, y: s.height), to: CGPoint(x: 0, y: 0))
-            // The label's recess.
+            // The label's recess (R11: 74 wide, clear of the well that now starts at x 140).
             let lc = CGPoint(x: ChestLayout.meterLabelCenter.x - m.minX, y: ChestLayout.meterLabelCenter.y - m.minY)
-            Painter.fill(ctx, Painter.roundRect(CGRect(x: lc.x - 38, y: 5, width: 76, height: s.height - 10), 8),
+            Painter.fill(ctx, Painter.roundRect(CGRect(x: lc.x - 37, y: 5, width: 74, height: s.height - 10), 8),
                          ScenePaint.brassLight, 0.55)
             let well = ChestLayout.meterWell.offsetBy(dx: -m.minX, dy: -m.minY)
             Painter.fill(ctx, Painter.roundRect(well.insetBy(dx: -2, dy: -2), 6), RGBA(hex: 0x120A06), 1)

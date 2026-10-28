@@ -322,11 +322,12 @@ enum AppRules {
 
     /// R3 (tester 6: "why did the run end?"): one line under the title. A run only ends when the candle goes out;
     /// bites shorten it (10 s each), so they are the cause named when there were any. Pure; tested.
+    /// R11 (tester 11: "which one ended the run?"): one sentence, so the bites read as what burned the candle down.
     static func causeLine(_ r: RunResult) -> String {
         switch r.bites {
         case ..<1: return "Your candle burned out."
-        case 1: return "The mimic bit you once. Candle out."
-        default: return "The mimic bit you \(r.bites) times. Candle out."
+        case 1: return "The mimic bit you once, and your candle burned out."
+        default: return "The mimic bit you \(r.bites) times, and your candle burned out."
         }
     }
 

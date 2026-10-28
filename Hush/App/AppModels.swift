@@ -150,8 +150,10 @@ struct ResultSummary: Equatable {
     var againLabel: String
     /// R2: "312 short of your best" (nil on a new best, a first haul or an empty run).
     var nearMiss: String? = nil
-    /// R3: why the run ended ("Your candle burned out.", "The mimic bit you 3 times. Candle out.").
+    /// R3: why the run ended ("Your candle burned out.", R11: "The mimic bit you 3 times, and your candle burned out.").
     var cause: String = ""
+    /// R11 (UX P1-1): the one-time "Keeps waking? Try a forgiving lid." nudge shows on this Results.
+    var offersForgiving: Bool = false
 }
 
 /// Demo `lid=`: the lid held at one openness, shut for the first 0.25 s so the chest opens (static frames).

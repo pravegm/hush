@@ -54,6 +54,13 @@ final class SceneFloorHUD {
     /// The App may retire the sub-label after the first runs.
     var showsBagSublabel = true
     private var bagSubWarm = false
+    /// R11: how far the IN BAG number has risen for "not safe yet" (0 … 1).
+    private var bagLift: CGFloat = 0
+    /// R11 read-outs (tests): "not safe yet" as drawn (canvas frame, type size) and the IN BAG number's centre.
+    var bagSublabelFrame: CGRect { bagSub.node.frame }
+    var bagSublabelFontSize: CGFloat { bagSub.size * bagSub.node.xScale }
+    var bagNumberCenter: CGPoint { valueHolder.position }
+    var bagNumberScale: CGFloat { valueHolder.xScale }
     private var shownRingStep = -1
     private var lastBagValue = 0
     private var shownBagValue = -1
@@ -275,8 +282,10 @@ final class SceneFloorHUD {
         bagT.set("IN BAG")
         bagT.node.position = CGPoint(x: ChestLayout.bagValueLeft + 2, y: ChestLayout.plateLabelY)
         bagT.node.zPosition = 2
-        let bagS = SceneLabel(size: 12, color: ScenePaint.ui(pal.text, alpha: 0.72), outline: nil, align: .left,
-                              minimumSize: 12, kern: 0.8)
+        // R11 (tester 11): legible ("≥ 13 pt"): 22 canvas pt, heavy, off the stitching; the number lifts for it.
+        let bagS = SceneLabel(size: ChestLayout.bagSublabelSize, color: ScenePaint.ui(pal.text, alpha: 0.86),
+                              outline: nil, align: .left, minimumSize: ChestLayout.bagSublabelSize, kern: 0.4,
+                              weight: .heavy)
         bagS.set("not safe yet")
         bagS.node.position = CGPoint(x: ChestLayout.bagValueLeft + 2, y: ChestLayout.bagSublabelY)
         bagS.node.zPosition = 2
@@ -614,7 +623,15 @@ final class SceneFloorHUD {
         }
         valueHolder.alpha = bag > 0 ? 1 : 0.45
         valuePop += dt
-        valueHolder.setScale(pop(valuePop))
+        // R11: while "not safe yet" shows, the number rises (and eases to 0.9) to give it room; the words fade in
+        // with the lift, so the two never overlap mid-move.
+        let subOn = showsBagSublabel && bag > 0
+        bagLift += ((subOn ? 1 : 0) - bagLift) * CGFloat(min(max(dt.isFinite ? dt : 0, 0) * 12, 1))
+        if !subOn && bagLift < 0.005 { bagLift = 0 }
+        if subOn && bagLift > 0.995 { bagLift = 1 }
+        let liftY = ChestLayout.plateNumberY + (ChestLayout.bagNumberLiftY - ChestLayout.plateNumberY) * bagLift
+        valueHolder.position = CGPoint(x: ChestLayout.bagValueLeft, y: liftY)
+        valueHolder.setScale(pop(valuePop) * (1 - (1 - ChestLayout.bagNumberLiftScale) * bagLift))
         // The label warms to amber while the loot in the bag is at risk (it's awake-ish).
         let warm = bag > 0 && s.stage >= .stirring
         if warm != bagTagWarm {
@@ -622,10 +639,11 @@ final class SceneFloorHUD {
             bagTag.setColor(warm ? ScenePaint.ui(pal.amber) : ScenePaint.ui(pal.text, alpha: 0.82))
         }
         bagTag.node.alpha = warm && !reduceMotion ? CGFloat(0.7 + 0.3 * sin(time * 8)) : 1
-        bagSub.node.isHidden = !(showsBagSublabel && bag > 0)
+        bagSub.node.isHidden = !subOn
+        bagSub.node.alpha = bagLift
         if warm != bagSubWarm {
             bagSubWarm = warm
-            bagSub.setColor(warm ? ScenePaint.ui(pal.amber) : ScenePaint.ui(pal.text, alpha: 0.72))
+            bagSub.setColor(warm ? ScenePaint.ui(pal.amber) : ScenePaint.ui(pal.text, alpha: 0.86))
         }
         ringTrack.alpha = bag > 0 ? 1 : 0.35
         let hold = min(max(s.shutHold.isFinite ? s.shutHold : 0, 0), 1)
@@ -703,7 +721,8 @@ final class SceneFloorHUD {
         if cracking {
             let a = crackAge
             alpha = CGFloat(1 - SceneFloorHUD.smooth((a - 0.35) / 0.45))
-            if !reduceMotion { shakeX = CGFloat(sin(a * 70) * 4 * max(0, 1 - a / 0.4)) }
+            // R11: the crack jolts the tab LEFT only, so it never reaches the front-right bracket.
+            if !reduceMotion { shakeX = -CGFloat(abs(sin(a * 70)) * 4 * max(0, 1 - a / 0.4)) }
             crack.alpha = 1
             // Follow the fade, so it doesn't flash back when the crack ends.
             if !active { chainLevel = alpha }
@@ -714,9 +733,16 @@ final class SceneFloorHUD {
         chainRoot.position = CGPoint(x: cr.midX + shakeX, y: cr.midY)
         let popK: CGFloat = chainPopAge < 0.35 ? 1 + 0.3 * CGFloat(sin(chainPopAge / 0.35 * Double.pi)) : 1
         medal.setScale(popK)
-        chainTab.setScale(1 + (popK - 1) * 0.25)
+        // R11 (tester 11, frame 14): the tab itself never grows (it used to swell 7.5 % towards the bracket); the
+        // medallion's pop and the sparks carry the beat.
+        chainTab.setScale(1)
+        let tabHalf = chainTab.size.width * chainTab.xScale / 2
+        chainDrawnMaxX = max(chainDrawnMaxX, chainRoot.position.x + tabHalf)
         _ = noiseLabel
     }
+
+    /// R11: the furthest right the chain tab has been drawn since it was reset (canvas x; tests).
+    private(set) var chainDrawnMaxX: CGFloat = 0
 
     private static func smooth(_ x: Double) -> Double {
         let t = min(max(x, 0), 1)

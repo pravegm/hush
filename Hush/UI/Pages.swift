@@ -37,16 +37,21 @@ struct PageScaffold<Content: View>: View {
                     .padding(.bottom, 8)
                     .frame(width: lid.width, height: lid.height)
                     .position(x: lid.midX, y: lid.midY)
+                    .accessibilityElement(children: .contain)
+                    .accessibilitySortPriority(Self.lidReadingPriority)
                 } else {
                     header(c)
                         .frame(width: lid.width)
                         .position(x: lid.midX, y: lid.midY)
+                        .accessibilitySortPriority(Self.lidReadingPriority)
                 }
                 column(c)
                     .padding(.top, 8)
                     .padding(.bottom, 8)
                     .frame(width: floor.width, height: floor.height)
                     .position(x: floor.midX, y: floor.midY)
+                    .accessibilityElement(children: .contain)
+                    .accessibilitySortPriority(Self.floorReadingPriority)
             } else {
                 VStack(spacing: 0) {
                     header(c)
@@ -59,7 +64,14 @@ struct PageScaffold<Content: View>: View {
             }
         }
         .frame(width: info.size.width, height: info.size.height)
+        // R11 (QA-6 P2-4): one container, so VoiceOver reads the lid half (the title, Settings' first group) before the
+        // floor half whichever way round the halves are drawn (k = 2 puts the lid half at the screen's iOS-bottom).
+        .accessibilityElement(children: .contain)
     }
+
+    /// R11 (QA-6 P2-4): VoiceOver reads the higher priority first. Pure; tested.
+    static var lidReadingPriority: Double { 2 }   // computed: a generic type can't store a static
+    static var floorReadingPriority: Double { 1 }
 
     private func header(_ c: Bool) -> some View {
         VStack(spacing: 6) {
@@ -359,7 +371,8 @@ struct SettingsView: View {
         LidSensitivity.allCases.map { ($0, AppRules.sensitivityName($0)) }
 
     /// R10 (VISUAL-REGRESSION-R9 R3): a Duo's Settings uses both halves: the title and the sound-and-feel group
-    /// (Sound, Vibration, Lid sensitivity, Play sound on silent) on the lid half, the rest and Done on the floor half,
+    /// (Sound, Vibration, Lid sensitivity; R11: Play sound on silent moved down) on the lid half, the rest and Done on
+    /// the floor half,
     /// each in its own fading scroll with the "⌄" cue. A phone keeps one column. Pure; tested.
     static func splitsAcrossHalves(hasFold: Bool) -> Bool { hasFold }
 
@@ -435,7 +448,7 @@ struct SettingsView: View {
         }
     }
 
-    /// Sound, Vibration, Lid sensitivity, Play sound on silent.
+    /// Sound, Vibration, Lid sensitivity (R11: "Play sound on silent" moved to `playRows`, on the floor half).
     private func feelRows(_ c: Bool) -> some View {
         VStack(spacing: 0) {
             SettingToggle(title: "Sound", detail: nil, isOn: $settings.soundOn, compact: c)
@@ -448,34 +461,43 @@ struct SettingsView: View {
                           options: Self.vibrationOptions,
                           selected: SettingsStore.shownVibration(chosen: settings.vibration,
                                                                  hapticsOn: settings.hapticsOn, hasFold: duo),
-                          compact: c) { settings.chooseVibration($0) }
+                          compact: c, onPick: { settings.chooseVibration($0) })
             divider
             // R7 (ROUND-7 App 4, DEVICE-RISKS-1 D3): Lid sensitivity; the row says the scored Daily is Normal.
+            // R11 (UX P1-1): every option says what it is for, on its own line and as its VoiceOver hint.
             SettingChoice(title: AppRules.sensitivityTitle,
                           detail: AppRules.sensitivityDetail(settings.lidSensitivity),
                           options: Self.sensitivityOptions,
                           selected: settings.lidSensitivity,
-                          compact: c) { settings.lidSensitivity = $0 }
-            divider
+                          compact: c,
+                          optionLines: { AppRules.sensitivityLine($0) },
+                          onPick: { settings.lidSensitivity = $0 })
+        }
+    }
+
+    /// R11 (ROUND-11 App 7): the Settings card rows in order. On a Duo the lid half holds `lidGroup` (it fits there
+    /// without scrolling once "Play sound on silent" moved down), the floor half `floorGroup`; a phone shows both,
+    /// in this order, in one card. Pure; tested.
+    static let lidGroup = ["Sound", AppRules.vibrationTitle, AppRules.sensitivityTitle]
+    static func floorGroup(duo: Bool) -> [String] {
+        [silentTitle] + (duo ? [turnTitle] : []) + ["Reduce motion"]
+    }
+
+    /// Play sound on silent (R11: moved from the lid half), Turn the chest round (Duo only), Reduce motion.
+    private func playRows(_ c: Bool, leadingDivider: Bool) -> some View {
+        VStack(spacing: 0) {
+            if leadingDivider { divider }
             SettingToggle(title: Self.silentTitle, detail: "The creak plays with the ringer off.",
                           isOn: Binding(get: { !settings.respectSilentSwitch },
                                         set: { settings.respectSilentSwitch = !$0 }),
                           compact: c)
-        }
-    }
-
-    /// Turn the chest round (Duo only), Reduce motion.
-    private func playRows(_ c: Bool, leadingDivider: Bool) -> some View {
-        VStack(spacing: 0) {
+            divider
             if controller.hingeSeen || info.hasFold {
-                if leadingDivider { divider }
                 // R8 (QA-5 P2-2): the page never flips under the finger; the change applies as Settings closes, and
                 // the row says so meanwhile.
                 SettingToggle(title: Self.turnTitle,
                               detail: Self.turnDetailLine(pending: controller.turnRoundPending),
                               isOn: $settings.turnRound, compact: c)
-                divider
-            } else if leadingDivider {
                 divider
             }
             SettingToggle(title: "Reduce motion", detail: "Calmer shakes and sparkles.",
@@ -629,6 +651,9 @@ struct SettingChoice<Value: Hashable>: View {
     let options: [(Value, String)]
     let selected: Value
     let compact: Bool
+    /// R11 (UX P1-1): one line per option under the pills ("Forgiving  For a stiff hinge…"), whichever is chosen, so
+    /// the player who needs an option can find it; nil: none. Each line is also that pill's VoiceOver hint.
+    var optionLines: ((Value) -> String)? = nil
     let onPick: (Value) -> Void
 
     var body: some View {
@@ -654,10 +679,32 @@ struct SettingChoice<Value: Hashable>: View {
             } else {
                 HStack(spacing: 6) { pills }
             }
+            if let optionLines {
+                VStack(alignment: .leading, spacing: 2) {
+                    ForEach(options.indices, id: \.self) { i in
+                        Text(Self.line(name: options[i].1, text: optionLines(options[i].0), compact: compact))
+                            .foregroundStyle(options[i].0 == selected ? HushTheme.parchment : HushTheme.mist)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+                .padding(.top, 2)
+                // VoiceOver hears each line as its pill's hint.
+                .accessibilityHidden(true)
+            }
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 8)
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    /// "Forgiving" in bold, then its line, at the caption size.
+    private static func line(name: String, text: String, compact: Bool) -> AttributedString {
+        // The SwiftUI font key by name (this file imports UIKit too, whose `font` is a UIFont).
+        var head = AttributedString(name)
+        head[AttributeScopes.SwiftUIAttributes.FontAttribute.self] = HushType.caption(compact).weight(.bold)
+        var tail = AttributedString("  " + text)
+        tail[AttributeScopes.SwiftUIAttributes.FontAttribute.self] = HushType.caption(compact)
+        return head + tail
     }
 
     @Environment(\.dynamicTypeSize) private var typeSize
@@ -694,6 +741,7 @@ struct SettingChoice<Value: Hashable>: View {
         }
         .buttonStyle(HushPressStyle())
         .accessibilityLabel("\(title): \(name)")
+        .accessibilityHint(optionLines?(value) ?? "")
         .accessibilityAddTraits(on ? .isSelected : [])
     }
 }

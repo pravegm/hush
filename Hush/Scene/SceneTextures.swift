@@ -398,16 +398,19 @@ final class SceneLabel {
     private let kern: CGFloat
     /// When > 0 the label is scaled down to fit (never below `floorSize`).
     var maxWidth: CGFloat = 0
+    /// R11: the face's weight (black for play text; the IN BAG sub-label is heavy, a little narrower).
+    private let weight: UIFont.Weight
 
     init(size: CGFloat, color: UIColor, outline: UIColor? = ScenePaint.ui(ScenePaint.outline),
          align: SKLabelHorizontalAlignmentMode = .center, minimumSize: CGFloat = SceneLabel.minimumSize,
-         strokeWidth: Double = -5, kern: CGFloat = 0) {
+         strokeWidth: Double = -5, kern: CGFloat = 0, weight: UIFont.Weight = .black) {
         floorSize = max(minimumSize, 12)
         self.size = max(size, floorSize)
         self.color = color
         self.outline = outline
         self.strokeWidth = strokeWidth
         self.kern = kern
+        self.weight = weight
         node = SKLabelNode()
         node.horizontalAlignmentMode = align
         node.verticalAlignmentMode = .center
@@ -420,8 +423,8 @@ final class SceneLabel {
         rebuild()
     }
 
-    static func font(_ size: CGFloat) -> UIFont {
-        let base = UIFont.systemFont(ofSize: size, weight: .black)
+    static func font(_ size: CGFloat, weight: UIFont.Weight = .black) -> UIFont {
+        let base = UIFont.systemFont(ofSize: size, weight: weight)
         if let d = base.fontDescriptor.withDesign(.rounded) { return UIFont(descriptor: d, size: size) }
         return base
     }
@@ -439,7 +442,8 @@ final class SceneLabel {
     }
 
     private func rebuild() {
-        var attrs: [NSAttributedString.Key: Any] = [.font: SceneLabel.font(size), .foregroundColor: color]
+        var attrs: [NSAttributedString.Key: Any] = [.font: SceneLabel.font(size, weight: weight),
+                                                    .foregroundColor: color]
         if let o = outline {
             attrs[.strokeColor] = o
             attrs[.strokeWidth] = strokeWidth

@@ -83,8 +83,15 @@ final class GameController: ObservableObject, SceneDriver {
     /// A short line over Home ("Sign in to Game Center in Settings").
     @Published private(set) var toast: String?
     @Published private(set) var reduceMotion = false
-    /// A Game Center sheet is up: the app is drawn un-turned under it (QA-1 P2-6).
-    @Published private(set) var systemSheetUp = false
+    /// A Game Center sheet is up: the app is drawn un-turned under it (QA-1 P2-6). R11 (QA-6 P2-5): the menu hold lets
+    /// go while one is up (a sheet never stays sideways), and is judged again when it goes.
+    @Published private(set) var systemSheetUp = false {
+        didSet {
+            guard systemSheetUp != oldValue else { return }
+            refreshMenuHold()
+            if !systemSheetUp { scheduleMenuHoldCheck() }
+        }
+    }
     /// Held camera end up while turned round: the un-turned "Other way round" banner (P1-7).
     @Published private(set) var showsHoldHint = false
     /// Demo event freezes: the scene is paused too, so the moment stays on screen.
@@ -421,6 +428,8 @@ final class GameController: ObservableObject, SceneDriver {
         let live = AppRules.isLive(snapshot.phase)
         let dragSpeed = session.dragSpeed
         feedback.handle(events, telemetry: AppRules.telemetry(snapshot, dragSpeed: dragSpeed, playing: live))
+        // R11 (UX P2-5): VoiceOver's bank line names the Hush Chain the same bank raised.
+        let chain = Self.chainMultiplier(in: events)
         for event in events {
             if case let .banked(value, _, _) = event { bankedSum += value }
             if case .chestArrived = event, snapshot.chest?.golden == true { feedback.goldenArrived() }
@@ -428,7 +437,7 @@ final class GameController: ObservableObject, SceneDriver {
             if case .relicFound = event { noteRelicCard(at: snapshot.time) }
             AppTrace.t("HUSH-T event " + traceLine(event, snapshot: snapshot))
             callouts(for: event, snapshot: snapshot, now: now)
-            announce(event)
+            announce(event, chain: chain)
         }
         if snapshot.noiseFloor >= RunTip.jingleFloor, mode != .lesson { showTip(.jingle, now: now) }
         checkGold(snapshot)
@@ -508,8 +517,17 @@ final class GameController: ObservableObject, SceneDriver {
                                  quarterTurns: scene?.quarterTurns ?? quarterTurns, trace: debugTrace, route: route,
                                  frozen: frozen, sceneSize: scene?.size, viewSize: scene?.view?.bounds.size,
                                  scaleMode: scene?.scaleMode)
-            // R9b: every touch the scene got, wherever it landed (raw=0 means nothing reached the SKView at all).
-            + " raw=\(scene?.rawTouchesBegan ?? -1) rawAt=\(scene?.lastRawTouch ?? "-")" + Self.windowTouchSummary
+            + Self.rawTouchSummary(scene) + Self.windowTouchSummary
+    }
+
+    /// R9b: every touch the scene got, wherever it landed (raw=0 means nothing reached the SKView at all). R11 (QA-6
+    /// P2-1): the scene keeps those counters in DEBUG only, so this reads them in DEBUG only (empty in Release).
+    private static func rawTouchSummary(_ scene: ChestScene?) -> String {
+        #if DEBUG
+        return " raw=\(scene?.rawTouchesBegan ?? -1) rawAt=\(scene?.lastRawTouch ?? "-")"
+        #else
+        return ""
+        #endif
     }
 
     /// R9c: window-level touch counts (DEBUG demo runs only; empty in Release).
@@ -622,13 +640,13 @@ final class GameController: ObservableObject, SceneDriver {
     /// fires, so it never cuts "Chomp!"; "It's stirring." is said at most once per chest; everything but "Chomp!" and
     /// "It's waking. Freeze!" queues behind what VoiceOver is saying instead of cutting it. In the lesson the step
     /// line speaks for the stages.
-    private func announce(_ event: HeistEvent) {
+    private func announce(_ event: HeistEvent, chain: Double? = nil) {
         switch event {
         case let .chestArrived(index, _, _, _): announceGate.chestArrived(index)
         case .bitten, .banked: cancelStageAnnouncement()
         default: break
         }
-        guard let text = HushCopy.announcement(event) else { return }
+        guard let text = HushCopy.announcement(event, chain: chain) else { return }
         if case let .stageChanged(_, to) = event {
             guard mode != .lesson, announceGate.allowsStage(to) else { return }
             cancelStageAnnouncement()
@@ -645,6 +663,15 @@ final class GameController: ObservableObject, SceneDriver {
         } else {
             announceNow(text, queued: HushCopy.queuesAnnouncement(event))
         }
+    }
+
+    /// R11: the multiplier of a `chainUp` among one frame's events (a Hushed bank raises it in the same step). Pure;
+    /// tested.
+    nonisolated static func chainMultiplier(in events: [HeistEvent]) -> Double? {
+        for e in events {
+            if case let .chainUp(_, multiplier) = e { return multiplier }
+        }
+        return nil
     }
 
     private func cancelStageAnnouncement() {
@@ -929,6 +956,11 @@ final class GameController: ObservableObject, SceneDriver {
         setPause(.pose, newPose != .play)
         // R8 (QA-5 P1-B): never on a demo-forced cover card (CI's frame; the forced pose ignores an override).
         if newPose == .cover && forcedPose == nil { startCoverWatch() } else { stopCoverWatch() }
+        // R11 (ROUND-11 App 3, demo `escape=1`): CI's frame of the forced cover card with "Already open?" up.
+        if newPose == .cover && forcedPose != nil && demo?.coverEscape == true {
+            coverEscape = true
+            AppTrace.t("HUSH-T cover escape shown forced midRun=\(isLiveRun ? 1 : 0)")
+        }
         if newPose == .cover && !isDemo { UIAccessibility.post(notification: .screenChanged, argument: nil) }
     }
 
@@ -940,6 +972,9 @@ final class GameController: ObservableObject, SceneDriver {
         if coverEscape { coverEscape = false }
         coverWatchTask = Task { [weak self] in
             try? await Task.sleep(nanoseconds: UInt64(AppRules.coverEscapeDelay * 1_000_000_000))
+            // R11 (QA-6 P2-3): a hinge silent since the card went up (a stale ≤ 10° on an open Duo would never offer
+            // the escape) is re-subscribed once, like the closing card's.
+            if !Task.isCancelled { self?.coverSilenceCheck() }
             while !Task.isCancelled {
                 guard let me = self else { return }
                 me.checkCoverEscape(now: CACurrentMediaTime())
@@ -969,9 +1004,21 @@ final class GameController: ObservableObject, SceneDriver {
             if show {
                 AppTrace.t("HUSH-T cover escape shown angle=\(hinge.angle.map { AppTrace.fixed($0, 1) } ?? "-")")
                 note("cover escape shown")
+                // R11 (QA-6 P2-10): VoiceOver hears it (the card moves focus onto its first button).
+                announceEscape(midRun: isLiveRun)
             }
         }
         return show
+    }
+
+    /// R11 (QA-6 P2-3): on the cover card, no hinge report since it went up → re-subscribe the hinge once (iOS may have
+    /// gone silent after the hand-off). Internal for the tests.
+    @discardableResult
+    func coverSilenceCheck() -> Bool {
+        guard pose == .cover, hingeSeen, let since = coverSince,
+              AppRules.hingeSilent(lastSample: hinge.lastSampleTime, since: since) else { return false }
+        refreshHinge("cover silent")
+        return true
     }
 
     /// The cover card's "Carry on" (a run): the pose is play from now (until the display changes or the Duo is shut),
@@ -1082,7 +1129,9 @@ final class GameController: ObservableObject, SceneDriver {
     /// (`DemoOrientation`), and a hold would refuse its asks.
     private func menuHoldWanted(menus: Bool, now: TimeInterval) -> Bool {
         guard !isDemo else { return false }
-        return menuHold.update(duo: isDuo, menus: menus, inner: canvasClass != .small,
+        // R11 (QA-6 P2-5): a system sheet (Game Center, share, copy) is never held sideways under the hold.
+        let holdsMenus = menus && AppRules.menuHoldCountsMenus(systemSheetUp: systemSheetUp)
+        return menuHold.update(duo: isDuo, menus: holdsMenus, inner: canvasClass != .small,
                                angle: hinge.lastRawAngle ?? hinge.angle, stableFor: now - interfaceStableSince)
     }
 
@@ -1289,7 +1338,25 @@ final class GameController: ObservableObject, SceneDriver {
         setPause(.closing, on)
         if changed {
             if on { startClosingWatch() } else { stopClosingWatch() }
+            // R11 (UX P2-1): VoiceOver is told the card is up, with its title (the coin it was on has gone).
+            if on {
+                postAccessibility(.screenChanged, ClosingCard.title(lifted: closingLifted,
+                                                                    awaitingHinge: closingAwaitsHinge,
+                                                                    fresh: closingFresh))
+            }
         }
+    }
+
+    /// R11 (UX P2-1, QA-6 P2-10): a VoiceOver notification (never in demo runs, only while VoiceOver runs).
+    private func postAccessibility(_ notification: UIAccessibility.Notification, _ text: String) {
+        guard !isDemo, UIAccessibility.isVoiceOverRunning else { return }
+        UIAccessibility.post(notification: notification, argument: text)
+    }
+
+    /// R11 (UX P2-1): an escape (Carry on, or the cover card's plate) has appeared: say so. The card itself moves
+    /// VoiceOver's focus onto its first button.
+    private func announceEscape(midRun: Bool) {
+        announceNow(AppRules.escapeAnnouncement(midRun: midRun))
     }
 
     // MARK: - R6: never stuck (Carry on, the watchdog)
@@ -1336,8 +1403,17 @@ final class GameController: ObservableObject, SceneDriver {
         closingWatchTask = Task { [weak self] in
             try? await Task.sleep(nanoseconds: UInt64(AppRules.carryOnDelay * 1_000_000_000))
             guard !Task.isCancelled, let self else { return }
-            if self.isClosingPaused && !self.closingEscape { self.closingEscape = true }
-            self.closingSilenceCheck()
+            if self.isClosingPaused && !self.closingEscape {
+                self.closingEscape = true
+                self.announceEscape(midRun: true)
+            }
+            // R11 (QA-6 P2-2): re-subscribe a silent hinge now, but change the words only if it is still silent 1 s
+            // later (a healthy hinge at rest re-delivers at once, so the title never flickers as Carry on appears).
+            if self.closingSilenceRefresh() {
+                try? await Task.sleep(nanoseconds: UInt64(AppRules.closingCopyCheckDelay * 1_000_000_000))
+                guard !Task.isCancelled else { return }
+                self.closingSilenceCopy()
+            }
             while !Task.isCancelled {
                 try? await Task.sleep(nanoseconds: 500_000_000)
                 guard !Task.isCancelled else { return }
@@ -1351,11 +1427,32 @@ final class GameController: ObservableObject, SceneDriver {
     /// it may say "Lift the lid" on a flat Duo). The next report puts the true words back. Internal for the tests.
     @discardableResult
     func closingSilenceCheck() -> Bool {
-        guard isClosingPaused, input == .hinge, let since = closingSince,
-              AppRules.hingeSilent(lastSample: hinge.lastSampleTime, since: since) else { return false }
+        guard closingSilenceRefresh() else { return false }
+        closingSilenceCopy()
+        return true
+    }
+
+    /// R11 (QA-6 P2-2): the 3 s half: no report since the card went up → re-subscribe the hinge. Internal for the
+    /// tests.
+    @discardableResult
+    func closingSilenceRefresh() -> Bool {
+        guard closingHingeSilent else { return false }
         refreshHinge("closing silent")
+        return true
+    }
+
+    /// R11 (QA-6 P2-2): the 4 s half: still nothing → "Move the lid a little". Internal for the tests.
+    @discardableResult
+    func closingSilenceCopy() -> Bool {
+        guard closingHingeSilent else { return false }
         if !closingAwaitsHinge { closingAwaitsHinge = true }
         return true
+    }
+
+    /// No hinge report has arrived since the closing card went up.
+    private var closingHingeSilent: Bool {
+        guard isClosingPaused, input == .hinge, let since = closingSince else { return false }
+        return AppRules.hingeSilent(lastSample: hinge.lastSampleTime, since: since)
     }
 
     private func stopClosingWatch() {
@@ -1598,9 +1695,27 @@ final class GameController: ObservableObject, SceneDriver {
     func replayLesson() { startLesson(replay: true) }
 
     /// Skip (offered after step 2): the lesson counts as done.
+    /// R11 (UX P1-2): a FIRST lesson's Skip lands on the stakes card ("Here's the gist, little thief.": the candle, the
+    /// bite, the bank and how to pause), whose "Got it" starts the first run and "Not yet, take me home" goes Home. A
+    /// replay's Skip still goes straight Home.
     func skipLesson() {
         store.markLessonDone()
-        goHome()
+        guard !lessonReplay, route == .lesson, var script = lessonScript else {
+            goHome()
+            return
+        }
+        script.skipToStakes()
+        lessonScript = script
+        AppTrace.t("HUSH-T lesson skipped to the gist")
+        note("lesson skipped")
+        publishLesson(script, hint: nil, now: CACurrentMediaTime(), force: true)
+    }
+
+    /// R11 (UX P1-1): the Results nudge's "Make it forgiving": Lid sensitivity is Forgiving from the next run on.
+    func makeLidForgiving() {
+        settings.lidSensitivity = .forgiving
+        AppTrace.t("HUSH-T forgiving chosen on results")
+        note("forgiving chosen on results")
     }
 
     /// The final card's "Got it": the first run.
@@ -1858,12 +1973,21 @@ final class GameController: ObservableObject, SceneDriver {
         let before = outcome.rankedUp ? 0 : ProgressRules.rankProgress(lifetime: outcome.lifetimeBefore, rank: rank)
         let after = ProgressRules.rankProgress(lifetime: outcome.lifetimeAfter, rank: rank)
         let story = AppRules.story(result, outcome: outcome, relicName: { RelicCatalog.relic($0).name })
+        // R11 (UX P1-1): the one-time "Keeps waking? Try a forgiving lid." (seen once it is offered).
+        let forgiving = AppRules.offersForgivingNudge(mode: result.mode, bites: result.bites, runsSoFar: store.data.runs,
+                                                      sensitivity: settings.lidSensitivity,
+                                                      seen: store.data.seenTips.contains(AppRules.forgivingTipKey))
+        if forgiving {
+            store.markTip(AppRules.forgivingTipKey)
+            AppTrace.t("HUSH-T forgiving nudge shown bites=\(result.bites) runs=\(store.data.runs)")
+            note("forgiving nudge shown")
+        }
         return ResultSummary(result: result, outcome: outcome, title: title, story: story,
                              rankTitle: ThiefRanks.title(rank), nextRankTitle: next, rankProgressBefore: before,
                              rankProgressAfter: after, againLabel: again,
                              nearMiss: AppRules.nearMiss(gold: result.gold, best: outcome.best,
                                                          newBest: outcome.isNewBest),
-                             cause: AppRules.causeLine(result))
+                             cause: AppRules.causeLine(result), offersForgiving: forgiving)
     }
 
     /// R3 (QA-2 P2-3): the hint gate runs on WALL time (`now`), so it settles even while the session is paused.
@@ -1902,6 +2026,11 @@ final class GameController: ObservableObject, SceneDriver {
         var shown = hintGate.update(wanted, now: now)
         if isPaused { shown = nil }
         setGlimmer(shown == .relicDeeper)
+        // R11 (juror P2-1, tester 11: "CREAK!" on "Freeze!", "Hushed!" on the plate): one prompt at a time. While the
+        // scene has a callout up (`ChestScene.calloutActive`: CREAK!, the bank stack, the bite, the relic card, "Next
+        // chest…") the hint steps aside; the gate keeps it, so it is back the frame the callout ends. A callout of our
+        // own (the bank's Hush Chain tip, the golden banner) stays: the scene keeps its stack 12 pt under the plate.
+        if AppRules.hintYieldsToScene(sceneCallout: scene?.calloutActive ?? false) { shown = nil }
         // One prompt at a time: a warning hint wins; then a callout (a tip, the golden banner); then the hint; then the
         // run-start banner. R5: during the first Hush Chain tip's 3 s hold only "Freeze!" wins.
         var banner: String?
@@ -2074,7 +2203,8 @@ final class GameController: ObservableObject, SceneDriver {
             if d.mode != nil { start(d.runMode(today: day)) } else { goHome() }
         case .cover:
             forcedPose = .cover
-            if d.mode != nil { start(d.runMode(today: day)) } else { goHome() }
+            // R11: `midRun=1` is a run under the card ("Open to carry on", and the escape's Carry on).
+            if d.mode != nil || d.midRun { start(d.runMode(today: day)) } else { goHome() }
         case .icon:
             showsIcon = true
             goHome()
@@ -2084,7 +2214,11 @@ final class GameController: ObservableObject, SceneDriver {
             BadgeExport.renderAll()
         }
         if let orient = d.orient { DemoOrientation.request(orient) }
+        if d.holdHint { AppTrace.t("HUSH-T hold hint forced") }
     }
+
+    /// R11 (ROUND-11 App 3, demo `hint=holdToPause`): the pause coin shows "Hold to pause" and a half-full ring.
+    var demoHoldHint: Bool { demo?.holdHint ?? false }
 
     /// R8 (QA-5 P2-7, demo `hold=closing`): the closing card, held whatever the input, until "Carry on" (after 3 s)
     /// or Home. CI taps "Carry on" at an odd k (HushUITests).
