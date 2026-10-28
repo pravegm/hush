@@ -1739,8 +1739,10 @@ struct CoreTests {
         // A hair of lid below the looting line keeps it fresh; opening it starts the chest.
         _ = b.step(dt: 1.0 / 60.0, lid: lidAt(0.015))
         #expect(b.isFreshChest)
+        // R13: a crack (≤ 0.05, nothing revealed) while the hand settles the phone shut is still fresh; past it, not.
         _ = b.step(dt: 1.0 / 60.0, lid: lidAt(0.04))
         #expect(b.snapshot.phase == .looting)
+        _ = b.step(dt: 1.0 / 60.0, lid: lidAt(0.08))
         #expect(!b.isFreshChest)
         // The next chest arriving with the lid still resting in the shut zone (0.06) is looted at once: not fresh.
         let (c, _) = lootingSession(seed: 231)

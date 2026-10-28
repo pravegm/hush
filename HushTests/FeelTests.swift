@@ -465,8 +465,9 @@ struct FeelTests {
         // Pulling down past shut, then up: the lid opens at once by the distance moved up.
         slider.touch(began: false, ended: false, fraction: 0.6, time: 1.1)
         #expect(slider.openness == 0)
-        slider.touch(began: false, ended: false, fraction: 0.7, time: 1.2)
-        #expect(abs(slider.openness - 0.1) < 1e-9)
+        // R13: the lever's shut zone is ≤ 0.06.
+        slider.touch(began: false, ended: false, fraction: 0.65, time: 1.2)
+        #expect(abs(slider.openness - 0.05) < 1e-9)
         #expect(slider.lid(at: 1.2).inShutZone)
         slider.touch(began: false, ended: false, fraction: 0.9, time: 1.3)
         #expect(abs(slider.openness - 0.3) < 1e-9)
@@ -1858,7 +1859,9 @@ struct FeelTests {
             speedPeak = max(speedPeak, hinge.source.speed / Tuning.hingeSpeedScale)
             motionPeak = max(motionPeak, hinge.source.motionSpeed)
         }
-        #expect(speedPeak < 6)
+        // R13: the creep ends at the top of the speedometer's range (153°), so its tail may read a little over the
+        // creep; a credited 12° snap would read hundreds of °/s.
+        #expect(speedPeak < 10)
         #expect(motionPeak < 1)
         #expect(hinge.source.traceText().contains("snaps 1"))
         // From still: nothing at all.
