@@ -99,6 +99,14 @@ final class GameController: ObservableObject, SceneDriver {
     @Published private(set) var deviceOrientation: UIDeviceOrientation = .unknown
     /// R6: demo `screen=pose` / `pose=book` force the pose tip on Home (and lesson step 1).
     @Published private(set) var forcedPoseTip = false
+    /// R7 (ROUND-7 App 2): on a Duo, mid-chest, the pause coin needs a 0.35 s press-and-hold (`AppRules.pauseNeedsHold`).
+    @Published private(set) var pauseNeedsHold = false
+    /// R7 (ROUND-7 App 1): the closing card is over a fresh chest (`HeistSession.isFreshChest`): lifting is enough.
+    @Published private(set) var closingFresh = false
+    /// R7 (ROUND-7 App 6): Game Center's sign-in, asked for once the lesson is done (tests replace it).
+    var authenticateGameCenter: @MainActor () -> Void = { GameCenterManager.shared.authenticate() }
+    /// R7: the sign-in has been asked for this launch.
+    private(set) var gameCenterRequested = false
     /// R6: demo `quarter=<0…3>` (DEBUG) forces k where it fits the window (`AppRules.forcedTurnsFit`).
     var demoQuarterTurns: Int? { demo?.quarter }
 
@@ -293,6 +301,12 @@ final class GameController: ObservableObject, SceneDriver {
                                   orientation: OrientationLock.status()
                                       + " · device \(AppRules.deviceName(UIDevice.current.orientation))"
                                       + " · k=\(quarterTurns) fold=\(layoutHasFold ? 1 : 0)")
+    }
+
+    /// R7 (ROUND-7 App 5): what Diagnostics' "Copy log" puts on the pasteboard: the event log, then the raw hinge trace
+    /// (the last 10 s of reports, `HingeLidSource.traceText()`).
+    var diagnosticsCopyText: String {
+        AppRules.diagnosticsCopy(log: events.text, trace: hinge.traceText())
     }
 
     static let handoffKey = "hush.diag.handoff"
@@ -856,8 +870,16 @@ final class GameController: ObservableObject, SceneDriver {
             deviceOrientation = o
             note("device \(AppRules.deviceName(o))")
         }
+        refreshHoldHint()
+    }
+
+    /// The "Other way round" banner: held camera end up while drawn turned round (`AppRules.readsUpsideDown`), for
+    /// `holdHintDelay` s. R7 (DEVICE-RISKS-1 item 9): in menus the hinge may be open to 180° (a Duo picked up flat).
+    private func refreshHoldHint() {
         holdHintTask?.cancel()
-        guard AppRules.readsUpsideDown(turned: isTurned, cameraUp: o == .portrait, angle: hinge.angle) else {
+        let o = UIDevice.current.orientation
+        guard AppRules.readsUpsideDown(turned: isTurned, cameraUp: o == .portrait, angle: hinge.angle,
+                                       inMenus: !route.isPlay) else {
             if showsHoldHint { showsHoldHint = false }
             return
         }
@@ -866,7 +888,7 @@ final class GameController: ObservableObject, SceneDriver {
             guard !Task.isCancelled, let self else { return }
             let still = AppRules.readsUpsideDown(turned: self.isTurned,
                                                  cameraUp: UIDevice.current.orientation == .portrait,
-                                                 angle: self.hinge.angle)
+                                                 angle: self.hinge.angle, inMenus: !self.route.isPlay)
             if still != self.showsHoldHint { self.showsHoldHint = still }
         }
     }
@@ -948,9 +970,21 @@ final class GameController: ObservableObject, SceneDriver {
             }
         }
         if closingPause.paused && !isClosingPaused { setClosing(true) }
-        let resumable = AppRules.mayResume(canResume: hinge.canResume, canvas: canvasClass)
+        // R7 (ROUND-7 App 1, DEVICE-RISKS-1 item 3): over a fresh chest (banked, then folded on down), lifting the lid
+        // to Feel's line is enough: no "Hold still…". A chest in play keeps the full rule.
+        let fresh = session?.isFreshChest ?? false
+        if fresh != closingFresh { closingFresh = fresh }
+        let still = hinge.canResume
+        let resumable = AppRules.mayResume(canResume: AppRules.closingResumes(canResume: still, freshChest: fresh,
+                                                                              lifted: lifted),
+                                           canvas: canvasClass)
         switch closingPause.update(angle: angle, gateClosing: hinge.isClosing, isShut: isShut,
                                    canResume: resumable, now: now) {
+        case .resumed? where fresh && !still:
+            setClosing(false)
+            session?.resumeGrace(seconds: AppRules.freshResumeGrace)
+            AppTrace.t("HUSH-T fresh chest resume angle=\(angle.map { AppTrace.fixed($0, 1) } ?? "-")")
+            note("fresh chest resume")
         case .paused?:
             setClosing(true)
             #if DEBUG
@@ -1032,7 +1066,8 @@ final class GameController: ObservableObject, SceneDriver {
         let only = pauseReasons == [.closing] && pose == .play
         // The last KNOWN angle: the raw report (the filtered angle may still be gliding after a reset).
         guard AppRules.watchdogResumes(pausedFor: now - since, onlyClosing: only, liveRun: isLiveRun && !frozen,
-                                       canvas: canvasClass, angle: hinge.lastRawAngle ?? hinge.angle)
+                                       canvas: canvasClass, angle: hinge.lastRawAngle ?? hinge.angle,
+                                       resumeAngle: hinge.effectiveResumeAngle)
         else { return false }
         AppTrace.t("HUSH-T watchdog resume angle=\(hinge.angle.map { AppTrace.fixed($0, 1) } ?? "-")")
         note("watchdog resume")
@@ -1184,13 +1219,30 @@ final class GameController: ObservableObject, SceneDriver {
     }
 
     private func setRoute(_ newRoute: AppRoute) {
-        if newRoute != route {
+        let changed = newRoute != route
+        if changed {
             route = newRoute
             AppTrace.t("HUSH-T screen \(newRoute.rawValue)")
         }
         if newRoute == .home { startHomeTicker() } else { homeTicker?.stop() }
         feedback.idle = !newRoute.isPlay
         if !newRoute.isPlay { publishFPS(min(feedback.preferredFPS, 60)) }
+        // R7 (ROUND-7 App 6): Game Center signs in only once the lesson is done and off screen.
+        authenticateGameCenterIfReady()
+        // R7 (DEVICE-RISKS-1 item 9): menus and runs judge "Other way round" differently (170 vs 180°).
+        if changed { refreshHoldHint() }
+    }
+
+    /// R7 (ROUND-7 App 6, DEVICE-RISKS-1 item 9): Game Center's sign-in (and its welcome banner, drawn by iOS at the
+    /// player's near edge on a turned Duo) waits until the First Chest is done and the player is on Home. Called at
+    /// launch (the App's `onAppear`) and on every route change; it asks once.
+    func authenticateGameCenterIfReady() {
+        guard !gameCenterRequested,
+              AppRules.mayAuthenticateGameCenter(demo: isDemo, lessonDone: store.data.lessonDone, route: route)
+        else { return }
+        gameCenterRequested = true
+        AppTrace.t("HUSH-T gc authenticate route=\(route.rawValue)")
+        authenticateGameCenter()
     }
 
     // MARK: - The First Chest lesson
@@ -1226,14 +1278,17 @@ final class GameController: ObservableObject, SceneDriver {
     private func lessonInput(_ s: HeistSnapshot, events: [HeistEvent], dragSpeed: Double) -> LessonScript.Input {
         var bagged = 0
         var grabbable = false
+        var held: [Int: CGPoint] = [:]
         for item in s.loot {
             if item.place == .inBag { bagged += 1 }
             if item.place == .inChest && item.grabbable { grabbable = true }
+            // R7 (DEVICE-RISKS-1 item 11): the Freeze step judges held items by displacement.
+            if case .held = item.place { held[item.id] = item.position }
         }
         return LessonScript.Input(time: s.time, angle: input == .hinge ? hinge.angle : nil, hasHinge: input == .hinge,
                                   openness: s.openness, lidSpeed: s.lidSpeed, dragSpeed: dragSpeed,
                                   anyGrabbable: grabbable, bagCount: bagged, noise: s.noise, hint: s.hint,
-                                  events: events)
+                                  events: events, held: held)
     }
 
     /// The card's strings are built at ≤ 15 Hz (QA-1 P2-14), at once when something happened.
@@ -1290,7 +1345,9 @@ final class GameController: ObservableObject, SceneDriver {
         }
         mode = m
         let runSeed = seed(for: m)
-        let options: SessionOptions = m == .lesson ? LessonChest.options : SessionOptions.`for`(m)
+        // R7 (ROUND-7 App 4): the player's Lid sensitivity (the scored Daily is forced to Normal by Core).
+        let options: SessionOptions = m == .lesson ? LessonChest.options
+            : SessionOptions.`for`(m, sensitivity: settings.lidSensitivity)
         session = HeistSession(mode: m, seed: runSeed, bestRun: store.best(for: m), foundRelics: store.data.foundRelics,
                                options: options)
         slider = SliderLidSource()
@@ -1518,6 +1575,9 @@ final class GameController: ObservableObject, SceneDriver {
         for item in s.loot where item.place == .inBag { bagged += 1 }
         // R5 (juror P2-3): the pause coin hides on the scene's own bite flag (its seat dims on it too).
         let biting = scene?.biteActive ?? AppRules.isBiteMoment(s.phase)
+        // R7 (ROUND-7 App 2): a Duo's live chest needs the press-and-hold coin.
+        let hold = AppRules.pauseNeedsHold(duo: isDuo, phase: s.phase)
+        if hold != pauseNeedsHold { pauseNeedsHold = hold }
         // R6 (CI FLAT-OPEN): "That's wide enough" is a hint, never a pause.
         if shown == .tooWide && hud.hint != .tooWide { AppTrace.t("HUSH-T hint tooWide") }
         let urgent = shown != hud.hint || banner != hud.banner || bagged != hud.bagCount || biting != hud.biting

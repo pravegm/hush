@@ -869,7 +869,7 @@ struct LessonTests {
     @Test func theBankStepSaysBank() {
         let s = LessonScript(start: .bank)
         #expect(s.line(slider: true, angle: nil, hint: nil) == "Slide the lever down to bank it.")
-        #expect(s.line(slider: false, angle: nil, hint: nil) == "Ease the lid shut to bank it.")
+        #expect(s.line(slider: false, angle: nil, hint: nil) == "Ease the lid down to upright to bank it.")
     }
 
     @Test func sliderPoseAndWords() {
@@ -999,7 +999,7 @@ struct CopyTests {
             for row in HushCopy.stakes(slider: slider) { #expect(HushCopy.wordCount(row.text) <= 6) }
         }
         #expect(HushCopy.stakes(slider: false).map(\.text) == ["Candle out = run over", "Too loud? It bites your bag",
-                                                              "Ease the lid shut to bank"])
+                                                              "Ease the lid down to bank"])
         #expect(HushCopy.stakes(slider: true).last?.text == "Slide the lever down to bank")
         for tip in RunTip.allCases { #expect(HushCopy.wordCount(tip.text) <= 6) }
         #expect(HushCopy.wordCount(RunTip.golden) <= 6)
@@ -1010,7 +1010,7 @@ struct CopyTests {
 
     /// R3 (decision 3): one verb, "bank", in the lid's words on a fold and the lever's without.
     @Test func oneVerbBank() {
-        #expect(HushCopy.hint(.shutToBank, slider: false) == "Ease the lid shut to bank")
+        #expect(HushCopy.hint(.shutToBank, slider: false) == "Ease the lid down to bank")
         #expect(HushCopy.hint(.shutToBank, slider: true) == "Slide the lever down to bank")
         var lines = HushCopy.allHints.flatMap { [HushCopy.hint($0, slider: false), HushCopy.hint($0, slider: true)] }
         lines += HushCopy.stakes(slider: true).map(\.text) + HushCopy.stakes(slider: false).map(\.text)
@@ -2149,14 +2149,15 @@ struct R6Tests {
         controller.goHome()
     }
 
-    /// The founder's rule: the watchdog resumes only a closing pause, ≥ 6 s, with the last known angle ≥ 95°, on the
-    /// inner display. A lid sitting shut (no samples, a low angle, or none) stays paused.
+    /// The founder's rule: the watchdog resumes only a closing pause, ≥ 6 s, with the last known angle ≥ the resume
+    /// angle (R7: 92°, Feel's line), on the inner display. A lid sitting shut (no samples, a low angle, or none) stays
+    /// paused.
     @Test func theWatchdogRule() {
         let ok = AppRules.watchdogResumes(pausedFor: 6.1, onlyClosing: true, liveRun: true, canvas: .inner, angle: 130)
         #expect(ok)
         #expect(!AppRules.watchdogResumes(pausedFor: 5.9, onlyClosing: true, liveRun: true, canvas: .inner,
                                           angle: 130))
-        #expect(!AppRules.watchdogResumes(pausedFor: 9, onlyClosing: true, liveRun: true, canvas: .inner, angle: 94))
+        #expect(!AppRules.watchdogResumes(pausedFor: 9, onlyClosing: true, liveRun: true, canvas: .inner, angle: 91))
         #expect(!AppRules.watchdogResumes(pausedFor: 9, onlyClosing: true, liveRun: true, canvas: .inner, angle: 55))
         #expect(!AppRules.watchdogResumes(pausedFor: 9, onlyClosing: true, liveRun: true, canvas: .inner, angle: nil))
         #expect(!AppRules.watchdogResumes(pausedFor: 9, onlyClosing: true, liveRun: true, canvas: .small, angle: 130))
@@ -2350,5 +2351,381 @@ struct R6Tests {
         #expect(events.contains("hinge nil"))
         #expect(!GameController.keepsEventLog(demo: DemoMode.parse("screen=home")))
         controller.goHome()
+    }
+}
+
+// MARK: - R7: real hands (design/ROUND-7.md, App items 1–7)
+
+/// Counts the Game Center sign-in asks (the controller's `authenticateGameCenter` is replaced in the tests).
+@MainActor
+private final class AskCounter {
+    var asks = 0
+}
+
+@MainActor
+struct R7Tests {
+    private func makeController(lessonDone: Bool = true) -> GameController {
+        var data = ProgressData()
+        data.lessonDone = lessonDone
+        data.runs = lessonDone ? 10 : 0
+        return GameController(store: ProgressStore(inMemory: data), settings: SettingsStore(defaults: nil))
+    }
+
+    /// A live hinge run on the Duo's inner display (no hinge report yet: held on the closing card).
+    private func makeFoldRun() -> GameController {
+        let controller = makeController()
+        controller.updateCanvas(CGSize(width: 669, height: 951), hasFold: true, quarterTurns: 2)
+        controller.play()
+        return controller
+    }
+
+    // MARK: Item 1: "down", never "shut"; a fresh chest skips "Hold still…"
+
+    @Test func bankingSaysDownNeverShut() {
+        #expect(HushCopy.hint(.shutToBank, slider: false) == "Ease the lid down to bank")
+        #expect(HushCopy.bankLid == "Ease the lid down to bank")
+        #expect(HushCopy.wordCount(HushCopy.bankLid) <= 6)
+        #expect(HushCopy.stakes(slider: false).last?.text == "Ease the lid down to bank")
+        let bank = LessonScript(start: .bank).line(slider: false, angle: nil, hint: nil)
+        #expect(bank.contains("to upright"))
+        // No fold copy says "shut" (a hand told "shut" folds the Duo all the way, onto the cover display).
+        var lines = HushCopy.allHints.map { HushCopy.hint($0, slider: false) }
+        lines += HushCopy.stakes(slider: false).map(\.text)
+        let angles: [Double?] = [nil, 60, 100, 140, 175]
+        for step in LessonScript.Step.allCases {
+            for angle in angles {
+                lines.append(LessonScript(start: step).line(slider: false, angle: angle, hint: nil))
+            }
+        }
+        let empty = RunResult(mode: .run, seed: 1, gold: 0, seconds: 120, chestsOpened: 2, chestsBanked: 0,
+                              hushed: 0, bites: 0, relics: [], bestChestValue: 0, itemsBagged: 0,
+                              highestTier: .wooden, lostToBites: 0)
+        lines.append(AppRules.story(empty, outcome: RecordOutcome(), relicName: { _ in "" }))
+        for line in lines { #expect(!line.lowercased().contains("shut"), "\(line)") }
+    }
+
+    /// The pure rule: a fresh chest resumes on the lift alone; a chest in play still needs lifted AND still.
+    @Test func aFreshChestNeedsNoStillness() {
+        #expect(AppRules.closingResumes(canResume: false, freshChest: true, lifted: true))
+        #expect(!AppRules.closingResumes(canResume: false, freshChest: true, lifted: false))
+        #expect(!AppRules.closingResumes(canResume: false, freshChest: false, lifted: true))
+        #expect(AppRules.closingResumes(canResume: true, freshChest: false, lifted: true))
+        #expect(AppRules.freshResumeGrace == 0.8)
+        // The card over a fresh chest never says "Hold still…".
+        for lifted in [true, false] {
+            #expect(ClosingCard.title(lifted: lifted, fresh: true) == "Lift the lid for the next chest")
+            #expect(!ClosingCard.title(lifted: lifted, fresh: true).contains("Hold still"))
+        }
+        #expect(ClosingCard.title(lifted: true) == "Hold still…")
+        #expect(ClosingCard.title(lifted: true, awaitingHinge: true, fresh: true) == "Move the lid a little")
+    }
+
+    /// The real controller: the run's first chest (fresh, lid shut) resumes while the lid is still rising at 40°/s,
+    /// once it passes Feel's line, with no stillness wait, and logs it.
+    @Test func aFreshChestResumesOnTheLift() {
+        let controller = makeFoldRun()
+        #expect(controller.isClosingPaused)
+        let frame = 1.0 / 60.0
+        var t = CACurrentMediaTime()
+        controller.hingeSample(angle: 40, time: t)
+        var angle = 40.0
+        var sawFresh = false
+        var resumedWhileMoving = false
+        for i in 0..<300 {
+            t += frame
+            if i % 2 == 0 && angle < 140 {
+                angle += 40 * 2 * frame
+                controller.hingeSample(angle: angle, time: t)
+            }
+            _ = controller.advance(dt: frame, now: t)
+            if controller.closingFresh { sawFresh = true }
+            if !controller.isClosingPaused {
+                resumedWhileMoving = angle < 139
+                break
+            }
+        }
+        #expect(sawFresh)
+        #expect(resumedWhileMoving)
+        #expect(!controller.isPaused)
+        let events = controller.events.ring.entries.map(\.event)
+        #expect(events.contains("fresh chest resume"))
+        controller.goHome()
+    }
+
+    // MARK: Item 2: the pause coin
+
+    @Test func thePauseCoinNeedsAHoldOnADuoMidChest() {
+        #expect(AppRules.pauseHoldSeconds == 0.35)
+        #expect(AppRules.holdToPauseText == "Hold to pause")
+        #expect(AppRules.pauseNeedsHold(duo: true, phase: .ready))
+        #expect(AppRules.pauseNeedsHold(duo: true, phase: .looting))
+        #expect(!AppRules.pauseNeedsHold(duo: true, phase: .banked(elapsed: 0.2)))
+        #expect(!AppRules.pauseNeedsHold(duo: true, phase: .bitten(elapsed: 0.2)))
+        #expect(!AppRules.pauseNeedsHold(duo: true, phase: .torchOut(elapsed: 0.2)))
+        #expect(!AppRules.pauseNeedsHold(duo: false, phase: .looting))
+        // A tap only hints; the hold pauses; where no hold is needed a tap pauses.
+        #expect(AppRules.coinPress(heldFor: 0.1, needsHold: true) == .hint)
+        #expect(AppRules.coinPress(heldFor: 0.34, needsHold: true) == .hint)
+        #expect(AppRules.coinPress(heldFor: 0.35, needsHold: true) == .pause)
+        #expect(AppRules.coinPress(heldFor: .nan, needsHold: true) == .hint)
+        #expect(AppRules.coinPress(heldFor: 0.05, needsHold: false) == .pause)
+        // The controller: a Duo's live chest asks for the hold.
+        let controller = makeFoldRun()
+        controller.carryOn()
+        _ = controller.advance(dt: 1.0 / 60.0, now: CACurrentMediaTime())
+        #expect(controller.pauseNeedsHold)
+        controller.goHome()
+    }
+
+    // MARK: Item 3: the lesson
+
+    /// Step 1 passes after 4 s anywhere in 80…125° ("That'll do."), and still after 0.5 s in 90…112°.
+    @Test func thePoseStepIsLenient() {
+        #expect(LessonScript.looseMin == 80 && LessonScript.looseMax == 125 && LessonScript.looseHold == 4)
+        var s = LessonScript()
+        for t in [0.0, 1.0, 2.0, 3.0, 3.95] {
+            _ = s.update(LessonScript.Input(time: t, angle: 118))
+            #expect(!s.isPraising)
+        }
+        _ = s.update(LessonScript.Input(time: 4.0, angle: 118))
+        #expect(s.isPraising)
+        #expect(s.line(slider: false, angle: 118, hint: nil) == LessonScript.loosePraise)
+        _ = s.update(LessonScript.Input(time: 5.1, angle: 118))
+        #expect(s.step == .open)
+
+        // A wobbly rest between 85 and 124° (±5° hinge accuracy) passes too.
+        var w = LessonScript()
+        var t = 0.0
+        var passed = false
+        while t < 4.3 {
+            let a: Double = Int(t * 10) % 2 == 0 ? 85 : 124
+            _ = w.update(LessonScript.Input(time: t, angle: a))
+            if w.isPraising { passed = true }
+            t += 0.05
+        }
+        #expect(passed)
+
+        // Outside 80…125° never passes; leaving the window restarts the clock.
+        for angle in [79.0, 126.0, 170.0] {
+            var o = LessonScript()
+            _ = o.update(LessonScript.Input(time: 0, angle: angle))
+            _ = o.update(LessonScript.Input(time: 6, angle: angle))
+            #expect(!o.isPraising)
+        }
+        var r = LessonScript()
+        _ = r.update(LessonScript.Input(time: 0, angle: 120))
+        _ = r.update(LessonScript.Input(time: 3, angle: 140))
+        _ = r.update(LessonScript.Input(time: 3.1, angle: 120))
+        _ = r.update(LessonScript.Input(time: 6.5, angle: 120))
+        #expect(!r.isPraising)
+        _ = r.update(LessonScript.Input(time: 7.2, angle: 120))
+        #expect(r.isPraising)
+    }
+
+    /// Skip shows from step 1 after 20 s of lesson (from the start on a replay).
+    @Test func skipComesAfterTwentySeconds() {
+        #expect(LessonScript.skipAfter == 20)
+        var s = LessonScript()
+        _ = s.update(LessonScript.Input(time: 5, angle: 150))
+        #expect(!s.canSkip)
+        _ = s.update(LessonScript.Input(time: 24.9, angle: 150))
+        #expect(!s.canSkip)
+        _ = s.update(LessonScript.Input(time: 25.0, angle: 150))
+        #expect(s.canSkip)
+        #expect(s.step == .pose)
+        #expect(s.display(slider: false, angle: 150, hint: nil).canSkip)
+        #expect(LessonScript(start: .pose, replay: true).canSkip)
+        #expect(!LessonScript(start: .pose).canSkip)
+    }
+
+    /// Freeze is judged by displacement: a resting finger's tremor (fast but tiny) is still; a slow drift of 9 pt in
+    /// 0.3 s is not, even under the old 60 pt/s drag line.
+    @Test func freezeJudgesDisplacementNotDragSpeed() {
+        #expect(LessonScript.stillDisplacement == 8 && LessonScript.stillWindow == 0.3)
+        let frame = 1.0 / 60.0
+
+        var s = LessonScript(start: .freeze)
+        _ = s.update(LessonScript.Input(time: 0))
+        let stir = s.update(LessonScript.Input(time: LessonScript.stirDelay + 0.01))
+        #expect(stir == [.nudgeNoise(LessonScript.stirLevel)])
+        var t = LessonScript.stirDelay + 0.01
+        var calmed = false
+        for i in 0..<130 {
+            t += frame
+            let wobble: CGFloat = i % 2 == 0 ? 0.8 : -0.8
+            let held: [Int: CGPoint] = [1: CGPoint(x: 250 + wobble, y: 150)]
+            let actions = s.update(LessonScript.Input(time: t, dragSpeed: 140, held: held))
+            if actions.contains(.nudgeNoise(LessonScript.calmLevel)) { calmed = true }
+        }
+        #expect(calmed)
+        #expect(!s.movedDuringFreeze)
+
+        var m = LessonScript(start: .freeze)
+        _ = m.update(LessonScript.Input(time: 0))
+        _ = m.update(LessonScript.Input(time: LessonScript.stirDelay + 0.01))
+        var t2 = LessonScript.stirDelay + 0.01
+        var calmedM = false
+        for i in 0..<130 {
+            t2 += frame
+            let held: [Int: CGPoint] = [1: CGPoint(x: 250 + CGFloat(i) * 0.5, y: 150)]
+            let actions = m.update(LessonScript.Input(time: t2, dragSpeed: 30, held: held))
+            if actions.contains(.nudgeNoise(LessonScript.calmLevel)) { calmedM = true }
+        }
+        #expect(!calmedM)
+        #expect(m.movedDuringFreeze)
+
+        // The pure window: nothing held is still; a new grab starts its own history; old samples age out.
+        var still = LessonScript.HeldStillness()
+        let none = still.update(time: 0, held: [:])
+        #expect(none)
+        let first = still.update(time: 0.1, held: [2: CGPoint(x: 10, y: 10)])
+        #expect(first)
+        let far = still.update(time: 0.2, held: [2: CGPoint(x: 30, y: 10)])
+        #expect(!far)
+        let later = still.update(time: 0.7, held: [2: CGPoint(x: 30, y: 10)])
+        #expect(later)
+    }
+
+    // MARK: Item 4: Settings
+
+    @Test func sensitivityAndVibrationPersistTolerantly() throws {
+        let fresh = SettingsData()
+        #expect(fresh.lidSensitivity == .normal)
+        #expect(fresh.vibration == nil)
+        // Unchosen vibration is not written at all (so it keeps following the device).
+        let plain = try #require(SettingsStore.encode(fresh))
+        let plainText = String(data: plain, encoding: .utf8) ?? ""
+        #expect(!plainText.contains("vibration"))
+        var s = SettingsData()
+        s.lidSensitivity = .forgiving
+        s.vibration = .strong
+        let raw = try #require(SettingsStore.encode(s))
+        #expect(SettingsStore.decode(raw) == s)
+        // An R6 save: no new keys.
+        let old = try #require(SettingsStore.decode(Data(#"{"soundOn": false, "hapticsOn": false}"#.utf8)))
+        #expect(old.lidSensitivity == .normal)
+        #expect(old.vibration == nil)
+        #expect(!old.hapticsOn && !old.soundOn)
+        // Bad values fall back; the other fields survive.
+        let badJSON = #"{"lidSensitivity": "wild", "vibration": 3, "turnRound": false}"#
+        let bad = try #require(SettingsStore.decode(Data(badJSON.utf8)))
+        #expect(bad.lidSensitivity == .normal)
+        #expect(bad.vibration == nil)
+        #expect(!bad.turnRound)
+        // A chosen Off means haptics off, whatever an old flag says.
+        let off = try #require(SettingsStore.decode(Data(#"{"vibration": "off", "hapticsOn": true}"#.utf8)))
+        #expect(off.vibration == .off)
+        #expect(!off.hapticsOn)
+        let careful = try #require(SettingsStore.decode(Data(#"{"lidSensitivity": "careful"}"#.utf8)))
+        #expect(careful.lidSensitivity == .careful)
+    }
+
+    @Test func theSensitivityChoiceIsKeptOnTheDevice() throws {
+        let suite = "hush.tests.settings.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let store = SettingsStore(defaults: defaults)
+        #expect(store.lidSensitivity == .normal)
+        #expect(store.vibration == nil)
+        store.lidSensitivity = .forgiving
+        let again = SettingsStore(defaults: defaults)
+        #expect(again.lidSensitivity == .forgiving)
+        #expect(again.vibration == nil)
+    }
+
+    @Test func theSettingsRowsSayWhatTheyDo() {
+        #expect(AppRules.sensitivityTitle == "Lid sensitivity")
+        #expect(AppRules.vibrationTitle == "Vibration")
+        #expect(LidSensitivity.allCases.map { AppRules.sensitivityName($0) } == ["Forgiving", "Normal", "Careful"])
+        #expect(HapticStrength.allCases.map(\.title) == ["Off", "Normal", "Strong"])
+        for s in LidSensitivity.allCases {
+            #expect(AppRules.sensitivityDetail(s).contains("The scored Daily always plays Normal."))
+        }
+        // What the Vibration row shows: the choice, else what the device plays.
+        #expect(SettingsStore.shownVibration(chosen: nil, hapticsOn: true, hasFold: true) == .strong)
+        #expect(SettingsStore.shownVibration(chosen: nil, hapticsOn: true, hasFold: false) == .normal)
+        #expect(SettingsStore.shownVibration(chosen: nil, hapticsOn: false, hasFold: true) == .off)
+        #expect(SettingsStore.shownVibration(chosen: .normal, hapticsOn: true, hasFold: true) == .normal)
+        #expect(SettingsStore.shownVibration(chosen: .off, hapticsOn: true, hasFold: false) == .off)
+        // The scored Daily plays Normal whatever is chosen (Core's override; the App passes the choice in).
+        let scored: SessionOptions = SessionOptions.`for`(.daily(day: 3, scored: true), sensitivity: .forgiving)
+        #expect(scored.sensitivity == .normal)
+        let run: SessionOptions = SessionOptions.`for`(.run, sensitivity: .forgiving)
+        #expect(run.sensitivity == .forgiving)
+    }
+
+    // MARK: Item 5: the Copy log carries the hinge trace
+
+    @Test func theCopyLogCarriesTheHingeTrace() throws {
+        #expect(AppRules.diagnosticsCopy(log: "a", trace: "b") == "a\n\nb")
+        let controller = makeController()
+        let now = CACurrentMediaTime()
+        controller.hinge.ingest(angleDegrees: 120, at: now)
+        controller.hinge.ingest(angleDegrees: 121.5, at: now + 0.033)
+        controller.note("test event")
+        let text = controller.diagnosticsCopyText
+        #expect(text.hasPrefix("Hush event log"))
+        let traceAt = try #require(text.range(of: "Hinge trace (raw, last 10 s)"))
+        let eventAt = try #require(text.range(of: "test event"))
+        #expect(eventAt.lowerBound < traceAt.lowerBound)
+    }
+
+    // MARK: Item 6: Game Center waits for the lesson
+
+    @Test func gameCenterWaitsForTheLesson() {
+        #expect(!AppRules.mayAuthenticateGameCenter(demo: false, lessonDone: false, route: .home))
+        #expect(!AppRules.mayAuthenticateGameCenter(demo: false, lessonDone: false, route: .lesson))
+        #expect(!AppRules.mayAuthenticateGameCenter(demo: false, lessonDone: true, route: .lesson))
+        #expect(!AppRules.mayAuthenticateGameCenter(demo: false, lessonDone: true, route: .playing))
+        #expect(AppRules.mayAuthenticateGameCenter(demo: false, lessonDone: true, route: .home))
+        #expect(AppRules.mayAuthenticateGameCenter(demo: true, lessonDone: false, route: .lesson))
+
+        let controller = makeController(lessonDone: false)
+        let counter = AskCounter()
+        controller.authenticateGameCenter = { counter.asks += 1 }
+        controller.startLesson(replay: false)
+        controller.authenticateGameCenterIfReady()
+        #expect(counter.asks == 0)
+        // "Got it": the first run starts; still no sign-in over it.
+        controller.finishLesson()
+        #expect(controller.route == .playing)
+        #expect(counter.asks == 0)
+        controller.goHome()
+        #expect(counter.asks == 1)
+        #expect(controller.gameCenterRequested)
+        controller.show(.settings)
+        controller.goHome()
+        controller.authenticateGameCenterIfReady()
+        #expect(counter.asks == 1)
+    }
+
+    // MARK: Item 7: "Other way round" in menus, up to flat
+
+    @Test func theOtherWayRoundBannerReachesFlatInMenus() {
+        #expect(!AppRules.readsUpsideDown(turned: true, cameraUp: true, angle: 175))
+        #expect(AppRules.readsUpsideDown(turned: true, cameraUp: true, angle: 175, inMenus: true))
+        #expect(AppRules.readsUpsideDown(turned: true, cameraUp: true, angle: 180, inMenus: true))
+        #expect(AppRules.readsUpsideDown(turned: true, cameraUp: true, angle: 120, inMenus: true))
+        #expect(!AppRules.readsUpsideDown(turned: true, cameraUp: true, angle: 59, inMenus: true))
+        #expect(!AppRules.readsUpsideDown(turned: false, cameraUp: true, angle: 178, inMenus: true))
+        #expect(!AppRules.readsUpsideDown(turned: true, cameraUp: false, angle: 178, inMenus: true))
+        #expect(!AppRules.readsUpsideDown(turned: true, cameraUp: true, angle: nil, inMenus: true))
+        #expect(HoldHintBanner.line(inMenus: false) == HoldHintBanner.text)
+        #expect(HoldHintBanner.line(inMenus: true) == HoldHintBanner.menuText)
+        #expect(!HoldHintBanner.menuText.contains("glowing"))
+    }
+
+    // MARK: The R6 watchdog follows Feel's resume line
+
+    @Test func theWatchdogUsesFeelsResumeLine() {
+        #expect(AppRules.resumeAngle == HingeLidSource.resumeAngle)
+        #expect(AppRules.watchdogResumes(pausedFor: 7, onlyClosing: true, liveRun: true, canvas: .inner, angle: 90,
+                                         resumeAngle: 88))
+        #expect(!AppRules.watchdogResumes(pausedFor: 7, onlyClosing: true, liveRun: true, canvas: .inner, angle: 90,
+                                          resumeAngle: 92))
+        #expect(AppRules.watchdogResumes(pausedFor: 7, onlyClosing: true, liveRun: true, canvas: .inner, angle: 93,
+                                         resumeAngle: .nan))
+        #expect(!AppRules.watchdogResumes(pausedFor: 7, onlyClosing: true, liveRun: true, canvas: .inner, angle: 91,
+                                          resumeAngle: .nan))
     }
 }

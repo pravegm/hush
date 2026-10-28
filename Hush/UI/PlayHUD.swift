@@ -10,12 +10,16 @@ enum HushCopy {
         case .slower: return "Slower…"
         case .freeze: return "Freeze!"
         case .dragToBag: return "Drag the loot into your bag"
-        case .shutToBank: return slider ? "Slide the lever down to bank" : "Ease the lid shut to bank"
+        case .shutToBank: return slider ? "Slide the lever down to bank" : HushCopy.bankLid
         case .tooWide: return "That's wide enough"
         case .candleLow: return "Candle's low. Bank it!"
         case .relicDeeper: return "Something glints deeper…"
         }
     }
+
+    /// R7 (ROUND-7 App 1, DEVICE-RISKS-1 item 3): "down", never "shut". The game's shut is upright (100°), and a hand
+    /// told "shut" folds the Duo all the way, onto the cover display, after every bank.
+    static let bankLid = "Ease the lid down to bank"
 
     /// Every hint, for the tests and the word-count rule (HeistHint isn't CaseIterable).
     static let allHints: [HeistHint] = [.easeLidDown, .openSlowly, .slower, .freeze, .dragToBag, .shutToBank, .tooWide,
@@ -30,7 +34,7 @@ enum HushCopy {
         [
             StakeRow(icon: .candle, text: "Candle out = run over"),
             StakeRow(icon: .fang, text: "Too loud? It bites your bag"),
-            StakeRow(icon: .lock, text: slider ? "Slide the lever down to bank" : "Ease the lid shut to bank"),
+            StakeRow(icon: .lock, text: slider ? "Slide the lever down to bank" : HushCopy.bankLid),
         ]
     }
 
@@ -127,7 +131,10 @@ struct PlayLayer: View {
             if !(controller.lessonDisplay?.isFinal ?? false) && !paused {
                 let pause = info.pauseCenter()
                 // R5 (juror P2-3, frame 13): the bite's teeth own the screen; the coin steps away for the moment.
-                BrassCoinButton(label: "Pause") { controller.openMenu() }
+                // R7 (ROUND-7 App 2): on a Duo, mid-chest, a 0.35 s press-and-hold (a ring fills); a tap says
+                // "Hold to pause". Elsewhere a tap.
+                PauseCoin(needsHold: controller.pauseNeedsHold, reduceMotion: controller.reduceMotion,
+                          scale: fit.textScale) { controller.openMenu() }
                     .opacity(hud.biting ? 0 : 1)
                     .allowsHitTesting(!hud.biting)
                     .accessibilityHidden(hud.biting)
@@ -306,17 +313,20 @@ struct ClosingCard: View {
     @ObservedObject var controller: GameController
     let info: AppCanvas
 
-    /// Pure; tested.
-    static func title(lifted: Bool, awaitingHinge: Bool = false) -> String {
+    /// Pure; tested. R7 (ROUND-7 App 1): over a fresh chest (`HeistSession.isFreshChest`) lifting the lid is enough,
+    /// so the card never says "Hold still…" there.
+    static func title(lifted: Bool, awaitingHinge: Bool = false, fresh: Bool = false) -> String {
         if awaitingHinge { return "Move the lid a little" }
+        if fresh { return "Lift the lid for the next chest" }
         return lifted ? "Hold still…" : "Lift the lid a little to carry on"
     }
 
     /// R6: the escape hatch's words.
     static let carryOn = "Carry on"
 
-    static func detail(lifted: Bool, awaitingHinge: Bool = false) -> String {
+    static func detail(lifted: Bool, awaitingHinge: Bool = false, fresh: Bool = false) -> String {
         if awaitingHinge { return "Then hold it still. The mimic waits." }
+        if fresh { return "The mimic waits. Your candle does too." }
         return lifted ? "Then we tiptoe on." : "The mimic waits. Your candle does too."
     }
 
@@ -324,6 +334,7 @@ struct ClosingCard: View {
         let c = info.isCompact
         let lifted = controller.closingLifted
         let waiting = controller.closingAwaitsHinge
+        let fresh = controller.closingFresh
         let area = info.fit.viewRect(canvas: HUDLayout.cardArea)
         ZStack {
             Color.black.opacity(0.5)
@@ -334,11 +345,11 @@ struct ClosingCard: View {
                     DuoDiagram(style: .tabletop(angle: 115), reduceMotion: controller.reduceMotion || lifted)
                         .frame(width: 96, height: 62)
                     VStack(alignment: .leading, spacing: 4) {
-                        Text(Self.title(lifted: lifted, awaitingHinge: waiting))
+                        Text(Self.title(lifted: lifted, awaitingHinge: waiting, fresh: fresh))
                             .font(HushType.headline(c))
                             .foregroundStyle(HushTheme.parchment)
                             .fixedSize(horizontal: false, vertical: true)
-                        Text(Self.detail(lifted: lifted, awaitingHinge: waiting))
+                        Text(Self.detail(lifted: lifted, awaitingHinge: waiting, fresh: fresh))
                             .font(HushType.caption(c))
                             .foregroundStyle(HushTheme.mist)
                             .fixedSize(horizontal: false, vertical: true)
@@ -572,7 +583,7 @@ struct LessonStepCard: View {
 }
 
 /// Step 6 (UX P0-3): the stakes, three drawn icon rows, then "Got it" (the first run). R3: the leather plate, the
-/// layout's words ("Ease the lid shut to bank" on a fold, the lever otherwise).
+/// layout's words ("Ease the lid down to bank" on a fold, the lever otherwise).
 struct LessonFinalCard: View {
     @ObservedObject var controller: GameController
     let compact: Bool
@@ -616,5 +627,139 @@ struct LessonFinalCard: View {
         }
         .frame(width: max(width - 60, 200))
         .hushPlate(padding: tight ? 14 : 20, radius: 26)
+    }
+}
+
+/// R7 (ROUND-7 App 2, DEVICE-RISKS-1 item 4): the pause coin. It sits in the floor's right corner, where a right hand
+/// easing the lid rests, so on a Duo, mid-chest (`GameController.pauseNeedsHold`), it needs a 0.35 s press-and-hold: a
+/// ring fills round it while held, and a shorter press only shows "Hold to pause" beside it. Elsewhere (phones, the
+/// bank and bite moments) it is the plain tap coin. VoiceOver's activate pauses at once (no hold to perform).
+/// The coin's place is unchanged, so `Tuning.lootKeepOut` and the Daily's deal are untouched.
+struct PauseCoin: View {
+    let needsHold: Bool
+    let reduceMotion: Bool
+    var scale: CGFloat = 1
+    let action: () -> Void
+
+    static let visual: CGFloat = 50
+
+    @State private var pressStart: Date?
+    @State private var fill: CGFloat = 0
+    @State private var fired = false
+    @State private var holdTask: Task<Void, Never>?
+    @State private var hintShown = false
+    @State private var hintTask: Task<Void, Never>?
+
+    var body: some View {
+        if needsHold {
+            holdCoin
+        } else {
+            BrassCoinButton(label: "Pause", visual: Self.visual, action: action)
+        }
+    }
+
+    private var side: CGFloat { max(Self.visual, HushTheme.minTap) }
+
+    private var holdCoin: some View {
+        ZStack {
+            Circle()
+                .stroke(Color.black.opacity(pressStart == nil ? 0 : 0.35), lineWidth: 5)
+                .frame(width: Self.visual + 12, height: Self.visual + 12)
+            Circle()
+                .trim(from: 0, to: fill)
+                .stroke(HushTheme.goldLight, style: StrokeStyle(lineWidth: 5, lineCap: .round))
+                .rotationEffect(.degrees(-90))
+                .frame(width: Self.visual + 12, height: Self.visual + 12)
+            BrassCoinFace(visual: Self.visual)
+                .scaleEffect(pressStart == nil ? 1 : 0.94)
+        }
+        .frame(width: side, height: side)
+        .contentShape(Circle())
+        .gesture(
+            DragGesture(minimumDistance: 0)
+                .onChanged { _ in begin() }
+                .onEnded { _ in end() }
+        )
+        .overlay(alignment: .trailing) { holdHint }
+        .onDisappear { reset() }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Pause")
+        .accessibilityHint("Press and hold to pause")
+        .accessibilityAddTraits(.isButton)
+        .accessibilityAction { action() }
+    }
+
+    @ViewBuilder
+    private var holdHint: some View {
+        if hintShown {
+            Text(AppRules.holdToPauseText)
+                .font(.system(size: 16 * scale, weight: .bold, design: .rounded))
+                .foregroundStyle(PlateArt.text(.parchment))
+                .lineLimit(1)
+                .fixedSize()
+                .onPlate(.parchment, radius: 10)
+                .fixedSize()
+                .offset(x: -(side + 6))
+                .allowsHitTesting(false)
+                .accessibilityHidden(true)
+                .transition(.opacity)
+        }
+    }
+
+    private func begin() {
+        guard pressStart == nil else { return }
+        pressStart = Date()
+        fired = false
+        fill = 0
+        withAnimation(.linear(duration: AppRules.pauseHoldSeconds)) { fill = 1 }
+        holdTask?.cancel()
+        holdTask = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: UInt64(AppRules.pauseHoldSeconds * 1_000_000_000))
+            guard !Task.isCancelled, pressStart != nil, !fired else { return }
+            firePause()
+        }
+    }
+
+    private func end() {
+        guard let start = pressStart else { return }
+        holdTask?.cancel()
+        holdTask = nil
+        let held = Date().timeIntervalSince(start)
+        if !fired {
+            switch AppRules.coinPress(heldFor: held, needsHold: true) {
+            case .pause: firePause()
+            case .hint: showHint()
+            }
+        }
+        pressStart = nil
+        withAnimation(.easeOut(duration: reduceMotion ? 0 : 0.15)) { fill = 0 }
+    }
+
+    private func firePause() {
+        fired = true
+        FeedbackDirector.shared.uiConfirm()
+        action()
+    }
+
+    private func showHint() {
+        FeedbackDirector.shared.uiTap()
+        withAnimation(.easeOut(duration: 0.15)) { hintShown = true }
+        hintTask?.cancel()
+        hintTask = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: UInt64(AppRules.holdHintSeconds * 1_000_000_000))
+            guard !Task.isCancelled else { return }
+            withAnimation(.easeOut(duration: 0.25)) { hintShown = false }
+        }
+    }
+
+    private func reset() {
+        holdTask?.cancel()
+        hintTask?.cancel()
+        holdTask = nil
+        hintTask = nil
+        pressStart = nil
+        fired = false
+        fill = 0
+        hintShown = false
     }
 }

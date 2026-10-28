@@ -326,6 +326,10 @@ struct SettingsView: View {
     static let silentTitle = "Play sound on silent"
     /// The About card's version line (the hidden Diagnostics press is on it).
     static var versionText: String { "Version \(BuildChannel.versionLine)" }
+    /// R7: the Vibration and Lid sensitivity rows' options, in order.
+    static let vibrationOptions: [(HapticStrength, String)] = HapticStrength.allCases.map { ($0, $0.title) }
+    static let sensitivityOptions: [(LidSensitivity, String)] =
+        LidSensitivity.allCases.map { ($0, AppRules.sensitivityName($0)) }
 
     var body: some View {
         let c = info.isCompact
@@ -334,8 +338,23 @@ struct SettingsView: View {
                 VStack(spacing: 0) {
                     SettingToggle(title: "Sound", detail: nil, isOn: $settings.soundOn, compact: c)
                     divider
-                    SettingToggle(title: "Haptics", detail: "Feel every creak.", isOn: $settings.hapticsOn,
-                                  compact: c)
+                    // R7 (ROUND-7 App 4): Vibration, Off / Normal / Strong (was a Haptics on/off toggle). Unchosen,
+                    // it shows what the device plays (Strong on a Duo) and is not stored.
+                    let duo = controller.hingeSeen || info.hasFold
+                    SettingChoice(title: AppRules.vibrationTitle,
+                                  detail: AppRules.vibrationDetail(chosen: settings.vibration != nil, duo: duo),
+                                  options: Self.vibrationOptions,
+                                  selected: SettingsStore.shownVibration(chosen: settings.vibration,
+                                                                         hapticsOn: settings.hapticsOn,
+                                                                         hasFold: duo),
+                                  compact: c) { settings.chooseVibration($0) }
+                    divider
+                    // R7 (ROUND-7 App 4, DEVICE-RISKS-1 D3): Lid sensitivity; the row says the scored Daily is Normal.
+                    SettingChoice(title: AppRules.sensitivityTitle,
+                                  detail: AppRules.sensitivityDetail(settings.lidSensitivity),
+                                  options: Self.sensitivityOptions,
+                                  selected: settings.lidSensitivity,
+                                  compact: c) { settings.lidSensitivity = $0 }
                     divider
                     SettingToggle(title: Self.silentTitle, detail: "The creak plays with the ringer off.",
                                   isOn: Binding(get: { !settings.respectSilentSwitch },
@@ -421,7 +440,9 @@ struct DiagnosticsPanel: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             diagnostics
-            EventLogPanel(log: controller.events, compact: compact)
+            // R7 (ROUND-7 App 5): Copy log carries the raw hinge trace too.
+            EventLogPanel(log: controller.events, compact: compact,
+                          copyText: { controller.diagnosticsCopyText })
         }
     }
 
@@ -454,6 +475,9 @@ struct DiagnosticsPanel: View {
 struct EventLogPanel: View {
     @ObservedObject var log: EventLog
     let compact: Bool
+    /// R7 (ROUND-7 App 5): what Copy puts on the pasteboard (the event log, then the raw hinge trace,
+    /// `GameController.diagnosticsCopyText`). Nil: the event log alone.
+    var copyText: (@MainActor () -> String)? = nil
     @State private var copied = false
 
     static let copyLabel = "Copy log"
@@ -468,7 +492,7 @@ struct EventLogPanel: View {
                     .foregroundStyle(HushTheme.gold)
                 Spacer(minLength: 8)
                 Button {
-                    UIPasteboard.general.string = log.text
+                    UIPasteboard.general.string = copyText?() ?? log.text
                     FeedbackDirector.shared.uiConfirm()
                     copied = true
                 } label: {
@@ -482,7 +506,7 @@ struct EventLogPanel: View {
                 }
                 .buttonStyle(HushPressStyle())
                 .accessibilityIdentifier("diag.copy")
-                .accessibilityHint("Copies the event log, to paste into a message")
+                .accessibilityHint("Copies the event log and the hinge trace, to paste into a message")
             }
             ScrollView(showsIndicators: true) {
                 LazyVStack(alignment: .leading, spacing: 2) {
@@ -536,6 +560,65 @@ struct SettingToggle: View {
         .padding(.horizontal, 14)
         .padding(.vertical, 6)
         .frame(minHeight: HushTheme.minTap)
+    }
+}
+
+/// R7 (ROUND-7 App 4): a Settings row with a few named choices (Vibration, Lid sensitivity): the title and a detail
+/// line, then one pill per option (the chosen one gold). Each pill is a full-height tap target and says to VoiceOver
+/// which it is and whether it is chosen.
+struct SettingChoice<Value: Hashable>: View {
+    let title: String
+    let detail: String?
+    let options: [(Value, String)]
+    let selected: Value
+    let compact: Bool
+    let onPick: (Value) -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                    .font(HushType.body(compact))
+                    .foregroundStyle(HushTheme.parchment)
+                    .fixedSize(horizontal: false, vertical: true)
+                if let detail {
+                    Text(detail)
+                        .font(HushType.caption(compact))
+                        .foregroundStyle(HushTheme.mist)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            .accessibilityElement(children: .combine)
+            HStack(spacing: 6) {
+                ForEach(options.indices, id: \.self) { i in
+                    pill(options[i].0, name: options[i].1)
+                }
+            }
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 8)
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func pill(_ value: Value, name: String) -> some View {
+        let on = value == selected
+        return Button {
+            FeedbackDirector.shared.uiTap()
+            onPick(value)
+        } label: {
+            Text(name)
+                .font(HushType.caption(compact).weight(.bold))
+                .foregroundStyle(on ? HushTheme.ink : HushTheme.parchment)
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
+                .frame(maxWidth: .infinity, minHeight: HushTheme.minTap)
+                .background(Capsule().fill(on ? HushTheme.gold : HushTheme.night.opacity(0.6)))
+                .overlay(Capsule().stroke(on ? Color.clear : HushTheme.stroke, lineWidth: 1))
+                .contentShape(Capsule())
+        }
+        .buttonStyle(HushPressStyle())
+        .accessibilityLabel("\(title): \(name)")
+        .accessibilityAddTraits(on ? .isSelected : [])
     }
 }
 

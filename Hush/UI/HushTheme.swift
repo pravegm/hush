@@ -585,25 +585,34 @@ struct BrassCoinButton: View {
             FeedbackDirector.shared.uiTap()
             action()
         } label: {
-            ZStack {
-                Circle().fill(Color(hush: ChestArt.outline)).frame(width: visual + 5, height: visual + 5)
-                Circle()
-                    .fill(RadialGradient(colors: [HushTheme.goldLight, HushTheme.gold, HushTheme.goldDeep],
-                                         center: UnitPoint(x: 0.35, y: 0.3), startRadius: 1, endRadius: visual * 0.7))
-                    .frame(width: visual, height: visual)
-                Circle().stroke(HushTheme.goldDeep.opacity(0.9), lineWidth: 2)
-                    .frame(width: visual * 0.74, height: visual * 0.74)
-                // R3 (decision 5): drawn, never an SF Symbol inside the chest.
-                PauseGlyph()
-                    .fill(HushTheme.ink)
-                    .frame(width: visual * 0.3, height: visual * 0.34)
-            }
-            .shadow(color: Color.black.opacity(0.45), radius: 5, y: 3)
-            .frame(width: max(visual, HushTheme.minTap), height: max(visual, HushTheme.minTap))
-            .contentShape(Circle())
+            BrassCoinFace(visual: visual)
+                .frame(width: max(visual, HushTheme.minTap), height: max(visual, HushTheme.minTap))
+                .contentShape(Circle())
         }
         .buttonStyle(HushPressStyle())
         .accessibilityLabel(label)
+    }
+}
+
+/// The brass stud itself (R7: shared by the tap coin and the Duo's press-and-hold coin, `PauseCoin`).
+struct BrassCoinFace: View {
+    var visual: CGFloat = 50
+
+    var body: some View {
+        ZStack {
+            Circle().fill(Color(hush: ChestArt.outline)).frame(width: visual + 5, height: visual + 5)
+            Circle()
+                .fill(RadialGradient(colors: [HushTheme.goldLight, HushTheme.gold, HushTheme.goldDeep],
+                                     center: UnitPoint(x: 0.35, y: 0.3), startRadius: 1, endRadius: visual * 0.7))
+                .frame(width: visual, height: visual)
+            Circle().stroke(HushTheme.goldDeep.opacity(0.9), lineWidth: 2)
+                .frame(width: visual * 0.74, height: visual * 0.74)
+            // R3 (decision 5): drawn, never an SF Symbol inside the chest.
+            PauseGlyph()
+                .fill(HushTheme.ink)
+                .frame(width: visual * 0.3, height: visual * 0.34)
+        }
+        .shadow(color: Color.black.opacity(0.45), radius: 5, y: 3)
     }
 }
 

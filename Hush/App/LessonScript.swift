@@ -85,14 +85,52 @@ struct LessonScript: Equatable {
         var noise: Double
         var hint: HeistHint?
         var events: [HeistEvent]
+        /// R7 (DEVICE-RISKS-1 item 11): where each HELD item is now (item id → floor point). The Freeze step judges
+        /// these by displacement, never by drag speed (a resting finger's tremor reads 60+ pt/s).
+        var held: [Int: CGPoint]
 
         init(time: Double, angle: Double? = nil, hasHinge: Bool = true, openness: Double = 0, lidSpeed: Double = 0,
              dragSpeed: Double = 0, anyGrabbable: Bool = false, bagCount: Int = 0, noise: Double = 0,
-             hint: HeistHint? = nil, events: [HeistEvent] = []) {
+             hint: HeistHint? = nil, events: [HeistEvent] = [], held: [Int: CGPoint] = [:]) {
             self.time = time; self.angle = angle; self.hasHinge = hasHinge; self.openness = openness
             self.lidSpeed = lidSpeed; self.dragSpeed = dragSpeed; self.anyGrabbable = anyGrabbable
             self.bagCount = bagCount; self.noise = noise; self.hint = hint; self.events = events
+            self.held = held
         }
+    }
+
+    /// R7 (DEVICE-RISKS-1 item 11): "still" for the Freeze step means every held item moved less than
+    /// `stillDisplacement` pt within the last `stillWindow` s. Pure; tested.
+    struct HeldStillness: Equatable {
+        private struct Sample: Equatable {
+            var time: Double
+            var id: Int
+            var point: CGPoint
+        }
+
+        private var samples: [Sample] = []
+
+        init() {}
+
+        /// Records this frame's held items; true while each one has stayed within `stillDisplacement` of every
+        /// position it had in the last `stillWindow` seconds. Nothing held is still. A newly grabbed item starts its
+        /// own history (the grab itself isn't a twitch).
+        mutating func update(time: Double, held: [Int: CGPoint]) -> Bool {
+            let oldest = time - LessonScript.stillWindow
+            samples.removeAll { s in s.time < oldest || s.time > time || held[s.id] == nil }
+            var still = true
+            for (id, now) in held {
+                for s in samples where s.id == id {
+                    let dx = Double(now.x - s.point.x)
+                    let dy = Double(now.y - s.point.y)
+                    if (dx * dx + dy * dy).squareRoot() >= LessonScript.stillDisplacement { still = false }
+                }
+            }
+            for (id, now) in held { samples.append(Sample(time: time, id: id, point: now)) }
+            return still
+        }
+
+        mutating func reset() { samples.removeAll() }
     }
 
     enum Action: Equatable {
@@ -104,13 +142,24 @@ struct LessonScript: Equatable {
     static let poseMin: Double = 90
     static let poseMax: Double = 112
     static let poseHold: Double = 0.5
+    /// R7 (ROUND-7 App 3, DEVICE-RISKS-1 item 8): the pose step also passes after `looseHold` s anywhere in
+    /// `looseMin…looseMax` ("That'll do."), against the hinge's ±5° and a laptop rest of 105–125°.
+    static let looseMin: Double = 80
+    static let looseMax: Double = 125
+    static let looseHold: Double = 4
+    static let loosePraise = "That'll do."
+    /// R7: Skip is offered from step 1 once the lesson has run this long (s); on a replay, from the start.
+    static let skipAfter: Double = 20
     /// The slider's "pose" step passes once the lid has been slid up this far.
     static let sliderStart: Double = 0.04
     static let stirDelay: Double = 0.8
     static let stirLevel: Double = 0.55
     static let stillNeeded: Double = 1.5
     static let calmLevel: Double = 0.1
-    static let stillDragSpeed: Double = 60
+    /// R7 (DEVICE-RISKS-1 item 11): the Freeze step's "still" is displacement: every held item under 8 pt within 0.3 s
+    /// (it was a drag speed under 60 pt/s, which a resting finger's tremor could fail).
+    static let stillDisplacement: Double = 8
+    static let stillWindow: Double = 0.3
     static let praiseSeconds: Double = 1.0
     static let slowerSeconds: Double = 1.5
     /// After "Slower…", a calm lid makes the grumble fall back to this.
@@ -124,6 +173,11 @@ struct LessonScript: Equatable {
     private var next: Step?
     private var stepStartedAt: Double?
     private var poseSince: Double?
+    /// R7: since when the lid has been in the loose window (80…125°).
+    private var looseSince: Double?
+    /// R7: when the lesson started (its first update), for "Skip after 20 s".
+    private var startedAt: Double?
+    private var heldStillness = HeldStillness()
     private(set) var stirred = false
     private var stillSince: Double?
     private(set) var movedDuringFreeze = false
@@ -137,8 +191,13 @@ struct LessonScript: Equatable {
         self.replay = replay
     }
 
-    /// Skip is offered after step 2 (or any time on a replay).
-    var canSkip: Bool { replay || step.rawValue >= Step.grab.rawValue }
+    /// Skip is offered after step 2 (or any time on a replay). R7 (ROUND-7 App 3): also from step 1 once the lesson
+    /// has run `skipAfter` (20) s.
+    var canSkip: Bool {
+        if replay || step.rawValue >= Step.grab.rawValue { return true }
+        guard let startedAt else { return false }
+        return time - startedAt >= Self.skipAfter
+    }
     /// R4 (QA-3 P2-3): the lesson is banked: its praise beat or the final card (the closing pause stays away).
     var isFinishing: Bool { step == .done || next == .done }
     var isPraising: Bool { praiseUntil != nil }
@@ -148,6 +207,9 @@ struct LessonScript: Equatable {
         time = i.time
         var actions: [Action] = []
         if stepStartedAt == nil { stepStartedAt = i.time }
+        if startedAt == nil { startedAt = i.time }
+        // R7: every frame's held items feed the Freeze step's displacement rule (so its window is full when needed).
+        let heldStill = heldStillness.update(time: i.time, held: i.held)
         let banked = i.events.contains { e in
             if case .banked = e { return true }
             return false
@@ -194,12 +256,24 @@ struct LessonScript: Equatable {
         switch step {
         case .pose:
             if i.hasHinge {
-                if let a = i.angle, a >= Self.poseMin, a <= Self.poseMax {
+                // R7 (ROUND-7 App 3): 0.5 s in 90…112°, or 4 s anywhere in 80…125° ("That'll do.").
+                let a = i.angle.flatMap { $0.isFinite ? $0 : nil }
+                if let a, a >= Self.poseMin, a <= Self.poseMax {
                     let since = poseSince ?? i.time
                     poseSince = since
-                    if i.time - since >= Self.poseHold { pass(to: .open, praise: "That's it.", at: i.time) }
                 } else {
                     poseSince = nil
+                }
+                if let a, a >= Self.looseMin, a <= Self.looseMax {
+                    let since = looseSince ?? i.time
+                    looseSince = since
+                } else {
+                    looseSince = nil
+                }
+                if let since = poseSince, i.time - since >= Self.poseHold {
+                    pass(to: .open, praise: "That's it.", at: i.time)
+                } else if let since = looseSince, i.time - since >= Self.looseHold {
+                    pass(to: .open, praise: Self.loosePraise, at: i.time)
                 }
             } else if i.openness >= Self.sliderStart {
                 pass(to: .open, praise: "That's it.", at: i.time)
@@ -217,7 +291,8 @@ struct LessonScript: Equatable {
                     actions.append(.nudgeNoise(Self.stirLevel))
                 }
             } else {
-                let still = i.lidSpeed < Tuning.quietSpeed && i.dragSpeed < Self.stillDragSpeed
+                // R7 (DEVICE-RISKS-1 item 11): held items judged by displacement, not drag speed.
+                let still = i.lidSpeed < Tuning.quietSpeed && heldStill
                 if still {
                     let since = stillSince ?? i.time
                     stillSince = since
@@ -248,6 +323,7 @@ struct LessonScript: Equatable {
         step = newStep
         stepStartedAt = time
         poseSince = nil
+        looseSince = nil
         stillSince = nil
         if newStep == .freeze {
             stirred = false
@@ -321,7 +397,8 @@ struct LessonScript: Equatable {
             if !stirred { return "Shh… did you hear that?" }
             return movedDuringFreeze ? "Freeze! Not a twitch." : "It's stirring. Freeze!"
         case .bank:
-            return slider ? "Slide the lever down to bank it." : "Ease the lid shut to bank it."
+            // R7 (DEVICE-RISKS-1 item 3): never "shut" (the game's shut is upright, 100°; a hand folds the Duo shut).
+            return slider ? "Slide the lever down to bank it." : "Ease the lid down to upright to bank it."
         case .done:
             return "Candle out = run over"
         }

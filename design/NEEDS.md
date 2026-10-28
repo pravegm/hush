@@ -285,3 +285,27 @@ Answers to CI (R6), all delivered (details in `design/notes/app-R6.md`):
   (`HUSH-T mask landscapeLeft|landscapeRight|portrait live=1`); menus are unlocked (`allButUpsideDown`). Demo runs
   with `orient=landscape` or `pose=book` take no hold (as before).
 - **Founder:** Diagnostics now has the event log and a Copy button: Settings › About › hold "Version" 2 s › Copy log.
+
+## App engineer (R7)
+For CI (details in `design/notes/app-R7.md`). Nothing blocking; no demo key changed.
+- **Resume line:** the App now follows Feel's line in force everywhere (`hinge.effectiveResumeAngle`: 92° to enter,
+  88° once lifted). The R6 watchdog resumes at that line (was 95°). A check that greps `HUSH-T resumed angle <θ>` and
+  needs θ ≥ 95 should now accept θ ≥ 88.
+- **Fresh chest (BANK-SHUT-REOPEN):** over a fresh chest (`HeistSession.isFreshChest`: ready, never opened past 0.05,
+  empty bag; also the run's first chest with the lid shut) the closing pause resumes as soon as the filtered angle
+  reaches the line, with no stillness wait, and logs `HUSH-T fresh chest resume angle=<θ>` before the usual
+  `HUSH-T resumed angle <θ>`. The lid gets 0.8 s of grace. The card reads "Lift the lid for the next chest", never
+  "Hold still…". A pause over a chest in play keeps the full rule (lifted AND still 0.3 s).
+- **Pause coin:** same place (`pauseArea`, `lootKeepOut` unchanged, so no Daily deal changes). On a Duo (a hinge seen
+  or a fold layout) during a live chest it needs a 0.35 s press-and-hold; a shorter press shows "Hold to pause". A UI
+  test can check that a 0.1 s tap on "Pause" leaves the menu shut (`XCUIElement.press(forDuration: 0.1)`), and that
+  `press(forDuration: 0.6)` opens it. VoiceOver's activate still pauses at once.
+- **Copy:** "Ease the lid down to bank" (hint, final card), lesson step 5 "Ease the lid down to upright to bank it.".
+  Store frames that show the old "shut" line will differ.
+- **Lesson:** step 1 also passes after 4 s anywhere in 80–125° (praise "That'll do."); Skip shows from step 1 after
+  20 s; the Freeze step judges held items by displacement (< 8 pt in 0.3 s).
+- **Settings:** the Haptics toggle is now "Vibration" (Off / Normal / Strong); new "Lid sensitivity" (Forgiving /
+  Normal / Careful) row. Settings frames will differ.
+- **Game Center:** `GameCenterManager.authenticate()` now runs on the first visit to Home after the lesson
+  (`HUSH-T gc authenticate route=home`), or at once in demo runs (as before).
+- **Diagnostics:** "Copy log" = the event log, a blank line, then `HingeLidSource.traceText()`.

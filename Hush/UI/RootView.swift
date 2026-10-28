@@ -127,7 +127,7 @@ struct RootView: View {
                     .transition(.opacity)
             }
             if controller.showsHoldHint && frame.pose == .play {
-                HoldHintBanner(size: window)
+                HoldHintBanner(size: window, inMenus: !controller.route.isPlay)
                     .allowsHitTesting(false)
             }
             if controller.isDemo {
@@ -299,15 +299,22 @@ struct RootView: View {
 
 /// R2 (REVIEW-1-duo P1-7): held upright the normal way (camera end up) while the chest is drawn turned round, the
 /// whole game reads upside down. This banner is drawn UN-turned, once on each half, so it reads right as held.
+/// R7 (DEVICE-RISKS-1 item 9): in menus it also shows for a Duo held flat (170–180°), with its own words: there is no
+/// glowing half on Home.
 struct HoldHintBanner: View {
     let size: CGSize
+    var inMenus = false
 
     static let text = "Other way round: lift the glowing half ↻"
+    static let menuText = "Upside down on purpose: turn your Duo round ↻"
+
+    /// Pure; tested.
+    static func line(inMenus: Bool) -> String { inMenus ? menuText : text }
 
     var body: some View {
         ZStack {
             ForEach([0.25, 0.75], id: \.self) { f in
-                Text(Self.text)
+                Text(Self.line(inMenus: inMenus))
                     .font(.system(size: 22, weight: .heavy, design: .rounded))
                     .foregroundStyle(HushTheme.ink)
                     .multilineTextAlignment(.center)
@@ -322,6 +329,7 @@ struct HoldHintBanner: View {
         .frame(width: size.width, height: size.height)
         .transition(.opacity)
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("Turn the phone the other way round, and lift the glowing half")
+        .accessibilityLabel(inMenus ? "Upside down on purpose: turn your Duo the other way round"
+                            : "Turn the phone the other way round, and lift the glowing half")
     }
 }

@@ -36,7 +36,9 @@ enum AppRules {
     /// R2 (P0-2): after any resume the lid makes no noise for this long (`HeistSession.resumeGrace`).
     static let resumeGraceSeconds: Double = 0.5
     /// R2: the closing card says "Hold still…" once the lid is back at or above this (Feel's `canResume` angle).
-    static let resumeAngle: Double = 95
+    /// R7: 95 → 92, the same as `HingeLidSource.resumeAngle` (Feel's enter line). The controller passes the live
+    /// `hinge.effectiveResumeAngle` (92 / 88 hysteresis); this is only the default for the pure rules.
+    static let resumeAngle: Double = 92
     /// R2 (P1-8): the pause menu never opens while the hinge is this shut (the cover display takes over).
     static let menuShutAngle: Double = 20
 
@@ -204,10 +206,12 @@ enum AppRules {
     }
 
     /// R2 (P1-7): held upright in the hand the normal way (camera end up) while turned round, every screen reads
-    /// upside down to the player: say so. Only with the hinge open (60…170°). Pure; tested.
-    static func readsUpsideDown(turned: Bool, cameraUp: Bool, angle: Double?) -> Bool {
+    /// upside down to the player: say so. Only with the hinge open (60…170°). R7 (DEVICE-RISKS-1 item 9): in menus
+    /// (`inMenus`, not a run) up to 180°, so a Duo picked up flat, camera end up, is told why Home reads upside down.
+    /// Pure; tested.
+    static func readsUpsideDown(turned: Bool, cameraUp: Bool, angle: Double?, inMenus: Bool = false) -> Bool {
         guard turned, cameraUp, let a = angle, a.isFinite else { return false }
-        return a >= 60 && a <= 170
+        return a >= 60 && a <= (inMenus ? 180 : 170)
     }
 
     // MARK: Hints
@@ -294,7 +298,7 @@ enum AppRules {
         }
         if r.gold <= 0 {
             return r.bites > 0 ? "The mimic kept every coin. Gentler next time." :
-                "Nothing banked. Close the lid to bank your loot."
+                "Nothing banked. Ease the lid down to bank your loot."
         }
         if outcome.showsNewBest { return "A new best haul. The mimics are whispering about you." }
         if r.goldenBanked > 0 { return "You robbed a golden mimic. It'll sulk for weeks." }

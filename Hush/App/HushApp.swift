@@ -25,7 +25,9 @@ struct HushApp: App {
                     settings.apply()
                     FeedbackDirector.shared.start()
                     settings.apply()
-                    GameCenterManager.shared.authenticate()
+                    // R7 (ROUND-7 App 6): only once the First Chest is done and Home is up (the controller asks
+                    // again on every route change).
+                    controller.authenticateGameCenterIfReady()
                 }
         }
     }

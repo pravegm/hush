@@ -580,7 +580,7 @@ if [[ " $PASSES " == *" hinge "* ]]; then
   [[ -n "$early" ]] && { verdict=FAIL; d="$d; resumed before the reopen"; }
   [[ -n "$bitten" ]] && verdict=FAIL
   if [[ -z "$rl" ]]; then verdict=FAIL; d="$d; no resume within 5 s of the reopen"
-  elif [[ "$ra" == none ]] || lt "$ra" 95; then verdict=FAIL; d="$d; resumed below 95°"; fi
+  elif [[ "$ra" == none ]] || lt "$ra" 88; then verdict=FAIL; d="$d; resumed below 88° (R7: resume enters at 92°, hysteresis 88°)"; fi
   if [[ "$verdict" == PASS && "$released" == 0 ]]; then
     verdict=INFO; d="$d; INCONCLUSIVE: no 'HUSH-T noise released', so noise=0.6 was held all run (no bite possible). App: noiseUntil=pause (design/NEEDS.md)"
   fi
@@ -657,7 +657,7 @@ if [[ " $PASSES " == *" hinge "* ]]; then
   verdict=PASS
   if [[ -z "$rl" ]]; then verdict=FAIL; d="$d; no resume after the reopen (even at 165°)"
   else
-    { [[ "$ra" == none ]] || lt "$ra" 95; } && { verdict=FAIL; d="$d; resumed below 95°"; }
+    { [[ "$ra" == none ]] || lt "$ra" 88; } && { verdict=FAIL; d="$d; resumed below 88° (R7 hysteresis)"; }
     [[ "$rc" != "$INNER_CANVAS" ]] && { verdict=FAIL; d="$d; resumed on $rc, not the inner $INNER_CANVAS"; }
   fi
   [[ -n "$oncover" ]] && verdict=FAIL
@@ -791,7 +791,7 @@ if [[ " $PASSES " == *" hinge "* ]]; then
     if [[ "$wdt" == on* ]] || ! num "$wdt" || le "$wdt" "$(awk -v l="$WD_LIMIT" 'BEGIN { print l + 0.2 }')"; then
       result WATCHDOG PASS "$d$( num "$wdt" || [[ "$wdt" == on* ]] || echo ' (no line clock: within the wiggle loop)')"
     else result WATCHDOG FAIL "$d; resumed, but ${wdt} s after reaching 130 (> ${WD_LIMIT} s)"; fi
-  elif ! ge "$wtop" 95; then
+  elif ! ge "$wtop" 92; then
     result WATCHDOG INCONCLUSIVE "$d (the hinge tool never delivered the reopen: nothing ≥ 95° logged)"
   else
     result WATCHDOG FAIL "$d; STUCK: no resume within ${WD_LIMIT} s of reaching 130°"

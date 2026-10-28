@@ -173,13 +173,16 @@ extension AppRules {
     /// the background or the cover display), paused ≥ 6 s, resumes by itself when the LAST KNOWN hinge angle is ≥ 95°
     /// AND the canvas is the inner display. Nothing else: a lid sitting shut sends no samples and must stay paused (no
     /// "silent hinge" clause), and an unknown angle never resumes. Pure; tested.
+    /// R7 (feel-R7): `resumeAngle` is Feel's line in force (the controller passes `hinge.effectiveResumeAngle`, 92° /
+    /// 88° with hysteresis), so the watchdog never asks for more than the hinge does. Default: `AppRules.resumeAngle`
+    /// (92°); NaN falls back to it.
     static func watchdogResumes(pausedFor: Double, onlyClosing: Bool, liveRun: Bool, canvas: CanvasClass?,
-                                angle: Double?) -> Bool {
+                                angle: Double?, resumeAngle line: Double = AppRules.resumeAngle) -> Bool {
         guard liveRun, onlyClosing, canvas == .inner, pausedFor.isFinite, pausedFor >= watchdogSeconds else {
             return false
         }
         guard let a = angle, a.isFinite else { return false }
-        return a >= resumeAngle
+        return a >= (line.isFinite ? line : resumeAngle)
     }
 
     // MARK: Names for the logs
