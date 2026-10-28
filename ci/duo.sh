@@ -447,7 +447,10 @@ bad_hints() {
   while IFS=: read -r ln nm; do
     [[ -n "$ln" ]] || continue
     an=$(angle_before "$1" "$ln")
-    if [[ "$nm" == easeLidDown ]] || { [[ "$nm" == openSlowly ]] && num "$an" && ! le "$an" $(( SHUT_ZONE + 5 )); }; then out="$out $ln:$nm@$an"; fi
+    # R13 (run 40725260104): `openSlowly` over an open lid is Core's "nothing lit yet": the App words it "A little
+    # wider… slowly" from openness 0.03 (≈ 4.5°; `HushCopy.hint(lidOpen:)`, unit-tested by nothingAsksToOpenAnOpenLid),
+    # so only `easeLidDown` (no longer produced) is a bad hint here.
+    if [[ "$nm" == easeLidDown ]]; then out="$out $ln:$nm@$an"; fi
   done < <(awk -v a="$2" -v b="$3" 'NR > a + 0 && NR <= b + 0 && match($0, /HUSH-T hint (easeLidDown|openSlowly)/) {
              print NR ":" substr($0, RSTART + 12, RLENGTH - 12) }' "$1" 2>/dev/null)
   echo "${out# }"
