@@ -110,7 +110,10 @@
 #    pause itself (UPRIGHT-NO-PAUSE, CLOSE-PAUSE, REOPEN-NO-BITE, COVER-SLOW-*, FLAT-OPEN, WATCHDOG) don't need it.
 #  - `shut_gap_note`: when a first chest never opened, says whether any run step reached the shut zone. On the sim
 #    none can (see MEASURED), and the App's `noteLidShutIfRobbed` only calls `session.noteLidShut()` with loot in the
-#    bag or a robbed chest, so a cover takeover / closing pause never marks the FIRST chest seen shut.
+#    bag or a robbed chest, so a cover takeover / closing pause never marks the FIRST chest seen shut. R14b (ab96a50)
+#    fixes that and logs `HUSH-T first chest seen shut reason=…`, which silences the note. R14b also ends an EMPTY
+#    chest opened past 0.2 when the phone closes (`next chest dealt under the pause`): a new `chestArrived` on a
+#    reopen after a mid-chest close (CLOSE-PAUSE, REOPEN-NO-BITE, COVER-SLOW-*, WATCHDOG) is correct, never judged.
 #  - Every closing pause resumes on the lift (≥ 18°, no "Hold still…"); a non-still resume logs `HUSH-T fresh chest
 #    resume`. `easeLidDown` is the expected first-chest hint (bad only after a lidCracked); `tooWide` never shows
 #    (FLAT-OPEN fails on a `hint tooWide` line); the pose tip never shows unforced (POSE-NO-BLOCK); the lesson starts at
@@ -487,6 +490,10 @@ shut_gap_note() {
   s=$(awk -v a="$2" -v b="$3" 'NR > a + 0 && NR <= b + 0 && /HUSH-T lid / {
         for (i = 1; i < NF; i++) if ($i == "angle" && $(i + 1) ~ /^[0-9.]+$/ && $(i + 1) + 0 <= 15) { print NR; exit } }' "$1" 2>/dev/null)
   [[ -n "$s" ]] && return 0
+  # R14b (ab96a50): the App logs `HUSH-T first chest seen shut reason=<cover|closing|shut>` when the pause / cover /
+  # shut marks it; then the gap is closed and the reason for a chest that still didn't open lies elsewhere.
+  s=$(first_line "$1" "HUSH-T first chest seen shut" "$2")
+  [[ -n "$s" ]] && (( s <= $3 )) && return 0
   p=$(first_line "$1" "HUSH-T (paused|pose cover)" "$2")
   [[ -n "$p" ]] && (( p <= $3 )) || return 0
   echo "; no run step reached the shut zone (no lid line ≤ ${SHUT_ZONE}°): the run was paused from line $p ($(sed -n "${p}p" "$1" | grep -oE 'HUSH-T (paused [a-z]+|pose cover)' | head -1), $(angle_before "$1" "$p")°) and GameController.noteLidShutIfRobbed calls session.noteLidShut() only with loot in the bag or a robbed chest, so the first chest was never seen shut (App gap: R14 needs it for the first chest too)"
@@ -1206,7 +1213,7 @@ if [[ " $PASSES " == *" hinge "* ]]; then
   scr=$(first_line "$SO" "HUSH-T event lidCracked" "$s1")
   scra=$( [[ -n "$scr" ]] && angle_before "$SO" "$scr" || echo none )
   sbad=$(bad_hints "$SO" 0 "$s2")
-  d="run start@${sa:-none}; held with the lid up ${sdt} s: lidCracked ${scr0:+@$scr0}${scr0:-none}; ${sph:-no 'first chest' line}; last lid line angle ${sang}° openness ${sop} (want ${swant}, off by ${sdiff}); hints while up: ${shs}$(hints_on || echo ' (the App prints no HUD hint lines yet)'); ${sarr:-no chestArrived line}; then: $FC_NOTE; hints after: $(hints "$SO" "$s1" "$s2")"
+  d="run start@${sa:-none}; held with the lid up ${sdt} s: lidCracked ${scr0:+@$scr0}${scr0:-none}; ${sph:-no 'first chest' line}; last lid line angle ${sang}° openness ${sop} (want ${swant}, off by ${sdiff}); hints while up: ${shs}$(hints_on || echo ' (the App prints no HUD hint lines yet)'); ${sarr:-no chestArrived line}; then: $FC_NOTE; $(grep -m1 -oE "HUSH-T first chest seen shut[^]*" "$SO" || echo "no 'first chest seen shut' line"); hints after: $(hints "$SO" "$s1" "$s2")"
   if ! { ge "$sang" 140 && le "$sang" 160; }; then
     result START-CLOSED INCONCLUSIVE "$d (the lid never read ~150°: the hinge tool didn't set it)"
   elif [[ -n "$scr0" ]]; then
@@ -1465,18 +1472,14 @@ if [[ " $PASSES " == *" frames "* ]]; then
   # 105° (openness 0.08) the cover lifting towards the hinge.
   # R13 (openness θ / 150): closed at 5° (0.03), cracking at 25° (0.17, above the 18° resume line, so the run plays),
   # half at 75° (0.5), wide at 150° (1.0); every sweep ≤ 20°/s physical (≤ 9 lid °/s). 5° is reached by a closing
-  # sweep; if the sim's cover display is the lit panel at 5°, the inner display is relit at 165° and the opening frames
-  # start from a gentle close back down to 25° (the inner panel stays lit closing from open) instead.
+  # sweep; on the sim its cover display is the lit panel at 5° (duo run 40725260104), and the inner one relights at
+  # ~22° on the way up, so duo-00 may be the cover. R14: the run starts closed, as the founder wants; the chest opens
+  # in these frames only once the App counts this closed start as seen shut (START-CLOSED says whether it does).
   hinge_sweep 5 8; hinge_set 5
   launch frames "screen=run;mode=attract;seed=7" 1
   FL="$OUT_ABS/logs/frames.txt"
   shoot duo-00-closed-5 inner
-  if [[ "$LAST_PICK" == cover ]]; then
-    log "frames: the sim's cover display is lit at 5°: relight at 165°, then down to 25° for the opening frames"
-    hinge_sweep 165 8; sleep 2; hinge_sweep 25 7
-  else
-    hinge_sweep 25 1.5
-  fi
+  hinge_sweep 25 2
   sleep 2.5; shoot duo-01-crack-25 inner
   hinge_sweep 75 3; sleep 2.5; shoot duo-02-half-75 inner
   hinge_sweep 150 4; sleep 2.5; shoot duo-03-wide-150 inner
@@ -1492,9 +1495,9 @@ if [[ " $PASSES " == *" frames "* ]]; then
   result COVER-REOPEN INFO "reopen 0 → 165° in 2.5 s: resumed@${orl:-none} angle ${ora:-none}°; maxNoise after=$(after "$FL" "${orl:-$o0}" | lid_vals noise | max_of)"
   shoot duo-05-reopened-165 inner
   hinge_sweep 120 1.5
-  # The same half-open moment with "Turn the chest round" off, for comparison with duo-02. R13: from 25° (a closing
-  # sweep, the inner panel lit) to 75° (openness 0.5).
-  hinge_sweep 25 5; hinge_set 25
+  # The same half-open moment with "Turn the chest round" off, for comparison with duo-02. R13: from 25° to 75°
+  # (openness 0.5). R14: 25° is reached from below (down to 5°, up to 25°): closing, the sim's cover takes over at ~70°.
+  hinge_sweep 5 6; hinge_sweep 25 2; hinge_set 25
   launch frames-unturned "screen=run;mode=attract;seed=7;turn=0" 1
   hinge_sweep 75 3; sleep 2.5; shoot duo-06-half-75-unturned inner
   result UNTURNED INFO "$(canvas_line "$OUT_ABS/logs/frames-unturned.txt")"
@@ -1503,8 +1506,8 @@ fi
 # ---- pass: UI frames -----------------------------------------------------------------------------------------------
 if [[ " $PASSES " == *" ui "* ]]; then
   # Home's chest follows the hinge: shut-ish at 120, the little mimic peeks at 150. R13 (openness θ / 150): barely
-  # open at 25° (0.17; reached by a closing sweep, the inner panel lit), the mimic peeking at 150°.
-  hinge_sweep 25 6; hinge_set 25 || true
+  # open at 25° (0.17), the mimic peeking at 150°. R14: 25° is reached from below (5° first), so the inner panel is lit.
+  hinge_sweep 5 6; hinge_sweep 25 2; hinge_set 25 || true
   launch ui-home "screen=home;progress=mid" 1; shoot duo-ui-home-25 inner
   hinge_sweep 150 6; sleep 2.5; shoot duo-ui-home-150 inner
   # Lesson step 1 (pose) at 150°, then into its R2 90–112° window (REVIEW-1-duo P1-6) for 0.5 s+ (the step should
@@ -1513,8 +1516,10 @@ if [[ " $PASSES " == *" ui "* ]]; then
   # step 2 "Now open it… slowly". Frames only (the copy is the App's; HushTests own it).
   # R13: the pose window is any open laptop pose, 45–150° (loose 30–165° after 4 s), and there is no shut-first gate:
   # the lesson's chest opens with the lid. 150° is the window's edge, so the "after" frame is at 100°, well inside.
+  # R14: the lesson's pose step is gone (it starts at "open"), and its chest, like every first chest, waits for the
+  # close: at 150° "Close the phone to start."; then closed to 5° and reopened to 100° ("Now open it… slowly.").
   launch ui-lesson "screen=lesson;lessonStep=1" 1; shoot duo-ui-lesson-1-150 inner
-  hinge_sweep 100 3; sleep 2.5; shoot duo-ui-lesson-after-pose inner
+  hinge_sweep 5 6; hinge_wiggle 5 1; hinge_sweep 100 5; sleep 2.5; shoot duo-ui-lesson-after-close inner
   hinge_sweep 150 2
   launch ui-results "screen=results;seed=7;progress=mid;pilot=casual" 1; sleep 3; shoot duo-ui-results inner
   # R4 (NEEDS App R3: "Codex 9/24 vs 22/24"): the same `mid` preset as ui-home / ui-results, so the three agree.
@@ -1531,6 +1536,8 @@ if [[ " $PASSES " == *" ui "* ]]; then
   # R6 (founder's real-Duo P0, design/ROUND-6.md): the blocking book card is GONE. In landscape, Home is drawn the
   # right way up (k odd) and only a non-blocking tip may show (`HUSH-T pose tip shown`, needs UIDevice landscape,
   # which the sim may not report). FAIL only if anything still blocks (`pose standUp`).
+  # R14: the pose tip never shows unless the demo forces it (`screen=pose`), and this launch doesn't: PASS = no block
+  # and no tip; a tip shown unforced FAILs.
   launch ui-pose-card "screen=home;progress=mid;orient=landscape" 0; sleep 3; shoot duo-ui-pose-card inner
   PC="$OUT_ABS/logs/ui-pose-card.txt"
   wh=$(png_wh "$OUT_ABS/duo-ui-pose-card.png")
@@ -1538,8 +1545,8 @@ if [[ " $PASSES " == *" ui "* ]]; then
   tip=$(grep -m1 -oE "HUSH-T pose tip shown[^\r]*" "$PC" 2>/dev/null)
   d="frame $wh; tip: ${tip:-none}; standUp: ${pcl:-none}; $(canvas_line "$PC")"
   if [[ -n "$pcl" ]]; then result POSE-NO-BLOCK FAIL "$d (the blocking book card is back)"
-  elif [[ -n "$tip" ]]; then result POSE-NO-BLOCK PASS "$d"
-  else result POSE-NO-BLOCK INFO "$d (no block; the tip needs a landscape UIDevice reading the sim may not give)"; fi
+  elif [[ -n "$tip" ]]; then result POSE-NO-BLOCK FAIL "$d (R14: the pose tip showed without the demo forcing it)"
+  else result POSE-NO-BLOCK PASS "$d (no block, no tip: R14)"; fi
   hinge_sweep 40 1.5; hinge_set 0; sleep 3; shoot duo-ui-cover cover
   hinge_set 160 || true
 fi
