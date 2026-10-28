@@ -26,6 +26,8 @@
 # History: R4 freezeDelay 0.25 (bank) / 0.6 (chain) land on the moment; R10 the perfect pilot's first bank is Hushed
 # (+197, Hush Chain ×1.1); R11 runs hold the book-pose landscape interface (k=1), store-upright.sh turns them upright.
 # R15 (store run after 04fde7c/2170f0e): the old D1–D6 set (run 40675006542) predates the phone-is-the-chest copy.
+# R15b (run 40786977121): since R15c (a banking close is silent) the Duo novice bites later (no bite in 60 s): D06
+#   waits up to 150 s for its bite.
 
 # ---- iPhone Duo (2007 x 2853): ten frames ------------------------------------------------------------------------
 # D03: freezeAfter=3.25: the casual pilot filling its bag on chest #1 (aimed at the first gem drag, itemPicked ~3.1 s in the
@@ -35,7 +37,7 @@ D02-play|screen=cover;progress=fresh|8|Phone shut? Press *Play*. / Then open the
 D03-loot|screen=run;mode=run;seed=7;pilot=casual;turn=0;freezeAfter=3.25|25|Drag the loot to your *bag*. / Slowly: quick hands make noise.|HUSH-T event itemPicked
 D04-freeze|screen=run;mode=run;seed=7;pilot=novice;turn=0;freezeOn=waking|60|It's waking. *Freeze!* / Stay still and it settles.|HUSH-T freeze waking
 D05-bank|screen=run;mode=run;seed=7;pilot=perfect;turn=0;freezeOn=bank;freezeDelay=0.25|60|Close the phone to *bank*. / Bank before the candle burns out.|HUSH-T event banked value=[1-9]
-D06-chomp|screen=run;mode=run;seed=7;pilot=novice;turn=0;freezeOn=bite|60|Too loud? *CHOMP.* / Lose your bag and 10 seconds.|HUSH-T event bitten
+D06-chomp|screen=run;mode=run;seed=7;pilot=novice;turn=0;freezeOn=bite|150|Too loud? *CHOMP.* / Lose your bag and 10 seconds.|HUSH-T event bitten
 D07-chain|screen=run;mode=run;seed=7;pilot=perfect;turn=0;freezeAfter=24;freezeOn=bank;freezeDelay=0.35|90|Sleepy banks pay *more*. / Hush Chain: up to ×1.5 gold.|HUSH-T event chainUp count=[0-9]+ multiplier=1\.[2-5]
 D08-relic|screen=run;mode=run;seed=7;pilot=expert;turn=0;skipTo=25;freezeOn=relic;freezeDelay=1.7|120|Open wide for *relics*. / The best loot sits deepest.|HUSH-T event relicFound
 D09-codex|screen=codex;progress=mid;turn=0|8|Twenty-four relics. One *Codex*. / Daily Dungeon, ranks, Game Center.|HUSH-T canvas
