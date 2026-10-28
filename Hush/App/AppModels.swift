@@ -57,6 +57,17 @@ struct DebugLoot: Equatable {
     var radius: CGFloat
 }
 
+/// R9 (fix-k3-drag): `debug.state`'s value (demo runs only), in its own object so updating it re-renders only the tiny
+/// probe view, never RootView or the SpriteView (QA-1 P2-14's lesson, and a drag must not be disturbed by its own probe).
+@MainActor
+final class DebugStateProbe: ObservableObject {
+    @Published private(set) var value = ""
+
+    func set(_ text: String) {
+        if value != text { value = text }
+    }
+}
+
 /// Home's title chest: the live lid (hinge on a Duo, a drag on other iPhones).
 struct HomeLid: Equatable {
     var openness: Double = 0

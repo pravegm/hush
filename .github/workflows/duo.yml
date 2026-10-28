@@ -146,10 +146,15 @@ jobs:
           set +e
           command -v hinge >/dev/null && gtimeout 20 hinge -d "$UDID" -t 3 150
           T=HushUITests/TurnedDragUITests/testLandscapeTurnedDragBagsALitItem
+          T2=HushUITests/TurnedDragUITests/testLandscapeCarryOnTapsAtOddK
+          # R9 control (design/notes/fix-k3-drag.md): the k=2 drag on the Duo. If it ALSO bags nothing, the Duo sim's
+          # synthesized touches are the problem, not the quarter turn.
+          T3=HushUITests/TurnedDragUITests/testTurnedDragBagsALitItem
           mkdir -p duo-screens
           run_ui() {
             gtimeout 1500 xcodebuild test -project Hush.xcodeproj -scheme HushUITests -destination "id=$UDID" \
-              -derivedDataPath build -only-testing:"$T" -resultBundlePath "duo-screens/uitest-$1.xcresult" "${@:2}" \
+              -derivedDataPath build -only-testing:"$T" -only-testing:"$T2" -only-testing:"$T3" \
+              -resultBundlePath "duo-screens/uitest-$1.xcresult" "${@:2}" \
               > "duo-screens/uitest-$1.log" 2>&1
             grep -E "error:|Test [Cc]ase .*(passed|failed|skipped)|XCTSkip|Executed|\*\* TEST" "duo-screens/uitest-$1.log" | tail -30
           }

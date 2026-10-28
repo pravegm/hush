@@ -144,6 +144,7 @@ struct RootView: View {
             }
             if controller.isDemo {
                 canvasProbe(window: window, frame: frame)
+                DebugStateElement(probe: controller.debugState)
             }
             if controller.showsIcon {
                 iconLayer(window)
@@ -322,6 +323,24 @@ struct RootView: View {
         }
         .frame(width: canvas.width, height: canvas.height)
         .onAppear { IconExport.render() }
+    }
+}
+
+/// R9 (design/notes/fix-k3-drag.md): `debug.state` (demo runs only): a pure accessibility element (no hit testing),
+/// valued `AppRules.debugStateValue` (phase, pauses, input, k, the last floor touch the App was handed, what it hit and
+/// how it ended, the scene's and view's sizes and the scale mode). CI's drag test puts it in its failure message. It
+/// observes its own `DebugStateProbe`, so its updates never re-render RootView or the SpriteView.
+struct DebugStateElement: View {
+    @ObservedObject var probe: DebugStateProbe
+
+    var body: some View {
+        Color.clear
+            .frame(width: 2, height: 2)
+            .position(x: 1, y: 5)
+            .accessibilityElement()
+            .accessibilityIdentifier("debug.state")
+            .accessibilityValue(probe.value)
+            .allowsHitTesting(false)
     }
 }
 

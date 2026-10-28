@@ -449,19 +449,67 @@ final class GameController: ObservableObject, SceneDriver {
     }
 
     func floorTouchBegan(_ id: Int, at point: CGPoint, time: TimeInterval) {
-        guard acceptsTouches, let session else { return }
-        deliver(session.touchBegan(id: id, at: point, time: time))
+        guard acceptsTouches, let session else {
+            noteTouch { $0.began(at: point, accepted: false, picked: nil) }
+            return
+        }
+        let events = session.touchBegan(id: id, at: point, time: time)
+        if isDemo {
+            var picked: Int?
+            for e in events { if case let .itemPicked(itemID, _) = e { picked = itemID } }
+            noteTouch { $0.began(at: point, accepted: true, picked: picked) }
+        }
+        deliver(events)
     }
 
     func floorTouchMoved(_ id: Int, to point: CGPoint, time: TimeInterval) {
+        if isDemo { debugTrace.moved(to: point) }
         guard acceptsTouches, let session else { return }
         deliver(session.touchMoved(id: id, to: point, time: time))
     }
 
     /// Ends always arrive (even paused), so an item is never left "held" by a finger that has gone.
     func floorTouchEnded(_ id: Int, at point: CGPoint, time: TimeInterval) {
-        guard route.isPlay, input != .pilot, let session, !session.isFinished else { return }
-        deliver(session.touchEnded(id: id, at: point, time: time))
+        guard route.isPlay, input != .pilot, let session, !session.isFinished else {
+            noteTouch { $0.ended(at: point, events: []) }
+            return
+        }
+        let events = session.touchEnded(id: id, at: point, time: time)
+        noteTouch { $0.ended(at: point, events: events) }
+        deliver(events)
+    }
+
+    // MARK: - R9: `debug.state` (demo runs; design/notes/fix-k3-drag.md)
+
+    /// The last floor touch, as the App saw it (demo runs only).
+    private(set) var debugTrace = DebugTouchTrace()
+    /// `debug.state`'s value, in its own object (RootView's probe view observes it, nothing else).
+    let debugState = DebugStateProbe()
+    private var lastDebugState: TimeInterval = -1
+
+    /// Records a touch step (demo runs only), logs it, and republishes `debug.state` at once.
+    private func noteTouch(_ change: (inout DebugTouchTrace) -> Void) {
+        guard isDemo else { return }
+        change(&debugTrace)
+        let p = debugTrace.lastFloor.map { "\(Int($0.x.rounded())),\(Int($0.y.rounded()))" } ?? "-"
+        AppTrace.t("HUSH-T touch floor=\(p) hit=\(debugTrace.hitText) ended=\(debugTrace.end.rawValue) "
+                   + "paused=\(isPaused ? 1 : 0) input=\(input.rawValue)")
+        refreshDebugState(now: CACurrentMediaTime(), force: true)
+    }
+
+    /// The `debug.state` line now (pure formatting in `AppRules.debugStateValue`).
+    var debugStateLine: String {
+        AppRules.debugStateValue(phase: session?.snapshot.phase, paused: pauseReasons.map(\.rawValue), input: input,
+                                 quarterTurns: scene?.quarterTurns ?? quarterTurns, trace: debugTrace, route: route,
+                                 frozen: frozen, sceneSize: scene?.size, viewSize: scene?.view?.bounds.size,
+                                 scaleMode: scene?.scaleMode)
+    }
+
+    /// Demo runs: republish `debug.state` (at most 4 times a second unless `force`).
+    func refreshDebugState(now: TimeInterval, force: Bool = false) {
+        guard isDemo, force || now - lastDebugState >= 0.25 || now < lastDebugState else { return }
+        lastDebugState = now
+        debugState.set(debugStateLine)
     }
 
     func sliderTouch(began: Bool, ended: Bool, fraction: Double, time: TimeInterval) {
@@ -735,8 +783,10 @@ final class GameController: ObservableObject, SceneDriver {
                 makeScene(newLayout)
             }
         }
-        // A landscape layout (no fold) shows the whole portrait chest (aspect-fit), never a crop.
-        scene?.scaleMode = drawn.width > drawn.height ? .aspectFit : .aspectFill
+        // A landscape layout (no fold) shows the whole portrait chest (aspect-fit), never a crop. R9: one rule shared
+        // with the tests (`AppRules.sceneScaleMode`), the same as `CanvasFit`'s, judged on the DRAWN (pre-turn) frame.
+        let mode = AppRules.sceneScaleMode(drawn: drawn)
+        if scene?.scaleMode != mode { scene?.scaleMode = mode }
         if let scene, scene.quarterTurns != turns { scene.quarterTurns = turns }
         if foldChanged { refreshInput() }
     }
@@ -1621,6 +1671,7 @@ final class GameController: ObservableObject, SceneDriver {
         lastLesson = -1
         pendingSceneEvents.removeAll()
         pendingLessonEvents.removeAll()
+        debugTrace = DebugTouchTrace()
         bannerText = Self.startBanner(m)
         bannerUntil = bannerText == nil ? 0 : Self.bannerSeconds
         scene?.reset()
@@ -1782,6 +1833,8 @@ final class GameController: ObservableObject, SceneDriver {
 
     /// R3 (QA-2 P2-3): the hint gate runs on WALL time (`now`), so it settles even while the session is paused.
     private func publishHUD(_ s: HeistSnapshot, now: TimeInterval) {
+        // R9: demo runs keep `debug.state` current (phase, pauses, input), 4 times a second.
+        refreshDebugState(now: now)
         var wanted = s.hint
         if let h = wanted, !AppRules.showsHint(h, runs: store.data.runs) { wanted = nil }
         if route == .lesson || isPaused { wanted = nil }

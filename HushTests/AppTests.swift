@@ -1,6 +1,7 @@
 import CoreGraphics
 import Foundation
 import QuartzCore
+import SpriteKit
 import SwiftUI
 import Testing
 import UIKit
@@ -3074,5 +3075,114 @@ struct R8Tests {
             #expect(!m.contains(.portraitUpsideDown))
         }
         OrientationLock.setMenuHold(false)
+    }
+}
+
+// MARK: - R9 (design/notes/fix-k3-drag.md): the k = 3 drag on the Duo
+
+/// R9: the SwiftUI overlays (`CanvasFit`, laid out in the drawn portrait frame and turned `90 * k` degrees by RootView)
+/// and the scene (turned by its own world, drawn by SKView with the App's scale mode) agree on where every canvas point
+/// is, for every k, on both Duo window shapes; a finger there maps back to the same canvas point; the pouch's centre is
+/// in the bag; and `debug.state` formats what the App saw.
+struct R9Tests {
+    private static let windows = [CGSize(width: 951, height: 669), CGSize(width: 669, height: 951)]
+
+    /// The points CI's drag aims at (the pouch, a few loot spots including the drawn amethyst of seed 7) and corners.
+    private static var canvasPoints: [CGPoint] {
+        let bag = HUDLayout.bagRect
+        return [CGPoint(x: bag.midX, y: bag.midY), ChestLayout.canvas(fromFloor: CGPoint(x: 452, y: 197)),
+                ChestLayout.canvas(fromFloor: CGPoint(x: 460, y: 150)), ChestLayout.canvas(fromFloor: CGPoint(x: 120, y: 300)),
+                CGPoint(x: 10, y: 10), CGPoint(x: 660, y: 940), CGPoint(x: 335, y: 476)]
+    }
+
+    @Test @MainActor func canvasFitAgreesWithTheScenePlacementForEveryQuarterTurn() {
+        for window in Self.windows {
+            for k in 0...3 {
+                let drawn = AppRules.drawnSize(window: window, quarterTurns: k)
+                // Exactly what PlayLayer uses (`info.fit`) and what `updateCanvas` hands the scene.
+                let fit = AppCanvas(size: drawn, insets: EdgeInsets(), hasFold: true, turned: k == 2).fit
+                let layout = ScreenLayout.make(hasFold: true, viewSize: drawn)
+                let scene = ChestScene(layout: layout)
+                scene.quarterTurns = k
+                let mode = AppRules.sceneScaleMode(drawn: drawn)
+                scene.scaleMode = mode
+                #expect(abs(fit.scale - AppRules.sceneViewScale(view: window, scene: scene.size, mode: mode)) < 0.0005)
+                for p in Self.canvasPoints {
+                    let ui = AppRules.windowPoint(fromDrawn: fit.viewPoint(canvas: p), drawn: drawn, window: window,
+                                                  quarterTurns: k)
+                    let sk = AppRules.viewPoint(fromScene: scene.scenePoint(fromCanvas: p), scene: scene.size,
+                                                view: window, mode: mode)
+                    #expect(near(ui.x, sk.x, 1) && near(ui.y, sk.y, 1),
+                            "k=\(k) window=\(window) canvas=\(p): SwiftUI \(ui) vs scene \(sk)")
+                    // A finger at the SwiftUI point: SKView's scene point, then `touch.location(in: world)`.
+                    let touch = AppRules.scenePoint(fromView: ui, scene: scene.size, view: window, mode: mode)
+                    let back = scene.canvasPoint(fromScene: touch)
+                    #expect(near(back.x, p.x, 2) && near(back.y, p.y, 2),
+                            "k=\(k) window=\(window) canvas=\(p) came back as \(back)")
+                }
+                // The pouch as `hud.bag` frames it drops in the bag (floor y ≥ FloorSpace.bagMinY).
+                let bag = HUDLayout.bagRect
+                let ui = AppRules.windowPoint(fromDrawn: fit.viewPoint(canvas: CGPoint(x: bag.midX, y: bag.midY)),
+                                              drawn: drawn, window: window, quarterTurns: k)
+                let back = scene.canvasPoint(fromScene: AppRules.scenePoint(fromView: ui, scene: scene.size,
+                                                                            view: window, mode: mode))
+                #expect(ChestLayout.floorTouchPoint(fromCanvas: back).y >= FloorSpace.bagMinY)
+            }
+        }
+    }
+
+    /// The Duo's own case, by hand (CI duo7: item id=0 drawn at about (692, 217), the pouch at (895, 334.5) in the
+    /// 951 × 669 window at k = 3): the pouch is on the window's right, the lid's edge on the left.
+    @Test @MainActor func duoLandscapeKThreePutsThePouchOnTheRight() {
+        let window = CGSize(width: 951, height: 669)
+        let drawn = AppRules.drawnSize(window: window, quarterTurns: 3)
+        #expect(drawn == CGSize(width: 669, height: 951))
+        let fit = AppCanvas(size: drawn, insets: EdgeInsets(), hasFold: true, turned: false).fit
+        let bag = HUDLayout.bagRect
+        let pouch = AppRules.windowPoint(fromDrawn: fit.viewPoint(canvas: CGPoint(x: bag.midX, y: bag.midY)),
+                                         drawn: drawn, window: window, quarterTurns: 3)
+        #expect(near(pouch.x, 895, 1.5) && near(pouch.y, 334.5, 1.5))
+        let item = AppRules.windowPoint(fromDrawn: fit.viewPoint(canvas: ChestLayout.canvas(fromFloor:
+                                            CGPoint(x: 452, y: 197))), drawn: drawn, window: window, quarterTurns: 3)
+        #expect(near(item.x, 692, 1.5) && near(item.y, 217, 1.5))
+        #expect(AppRules.sceneScaleMode(drawn: drawn) == .aspectFill)
+        #expect(AppRules.sceneScaleMode(drawn: window) == .aspectFit)
+    }
+
+    @Test func touchTraceRecordsWhatTheAppSaw() {
+        var t = DebugTouchTrace()
+        #expect(t.hitText == "none" && t.end == .open && t.lastFloor == nil)
+        t.began(at: CGPoint(x: 452, y: 197), accepted: true, picked: 0)
+        #expect(t.hitText == "0" && t.end == .open)
+        t.moved(to: CGPoint(x: 400, y: 300))
+        t.ended(at: CGPoint(x: 335, y: 400), events: [.itemBagged(id: 0, kind: .copper, value: 10)])
+        #expect(t.end == .inBag && t.began == 1 && t.moved == 1 && t.ended == 1)
+        #expect(t.lastFloor == CGPoint(x: 335, y: 400))
+        t.began(at: CGPoint(x: 10, y: 10), accepted: false, picked: nil)
+        #expect(t.hitText == "ignored" && t.end == .open)
+        t.ended(at: CGPoint(x: 10, y: 10), events: [])
+        #expect(t.end == .ignored)
+        t.began(at: CGPoint(x: 20, y: 20), accepted: true, picked: nil)
+        #expect(t.hitText == "missed")
+        t.ended(at: CGPoint(x: 20, y: 20), events: [.itemDropped(id: 3)])
+        #expect(t.end == .dropped)
+    }
+
+    @Test func debugStateValueFormat() {
+        var t = DebugTouchTrace()
+        let empty = AppRules.debugStateValue(phase: nil, paused: [], input: .fixed, quarterTurns: 7, trace: t,
+                                             route: .home, frozen: false, sceneSize: nil, viewSize: nil,
+                                             scaleMode: nil)
+        #expect(empty == "phase=- paused=0 input=fixed k=3 lastTouch=none hit=none ended=- touches=0/0/0 "
+                + "route=home frozen=0 scene=- view=- mode=-")
+        t.began(at: CGPoint(x: 451.6, y: 197.2), accepted: true, picked: 0)
+        t.ended(at: CGPoint(x: 335.4, y: 399.6), events: [.itemBagged(id: 0, kind: .copper, value: 10)])
+        let line = AppRules.debugStateValue(phase: .looting, paused: ["pose", "closing"], input: .hinge,
+                                            quarterTurns: 3, trace: t, route: .playing, frozen: false,
+                                            sceneSize: CGSize(width: 952, height: 670),
+                                            viewSize: CGSize(width: 951, height: 669), scaleMode: .aspectFill)
+        #expect(line == "phase=looting paused=closing+pose input=hinge k=3 lastTouch=floor(335,400) hit=0 "
+                + "ended=inBag touches=1/0/1 route=playing frozen=0 scene=952x670 view=951x669 mode=fill")
+        #expect(AppRules.phaseName(.banked(elapsed: 0.2)) == "banked")
     }
 }

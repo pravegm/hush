@@ -208,7 +208,11 @@ jobs:
           UDID=$(awk -F= '$1=="udid" {print $2}' ci-screens/device.txt 2>/dev/null)
           if [ -n "$UDID" ]; then DEST="id=$UDID"; else DEST="platform=iOS Simulator,name=$DEVICE"; fi
           run_ui() {
+            # R8 (CI 40617580705): a phone is portrait-only by design, so the landscape (odd-k) tests can never reach
+            # odd k here; they run on the real Duo simulator in duo.yml, where landscape is what iOS really does.
             xcodebuild test -project Hush.xcodeproj -scheme HushUITests -destination "$DEST" \
+              -skip-testing:HushUITests/TurnedDragUITests/testLandscapeTurnedDragBagsALitItem \
+              -skip-testing:HushUITests/TurnedDragUITests/testLandscapeCarryOnTapsAtOddK \
               -derivedDataPath build -resultBundlePath "uitest-$1.xcresult" "${@:2}" > "uitest-$1.log" 2>&1
             grep -E "error:|Test [Cc]ase .*(passed|failed|skipped)|XCTSkip|Executed|\*\* TEST" "uitest-$1.log" | tail -30
           }

@@ -85,7 +85,12 @@ final class TurnedDragUITests: XCTestCase {
         let start = point(app, loot.frame)
         let end = point(app, bag.frame)
         let what = (loot.value as? String) ?? "?"
-        attachText("drag", "\(label): item \(what) at \(loot.frame) → pouch \(bag.frame); in bag before: \(before); \(shape)")
+        // R9 (design/notes/fix-k3-drag.md): the app frame's ORIGIN is logged too (element frames are screen-absolute,
+        // `point` offsets from it), and `debug.state` says what the App saw of the touch.
+        shape += " app=\(app.frame)"
+        let stateBefore = debugState(app)
+        attachText("drag", "\(label): item \(what) at \(loot.frame) → pouch \(bag.frame); in bag before: \(before); "
+                   + "\(shape); state before: \(stateBefore)")
         attachScreen(app, "before-drag")
 
         // A deliberate drag: hold 0.3 s to grab, move at 200 pt/s (well under the drag-noise speed), hold 0.3 s on the
@@ -94,10 +99,22 @@ final class TurnedDragUITests: XCTestCase {
 
         let bagged = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in self.count(bag) > before }, object: nil)
         let ok = XCTWaiter.wait(for: [bagged], timeout: 5) == .completed
+        let stateAfter = debugState(app)
+        attachText("state", "before: \(stateBefore)\nafter: \(stateAfter)")
         attachScreen(app, ok ? "after-drag-bagged" : "after-drag-not-bagged")
         XCTAssertTrue(ok, "\(label) from the drawn item \(what) to the drawn pouch bagged nothing: hud.bag stayed at "
-                      + "\(count(bag)) (was \(before)); \(shape). The turned touch mapping is probably wrong for this "
-                      + "quarter turn (REVIEW-1-duo P1-3, ROUND-6 scene 1).")
+                      + "\(count(bag)) (was \(before)); \(shape); debug.state before=[\(stateBefore)] "
+                      + "after=[\(stateAfter)]. Read it as: touches=0/0/0 = no floor touch reached the App; hit=ignored "
+                      + "= it arrived while paused (see paused=/input=); hit=missed = the press was not on the item "
+                      + "(mapping); ended=dropped = the release was not in the bag (mapping) (REVIEW-1-duo P1-3, "
+                      + "ROUND-6 scene 1, fix-k3-drag).")
+    }
+
+    /// R9: `debug.state`'s value (demo runs), or why there is none.
+    private func debugState(_ app: XCUIApplication) -> String {
+        let probe = app.descendants(matching: .any)["debug.state"]
+        guard probe.waitForExistence(timeout: 2) else { return "no debug.state element" }
+        return (probe.value as? String) ?? "?"
     }
 
     // MARK: - R8 (QA-5 P2-7): a SwiftUI control tapped at an odd k
@@ -183,8 +200,13 @@ final class TurnedDragUITests: XCTestCase {
     }
 
     /// The centre of a screen-space frame as an app coordinate (no hittability check: the elements are not views).
+    /// R9: element frames are in SCREEN coordinates and `coordinate(withNormalizedOffset: .zero)` is the app frame's
+    /// origin, so the offset is taken from that origin (it was added on top of it: right only while the app frame starts
+    /// at 0, 0, as on a phone; a Duo with two displays need not).
     private func point(_ app: XCUIApplication, _ frame: CGRect) -> XCUICoordinate {
-        app.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(dx: frame.midX, dy: frame.midY))
+        let origin = app.frame.origin
+        return app.coordinate(withNormalizedOffset: .zero)
+            .withOffset(CGVector(dx: frame.midX - origin.x, dy: frame.midY - origin.y))
     }
 
     private func attachScreen(_ app: XCUIApplication, _ name: String) {
