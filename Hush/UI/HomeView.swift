@@ -31,12 +31,21 @@ struct HomeView: View {
                     .position(x: info.size.width / 2, y: info.size.height / 2)
                     .accessibilityHidden(true)
             }
+            // R15 (founder: "as a first time user i will have zero clue as to how this game works"): until the third
+            // run, Home shows the three rules under a smaller mimic instead of the one-line caption.
+            let teach = Self.teachesRules(runs: store.data.runs)
             VStack(spacing: c ? 4 : 10) {
-                HushWordmark(size: c ? 52 : (lid.height > 380 ? 78 : 64))
+                HushWordmark(size: c ? 52 : (lid.height > 380 ? (teach ? 64 : 78) : 56))
                 HomePortrait(controller: controller, interactive: !controller.hasHinge)
-                    .frame(width: min(lid.width * 0.78, 420), height: max(min(lid.height * 0.56, 300), 80))
-                // R3 (decision 4): the layout's words (a fold: the lid; no fold: the drag on the chest).
-                HomeCaption(lid: controller.homeLid, hinge: info.hasFold, compact: c)
+                    .frame(width: min(lid.width * (teach ? 0.5 : 0.78), 420),
+                           height: max(min(lid.height * (teach ? 0.34 : 0.56), 300), 70))
+                if teach {
+                    HowToPlayList(slider: !info.hasFold, compact: c)
+                        .padding(.horizontal, 20)
+                } else {
+                    // R3 (decision 4): the layout's words (a fold: the lid; no fold: the drag on the chest).
+                    HomeCaption(lid: controller.homeLid, hinge: info.hasFold, compact: c)
+                }
             }
             .frame(width: lid.width, height: lid.height)
             .position(x: lid.midX, y: lid.midY)
@@ -96,6 +105,9 @@ struct HomeView: View {
         .frame(width: info.size.width, height: info.size.height)
         .animation(.easeOut(duration: 0.2), value: controller.toast)
     }
+
+    /// R15: Home shows the three rules (`HowToPlay`) for the first runs. Pure; tested.
+    static func teachesRules(runs: Int) -> Bool { runs < 3 }
 
     /// The chest's caption: Home teaches the idea before the first chest. Pure; tested.
     static func caption(_ lid: HomeLid, hinge: Bool) -> String {

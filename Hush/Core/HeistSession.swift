@@ -84,12 +84,12 @@ struct SessionOptions: Equatable {
 //     After a BANK (founder refinement) the next chest is always dealt at the end of the 1.4 s moment, "seen shut",
 //     whatever the lid is doing: the lid was closed to bank, so a quick reopen simply opens it (never `.closeForNext`).
 //   - `.easeLidDown` is only produced by the lesson.
-// - R14 (design/ROUND-14.md, founder: "playing starts with the chest closed right? so ask the user to close the phone
-//   if it is not to start playing, then the chest should open as the phone opens"): EVERY chest starts closed. The
-//   first one waits for the lid to be seen shut (`sawShut`; the hint `.easeLidDown`, "Close the phone to start", while
-//   it is open), and the candle doesn't burn until it is opened. Every later chest is dealt under a closed lid (after
-//   a bank, or after a bite once the lid comes down). `noteLidShut()` counts as seen shut. No mode is special
-//   (R1–R12's lesson-only `shutGate` is gone).
+// - R14: every later chest is dealt under a closed lid (after a bank, or after a bite once the lid comes down), and
+//   the candle doesn't burn until the first chest is opened. No mode is special (R1–R12's lesson-only `shutGate` is
+//   gone).
+// - R15 (founder, build 9): the run's first chest is the phone as it is at Play: shut (Play on the cover display's
+//   intro) it opens with the phone; open (Play on the inner screen) it is open at once. `sawShut` starts true, so
+//   `.easeLidDown` ("Close the phone to start") is never produced any more.
 // - R2: the lid is "closing" in a step when its openness fell since the previous step; it is then silent below
 //   Tuning.closeQuietSpeed instead of Tuning.quietSpeed.
 // - R2 Hush Chain: a Hushed bank adds 1 and pays ×Noise.chainMultiplier(chain). The chain breaks (to 0) the moment the
@@ -194,8 +194,10 @@ final class HeistSession {
         self.bestRun = bestRun
         self.options = options
         self.found = foundRelics
-        // R14: play starts with the chest closed: the first chest waits for the lid to be seen shut.
-        self.sawShut = false
+        // R15 (founder, build 9: "it does not make sense that my duo is open, i click play and the game thinks its
+        // closed"): the first chest is the phone as it is. Shut (Play on the cover display), it opens with the phone;
+        // open (Play on the inner screen), it is open at once. R14's wait for a first close is gone.
+        self.sawShut = true
         let first: ChestSpec = HeistSession.makeChest(seed: seed, index: 0, found: foundRelics, options: options)
         self.chest = first
         self.loot = HeistSession.lootStates(for: first)

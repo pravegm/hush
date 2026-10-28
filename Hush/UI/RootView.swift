@@ -131,7 +131,8 @@ struct RootView: View {
                 // R8 (QA-5 P1-B): after 3 s with the hinge open ≥ 92°, the card offers "Carry on" / "Home".
                 CoverCard(midRun: controller.isLiveRun, portrait: controller.portraits.cover,
                           reduceMotion: controller.reduceMotion, escape: controller.coverEscape,
-                          onCarryOn: { controller.coverCarryOn() }, onHome: { controller.coverHome() })
+                          onCarryOn: { controller.coverCarryOn() }, onHome: { controller.coverHome() },
+                          onPlay: { controller.coverPlay() })
                     .transition(.opacity)
             }
             if tipOn {

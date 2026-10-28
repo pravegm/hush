@@ -268,7 +268,48 @@ struct DuoChestHalf: View {
     }
 }
 
+/// R15 (founder, build 9: "as a first time user i will have zero clue as to how this game works"): the whole game in
+/// three lines, word for word the same on the cover intro and on Home. Pure; tested.
+enum HowToPlay {
+    static func lines(slider: Bool) -> [String] {
+        slider ? ["Slide the lever up slowly. The chest opens with it.",
+                  "Drag the loot into your bag.",
+                  "Slide it back down to bank it. Don't wake the mimic."]
+            : ["Open the phone slowly. The chest opens with it.",
+               "Drag the loot into your bag.",
+               "Close the phone to bank it. Don't wake the mimic."]
+    }
+}
+
+/// R15: the three rules, numbered.
+struct HowToPlayList: View {
+    let slider: Bool
+    let compact: Bool
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: compact ? 4 : 8) {
+            ForEach(Array(HowToPlay.lines(slider: slider).enumerated()), id: \.offset) { item in
+                HStack(alignment: .firstTextBaseline, spacing: 10) {
+                    Text("\(item.offset + 1)")
+                        .font(HushType.headline(compact))
+                        .foregroundStyle(HushTheme.gold)
+                    Text(item.element)
+                        .font(HushType.body(compact))
+                        .foregroundStyle(HushTheme.parchment)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+        }
+        .frame(maxWidth: 420, alignment: .leading)
+        .accessibilityElement(children: .combine)
+    }
+}
+
 /// Shut, on the cover display: the sleeping mimic (the Scene's portrait, asleep) and "Open to carry on".
+/// R15 (founder: "why cant i just have an intro screen on the outer screen to begin with with the play button? so
+/// that the duo is closed, i press play, and then i open the chest and the duo screen"): outside a run the cover
+/// display is the intro: the wordmark, the three rules and Play. Play starts the run with the phone (and so the
+/// chest) closed; opening the phone opens it. In a run: "Open the phone slowly".
 /// R8 (QA-5 P1-B, belt and braces): if the card has been up 3 s while the hinge says the Duo is open (≥ 92°), the app
 /// may be misjudging the display (iOS's letterboxed column on the inner display looks cover-sized), so the card offers
 /// a way on: "Carry on" in a run, and "Home" (`escape`).
@@ -279,19 +320,20 @@ struct CoverCard: View {
     var escape = false
     var onCarryOn: () -> Void = {}
     var onHome: () -> Void = {}
+    /// R15: the intro's Play (outside a run).
+    var onPlay: () -> Void = {}
     /// R11 (QA-6 P2-10, UX P2-1): VoiceOver moves to the escape's first button when the plate appears.
     @AccessibilityFocusState private var escapeFocused: Bool
 
     /// Pure; tested.
     /// R13 (founder: "for the next chest to open, open lid slowly, even 1 degree open lid means chest is opening"):
     /// the lid is shut, so is the chest; the card says how the next one opens.
-    /// R14 (UX audit A, E): shut on Home, opening the phone starts the run, so the card says so and gives the three
-    /// rules (the lesson no longer runs first).
-    static func title(midRun: Bool) -> String { midRun ? "Open the phone slowly" : "Open slowly to play" }
+    /// R15: outside a run the card is the intro (the rules and Play); its line under Play says what comes next.
+    static func title(midRun: Bool) -> String { midRun ? "Open the phone slowly" : "Don't wake the mimic" }
     static func detail(midRun: Bool) -> String {
-        midRun ? "The chest opens with the phone. Your candle waits."
-            : "The chest opens with the phone. Drag loot to your bag, then close the phone to bank it."
+        midRun ? "The chest opens with the phone. Your candle waits." : "Press Play, then open the phone slowly."
     }
+    static let playLabel = "Play"
     /// R8: the escape plate's line and buttons. Pure; tested.
     static let escapeLine = "Already open?"
     static let carryOnLabel = "Carry on"
@@ -306,21 +348,25 @@ struct CoverCard: View {
             GeometryReader { geo in
                 ScrollView(showsIndicators: false) {
                     VStack(spacing: 16) {
-                        VStack(spacing: 16) {
-                            MimicPortraitView(scene: portrait, fps: 30)
-                                .frame(width: min(geo.size.width * 0.82, 380))
-                            Text(Self.title(midRun: midRun))
-                                .font(HushType.title(true))
-                                .foregroundStyle(HushTheme.parchment)
-                                .multilineTextAlignment(.center)
-                                .fixedSize(horizontal: false, vertical: true)
-                            Text(Self.detail(midRun: midRun))
-                                .font(HushType.body(true))
-                                .foregroundStyle(HushTheme.mist)
-                                .multilineTextAlignment(.center)
-                                .fixedSize(horizontal: false, vertical: true)
+                        if midRun {
+                            VStack(spacing: 16) {
+                                MimicPortraitView(scene: portrait, fps: 30)
+                                    .frame(width: min(geo.size.width * 0.82, 380))
+                                Text(Self.title(midRun: midRun))
+                                    .font(HushType.title(true))
+                                    .foregroundStyle(HushTheme.parchment)
+                                    .multilineTextAlignment(.center)
+                                    .fixedSize(horizontal: false, vertical: true)
+                                Text(Self.detail(midRun: midRun))
+                                    .font(HushType.body(true))
+                                    .foregroundStyle(HushTheme.mist)
+                                    .multilineTextAlignment(.center)
+                                    .fixedSize(horizontal: false, vertical: true)
+                            }
+                            .accessibilityElement(children: .combine)
+                        } else {
+                            intro(width: geo.size.width)
                         }
-                        .accessibilityElement(children: .combine)
                         if escape {
                             escapePlate(width: min(geo.size.width - 48, 380))
                                 .transition(.opacity)
@@ -348,6 +394,35 @@ struct CoverCard: View {
             if on { escapeFocused = true }
         }
         .accessibilityElement(children: .contain)
+    }
+
+    /// R15: the cover intro: the wordmark, the mimic, the three rules, Play, and what to do after Play.
+    private func intro(width: CGFloat) -> some View {
+        VStack(spacing: 14) {
+            HushWordmark(size: 48)
+            MimicPortraitView(scene: portrait, fps: 30)
+                .frame(width: min(width * 0.46, 220))
+            Text(Self.title(midRun: false))
+                .font(HushType.headline(true))
+                .foregroundStyle(HushTheme.goldLight)
+                .multilineTextAlignment(.center)
+            HowToPlayList(slider: false, compact: true)
+                .padding(.horizontal, 8)
+            HushButton(kind: .primary, height: 60, compact: true, confirm: true, action: onPlay) {
+                HStack(spacing: 10) {
+                    Image(systemName: "key.fill")
+                    Text(Self.playLabel)
+                }
+            }
+            .frame(maxWidth: 380)
+            .accessibilityHint("Starts a run. Then open the phone slowly.")
+            .accessibilityIdentifier("cover.play")
+            Text(Self.detail(midRun: false))
+                .font(HushType.caption(true))
+                .foregroundStyle(HushTheme.mist)
+                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
+        }
     }
 
     /// "Already open?" with "Carry on" (a run) and "Home".

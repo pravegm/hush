@@ -1011,21 +1011,7 @@ final class GameController: ObservableObject, SceneDriver {
             AppTrace.t("HUSH-T cover escape shown forced midRun=\(isLiveRun ? 1 : 0)")
         }
         if newPose == .cover && !isDemo { UIAccessibility.post(notification: .screenChanged, argument: nil) }
-        // R14 (UX audit A, founder: "playing starts with the chest closed"): shut on Home, the cover card says "Open
-        // slowly to play"; opening the phone starts the run, its first chest already seen shut, opening with it.
-        if old == .cover && newPose == .play && route == .home && !isDemo && input == .hinge {
-            openToPlay()
-        }
-    }
-
-    /// R14: Home → the phone opened from shut → a run, the chest opening with the phone (one gesture, no Play tap).
-    private func openToPlay() {
-        start(.run)
-        guard let session else { return }
-        session.noteLidShut()
-        session.resumeGrace(seconds: AppRules.freshResumeGrace)
-        AppTrace.t("HUSH-T open to play")
-        note("open to play")
+        // R15 (founder): no run starts by itself when the phone opens; the cover intro has Play (`coverPlay`).
     }
 
     // MARK: - R8: the cover card's escape (QA-5 P1-B, belt and braces)
@@ -1097,6 +1083,15 @@ final class GameController: ObservableObject, SceneDriver {
         } else if hingeSeen {
             refreshHinge("cover carry on")
         }
+    }
+
+    /// R15 (founder): the cover intro's Play. The run starts with the phone, and so the chest, closed; it stays on the
+    /// cover card ("Open the phone slowly") until the phone opens, and the chest opens with it.
+    func coverPlay() {
+        guard !isLiveRun else { return }
+        AppTrace.t("HUSH-T cover play")
+        note("cover play")
+        play()
     }
 
     /// The cover card's "Home": Home, drawn in play pose (until the display changes or the Duo is shut).
@@ -1959,8 +1954,8 @@ final class GameController: ObservableObject, SceneDriver {
     /// it up, rule 2) it never says "open": "Candle lit. Gently does it."
     nonisolated static func startBanner(_ mode: RunMode, lidOpen: Bool = false) -> String? {
         switch mode {
-        // R14: with the phone open at the start the chest waits for a close (the hint says so), so no "candle lit".
-        case .run: return lidOpen ? "Shh… a sleeping mimic." : "Candle lit. Open it gently."
+        // R15: with the phone open at Play the chest is open at once (never "open it").
+        case .run: return lidOpen ? "Candle lit. Gently does it." : "Candle lit. Open it gently."
         case let .daily(day, scored):
             return scored ? "Daily Dungeon · " + AppRules.dailyDate(day: day) : "Practice: no score today"
         case .attract, .lesson: return nil
