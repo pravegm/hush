@@ -31,9 +31,23 @@ enum OrientationLock {
     private(set) static var hingeSeen = false
     /// A run is live (its orientation is held on the inner display).
     private(set) static var liveRun = false
+    /// R8 (QA-5 P2-4): menus on a Duo at a tabletop angle hold their orientation too (`MenuOrientationHold`).
+    private(set) static var menuHold = false
+    /// R8 (QA-5 P1-B): the window is iOS's letterboxed column on the inner display: nothing is held (a hold captured
+    /// now would keep the column), and the App asks iOS to un-letterbox (`healLetterbox`).
+    private(set) static var letterboxed = false
     /// R6: the interface orientation a live run is held in (captured when it goes live, re-captured whenever the
-    /// interface turns anyway or the app comes back to the inner display; `.unknown` = not held).
+    /// interface turns anyway or the app comes back to the inner display; `.unknown` = not held). R8: a menu hold uses
+    /// it too.
     private(set) static var lockedInterface: UIInterfaceOrientation = .unknown
+
+    /// R8: a hold is in force (a live run, or a menu at a tabletop angle).
+    static var holding: Bool { liveRun || menuHold }
+
+    /// R8: what a hold captures: the interface iOS is in now, never while letterboxed (`.unknown` = unlocked).
+    private static func captureNow() -> UIInterfaceOrientation {
+        letterboxed ? .unknown : interfaceOrientation()
+    }
     /// What iOS last said to a portrait request (Settings › About in test builds).
     private(set) static var lastRequest = "not asked"
     /// R6: told of every mask the app hands iOS (the Diagnostics event log).
@@ -51,7 +65,7 @@ enum OrientationLock {
     static func mask(screen: CGSize) -> UIInterfaceOrientationMask {
         let stored = trustsStoredHinge(UserDefaults.standard.bool(forKey: hingeKey), screen: screen)
         let inner = max(screen.width, screen.height) >= AppRules.coverMaxSide || demoDuo
-        return mask(isDuo: stored || hingeSeen || looksLikeDuo(screen) || demoDuo, liveRun: liveRun, inner: inner,
+        return mask(isDuo: stored || hingeSeen || looksLikeDuo(screen) || demoDuo, liveRun: holding, inner: inner,
                     interface: lockedInterface)
     }
 
@@ -103,9 +117,10 @@ enum OrientationLock {
     /// The canvas changed (RootView: a rotation, a display handover). R6: off the inner display the hold is dropped
     /// (the cover display keeps the Duo mask); on it, a live run is held in whatever orientation iOS is in NOW, so the
     /// mask never disagrees with the interface.
+    /// R8: a menu hold is re-captured the same way; while letterboxed nothing is captured (`captureNow`).
     static func interfaceChanged(inner: Bool = true) {
-        guard liveRun else { return }
-        let now = inner ? interfaceOrientation() : .unknown
+        guard holding else { return }
+        let now = inner ? captureNow() : .unknown
         guard now != lockedInterface else { return }
         lockedInterface = now
         refreshSupportedOrientations()
@@ -147,10 +162,49 @@ enum OrientationLock {
 
     /// A run went live or ended. R6: while it is live the inner display holds the orientation it is in now.
     static func setLiveRun(_ on: Bool) {
-        guard on != liveRun else { return }
-        liveRun = on
-        lockedInterface = on ? interfaceOrientation() : .unknown
+        setHolds(liveRun: on, menu: menuHold)
+    }
+
+    /// R8 (QA-5 P2-4): a menu at a tabletop angle holds its orientation (or lets go).
+    static func setMenuHold(_ on: Bool) {
+        setHolds(liveRun: liveRun, menu: on)
+    }
+
+    /// R8: both holds at once (a run ending straight into a held menu never passes through an unlocked mask). A run
+    /// going live, or a hold starting, captures the interface iOS is in NOW; no hold: unlocked. One mask refresh.
+    static func setHolds(liveRun live: Bool, menu: Bool) {
+        guard live != liveRun || menu != menuHold else { return }
+        let was = holding
+        let runChanged = live != liveRun
+        liveRun = live
+        menuHold = menu
+        if !holding {
+            lockedInterface = .unknown
+        } else if !was || runChanged {
+            lockedInterface = captureNow()
+        }
         refreshSupportedOrientations()
+    }
+
+    /// R8 (QA-5 P1-B): RootView saw a cover-sized window on the inner screen (or it went).
+    static func setLetterboxed(_ on: Bool) {
+        guard on != letterboxed else { return }
+        letterboxed = on
+        AppTrace.t("HUSH-T letterbox \(on ? "on" : "off")")
+    }
+
+    /// R8 (QA-5 P1-B): un-letterbox: drop whatever is held (even outside a live run), hand iOS the wide mask and ask
+    /// for any orientation but upside down. The next canvas change re-captures a hold in the orientation iOS settles in.
+    static func healLetterbox() {
+        lockedInterface = .unknown
+        refreshSupportedOrientations()
+        for scene in UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene }) {
+            scene.requestGeometryUpdate(.iOS(interfaceOrientations: .allButUpsideDown)) { error in
+                let text = error.localizedDescription
+                Task { @MainActor in AppTrace.t("HUSH-T letterbox heal refused: \(text)") }
+            }
+        }
+        AppTrace.t("HUSH-T letterbox heal")
     }
 
     static func refreshSupportedOrientations() {
@@ -163,8 +217,9 @@ enum OrientationLock {
         // R3 (REVIEW-2-duo P2-9): the lock can be seen in the log (and in Settings › About's Diagnostics).
         let iface = interfaceOrientation()
         AppTrace.t("HUSH-T mask \(maskName()) live=\(liveRun ? 1 : 0) iface=\(iface == .portrait ? "portrait" : "other") "
-                   + "held=\(AppRules.interfaceName(lockedInterface))")
-        onMask?("mask \(maskName()) live=\(liveRun ? 1 : 0) iface=\(AppRules.interfaceName(iface))")
+                   + "held=\(AppRules.interfaceName(lockedInterface)) menu=\(menuHold ? 1 : 0)")
+        onMask?("mask \(maskName()) live=\(liveRun ? 1 : 0) menu=\(menuHold ? 1 : 0) "
+                + "iface=\(AppRules.interfaceName(iface))")
     }
 
     /// "portrait", "landscapeLeft", "landscapeRight" or "allButUpsideDown" for the main screen now.
@@ -236,7 +291,22 @@ enum OrientationLock {
         default: way = "unknown"
         }
         return "Screen: \(way) · mask: \(maskName()) · held: \(AppRules.interfaceName(lockedInterface))"
+            + (menuHold ? " (menu)" : "") + (letterboxed ? " · LETTERBOXED" : "")
             + " · portrait ask: \(lastRequest)"
+    }
+
+    /// R8: the key window (nil before a scene connects).
+    private static func keyWindow() -> UIWindow? {
+        let windows = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.flatMap { $0.windows }
+        return windows.first(where: { $0.isKeyWindow }) ?? windows.first
+    }
+
+    /// R8 (QA-5 P1-B): the key window's size and its SCREEN's (the display the app is on), zero when unknown.
+    static func keyWindowSize() -> CGSize { keyWindow()?.bounds.size ?? .zero }
+
+    static func windowScreenSize() -> CGSize {
+        if let screen = keyWindow()?.windowScene?.screen { return screen.bounds.size }
+        return screenSize()
     }
 
     /// The key window's real safe-area insets.

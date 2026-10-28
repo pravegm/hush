@@ -49,12 +49,17 @@ extension AppRules {
     /// landscape window is a landscape interface, a portrait one is portrait or upside down), so the drawn frame is
     /// always portrait on a fold. `.unknown`, or a report that disagrees with the shape (a beat before iOS updates
     /// it), falls back to `last` if that fits, else to landscapeRight / portrait. Pure; tested.
+    /// R8 (QA-5 P2-1): a landscape window with neither the report nor `last` landscape falls back on the DEVICE's
+    /// landscape (`interfaceForDevice`: device landscapeRight → interface landscapeLeft) before the constant, so a
+    /// portrait → landscapeLeft turn is never drawn 180° wrong for the beat before iOS reports it.
     static func settledInterface(_ reported: UIInterfaceOrientation, window: CGSize,
-                                 last: UIInterfaceOrientation) -> UIInterfaceOrientation {
+                                 last: UIInterfaceOrientation,
+                                 device: UIDeviceOrientation = .unknown) -> UIInterfaceOrientation {
         let landscape = window.width > window.height
         if landscape {
             if isLandscape(reported) { return reported }
-            return isLandscape(last) ? last : .landscapeRight
+            if isLandscape(last) { return last }
+            return interfaceForDevice(device) ?? .landscapeRight
         }
         if isPortrait(reported) { return reported }
         return isPortrait(last) ? last : .portrait
@@ -124,8 +129,10 @@ extension AppRules {
 
     /// The small "Stand it up like a little laptop" tip: on a Duo, on Home and lesson step 1 only, while the DEVICE is
     /// held landscape (like a book), until dismissed. A demo can force it on those screens. Pure; tested.
+    /// R8 (QA-5 P2-3): never while a card is up (`cardUp`: the closing card or the pause menu), forced or not.
     static func showsPoseTip(duo: Bool, route: AppRoute, lessonStep: Int?, device: UIDeviceOrientation,
-                             dismissed: Bool, forced: Bool = false) -> Bool {
+                             dismissed: Bool, forced: Bool = false, cardUp: Bool = false) -> Bool {
+        guard !cardUp else { return false }
         let place = route == .home || (route == .lesson && (lessonStep ?? 1) <= 1)
         guard place else { return false }
         if forced { return true }

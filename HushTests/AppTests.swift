@@ -2729,3 +2729,350 @@ struct R7Tests {
                                           resumeAngle: .nan))
     }
 }
+
+// MARK: - R8: the player can never get stuck (design/QA-5.md)
+
+@MainActor
+struct R8Tests {
+    private func makeController() -> GameController {
+        var data = ProgressData()
+        data.lessonDone = true
+        data.runs = 10
+        return GameController(store: ProgressStore(inMemory: data), settings: SettingsStore(defaults: nil))
+    }
+
+    /// A live hinge run on the Duo's inner display (no hinge report yet: held on the closing card).
+    private func makeFoldRun() -> GameController {
+        let controller = makeController()
+        controller.updateCanvas(duoPortrait, hasFold: true, quarterTurns: 2)
+        controller.play()
+        return controller
+    }
+
+    private let duoPortrait = CGSize(width: 669, height: 951)
+    private let duoLandscape = CGSize(width: 951, height: 669)
+    private let cover = CGSize(width: 466, height: 678)
+    private let column = CGSize(width: 469, height: 669)
+
+    // MARK: P1-A: k is recomputed whenever the interface or the mask changes
+
+    /// Every mask handed to iOS bumps `orientationEpoch` (RootView re-reads the interface on it); a run's hold let go
+    /// is one. The same window with the interface turned 180° gives the other odd k.
+    @Test func aMaskChangeReReadsTheInterface() {
+        let controller = makeController()
+        let before = controller.orientationEpoch
+        controller.play()
+        controller.goHome()
+        let afterRun = controller.orientationEpoch
+        #expect(afterRun > before)
+        controller.maskChanged("mask test")
+        #expect(controller.orientationEpoch == afterRun + 1)
+        #expect(controller.events.ring.entries.map(\.event).contains("mask test"))
+        // P1-A's repro: 951 × 669 both ways, landscapeRight → landscapeLeft: k 1 → 3 (turn round on), 3 → 1 (off).
+        let right = AppRules.settledInterface(.landscapeRight, window: duoLandscape, last: .landscapeRight)
+        let left = AppRules.settledInterface(.landscapeLeft, window: duoLandscape, last: right)
+        #expect(left == .landscapeLeft)
+        #expect(AppRules.quarterTurns(interface: right, turnRound: true, hasFold: true) == 1)
+        #expect(AppRules.quarterTurns(interface: left, turnRound: true, hasFold: true) == 3)
+        #expect(AppRules.quarterTurns(interface: left, turnRound: false, hasFold: true) == 1)
+    }
+
+    /// P2-1: a landscape window before iOS's report falls back on the device (named the other way round), then the
+    /// constant; a landscape `last` still wins; a portrait window never takes the device's landscape.
+    @Test func aLandscapeWindowFallsBackOnTheDevice() {
+        #expect(AppRules.interfaceForDevice(.landscapeRight) == .landscapeLeft)
+        #expect(AppRules.interfaceForDevice(.landscapeLeft) == .landscapeRight)
+        for d in [UIDeviceOrientation.portrait, .portraitUpsideDown, .faceUp, .faceDown, .unknown] {
+            #expect(AppRules.interfaceForDevice(d) == nil)
+        }
+        #expect(AppRules.settledInterface(.portrait, window: duoLandscape, last: .portrait, device: .landscapeRight)
+                == .landscapeLeft)
+        #expect(AppRules.settledInterface(.unknown, window: duoLandscape, last: .unknown, device: .landscapeLeft)
+                == .landscapeRight)
+        #expect(AppRules.settledInterface(.portrait, window: duoLandscape, last: .portrait, device: .faceUp)
+                == .landscapeRight)
+        #expect(AppRules.settledInterface(.portrait, window: duoLandscape, last: .landscapeRight,
+                                          device: .landscapeRight) == .landscapeRight)
+        #expect(AppRules.settledInterface(.landscapeRight, window: duoLandscape, last: .portrait,
+                                          device: .landscapeRight) == .landscapeRight)
+        #expect(AppRules.settledInterface(.landscapeLeft, window: duoPortrait, last: .portrait,
+                                          device: .landscapeRight) == .portrait)
+        // The portrait → landscapeLeft turn is drawn with k = 3 (turn round on) from the first frame, never 1.
+        let o = AppRules.settledInterface(.portrait, window: duoLandscape, last: .portrait, device: .landscapeRight)
+        #expect(AppRules.quarterTurns(interface: o, turnRound: true, hasFold: true) == 3)
+    }
+
+    // MARK: P1-B: the cover display is a screen, and its card has a way on
+
+    @Test func aLetterboxOnTheInnerScreenPlays() {
+        // R2's column on the landscape inner display (and the screen reported the column's way round).
+        #expect(AppRules.isLetterbox(window: column, screen: duoLandscape))
+        #expect(AppRules.isLetterbox(window: column, screen: duoPortrait))
+        #expect(AppRules.pose(window: column, screen: duoLandscape, hingeSeen: true, isShut: false) == .play)
+        #expect(AppRules.displayClass(window: column, screen: duoLandscape) == .inner)
+        // The real cover display: its screen is cover-sized.
+        #expect(!AppRules.isLetterbox(window: cover, screen: cover))
+        #expect(AppRules.pose(window: cover, screen: cover, hingeSeen: true, isShut: false) == .cover)
+        #expect(AppRules.displayClass(window: cover, screen: cover) == .small)
+        // A stale inner screen can never make the real cover display play (no side shared).
+        #expect(!AppRules.isLetterbox(window: cover, screen: duoPortrait))
+        #expect(AppRules.pose(window: cover, screen: duoPortrait, hingeSeen: true, isShut: false) == .cover)
+        // No screen known: R3's window rule.
+        #expect(AppRules.pose(window: column, screen: .zero, hingeSeen: true, isShut: false) == .cover)
+        #expect(AppRules.displayClass(window: column, screen: .zero) == .small)
+        // The inner display and phones are unchanged.
+        #expect(AppRules.pose(window: duoLandscape, screen: duoLandscape, hingeSeen: true, isShut: false) == .play)
+        let se = CGSize(width: 375, height: 667)
+        #expect(!AppRules.isLetterbox(window: se, screen: se))
+        #expect(AppRules.pose(window: se, screen: se, hingeSeen: false, isShut: false) == .play)
+        // The cover card's override plays.
+        #expect(AppRules.pose(window: cover, screen: cover, hingeSeen: true, isShut: true, coverOverridden: true)
+                == .play)
+    }
+
+    /// P2-6: a letterbox is never a hand-off (no hold, no hand-off angle); the real cover display still is.
+    @Test func aLetterboxIsNeverAHandOff() {
+        let controller = makeFoldRun()
+        controller.hingeSample(angle: 120, time: CACurrentMediaTime())
+        controller.carryOn()
+        #expect(!controller.isPaused)
+        controller.updateCanvas(column, hasFold: false, quarterTurns: 0, screen: duoLandscape)
+        #expect(!controller.isClosingPaused)
+        #expect(controller.handoffAngle == nil)
+        controller.updateCanvas(cover, hasFold: false, quarterTurns: 0, screen: cover)
+        #expect(controller.isClosingPaused)
+        #expect(controller.handoffAngle != nil)
+        controller.updateCanvas(duoPortrait, hasFold: true, quarterTurns: 2)
+        controller.goHome()
+    }
+
+    @Test func theCoverCardOffersAWayOn() {
+        #expect(!AppRules.coverOffersEscape(coverFor: 2.9, angle: 120))
+        #expect(AppRules.coverOffersEscape(coverFor: 3, angle: 120))
+        #expect(AppRules.coverOffersEscape(coverFor: 8, angle: 92))
+        #expect(!AppRules.coverOffersEscape(coverFor: 8, angle: 91))
+        #expect(!AppRules.coverOffersEscape(coverFor: 8, angle: nil))
+        #expect(!AppRules.coverOffersEscape(coverFor: .nan, angle: 120))
+        #expect(CoverCard.escapeButtons(midRun: true) == ["Carry on", "Home"])
+        #expect(CoverCard.escapeButtons(midRun: false) == ["Home"])
+
+        // Mid-run: the card offers its plate after 3 s with the hinge open; "Carry on" plays at once.
+        let run = makeFoldRun()
+        run.hingeSample(angle: 120, time: CACurrentMediaTime())
+        run.setPose(.cover, canvas: cover)
+        #expect(run.isPaused)
+        let early = run.checkCoverEscape(now: CACurrentMediaTime())
+        #expect(!early)
+        let later = run.checkCoverEscape(now: CACurrentMediaTime() + 3.5)
+        #expect(later)
+        #expect(run.coverEscape)
+        run.coverCarryOn()
+        #expect(run.coverOverridden)
+        #expect(run.pose == .play)
+        #expect(!run.coverEscape)
+        #expect(!run.isClosingPaused)
+        #expect(!run.isPaused)
+        // Shut for real: the override ends.
+        run.hingeSample(angle: 4, time: CACurrentMediaTime() + 0.1)
+        #expect(!run.coverOverridden)
+        run.goHome()
+
+        // In menus: "Home", drawn in play pose.
+        let menus = makeController()
+        menus.hingeSample(angle: 130, time: CACurrentMediaTime())
+        menus.setPose(.cover, canvas: cover)
+        let offered = menus.checkCoverEscape(now: CACurrentMediaTime() + 4)
+        #expect(offered)
+        menus.coverHome()
+        #expect(menus.route == .home)
+        #expect(menus.pose == .play)
+        #expect(menus.coverOverridden)
+        // A shut lid never offers it.
+        let shut = makeController()
+        shut.hingeSample(angle: 30, time: CACurrentMediaTime())
+        shut.setPose(.cover, canvas: cover)
+        let none = shut.checkCoverEscape(now: CACurrentMediaTime() + 10)
+        #expect(!none)
+        // A Duo in menus at 130° may take the menu hold on a slow runner: leave the shared lock as found.
+        OrientationLock.setMenuHold(false)
+    }
+
+    // MARK: P1-C / P2-5: a silent hinge is re-subscribed
+
+    @Test func theHingeIsReSubscribedWhenItMayHaveGoneSilent() {
+        #expect(AppRules.hingeSilent(lastSample: nil, since: 5))
+        #expect(AppRules.hingeSilent(lastSample: 4.9, since: 5))
+        #expect(!AppRules.hingeSilent(lastSample: 5.1, since: 5))
+
+        // "Carry on" re-subscribes.
+        let a = makeFoldRun()
+        let r0 = a.hingeRefresh
+        a.carryOn()
+        #expect(a.hingeRefresh == r0 + 1)
+        a.goHome()
+
+        // Every cover ↔ inner change re-subscribes.
+        let b = makeFoldRun()
+        b.hingeSample(angle: 120, time: CACurrentMediaTime())
+        let r1 = b.hingeRefresh
+        b.updateCanvas(cover, hasFold: false, quarterTurns: 0, screen: cover)
+        #expect(b.hingeRefresh == r1 + 1)
+        b.updateCanvas(duoPortrait, hasFold: true, quarterTurns: 2)
+        #expect(b.hingeRefresh == r1 + 2)
+        b.goHome()
+
+        // The closing card with no report since it went up: re-subscribe, and "Move the lid a little".
+        let c = makeFoldRun()
+        #expect(c.isClosingPaused)
+        let r2 = c.hingeRefresh
+        let silent = c.closingSilenceCheck()
+        #expect(silent)
+        #expect(c.hingeRefresh == r2 + 1)
+        #expect(c.closingAwaitsHinge)
+        #expect(ClosingCard.title(lifted: true, awaitingHinge: true) == "Move the lid a little")
+        c.hingeSample(angle: 60, time: CACurrentMediaTime() + 0.05)
+        #expect(!c.closingAwaitsHinge)
+        let heard = c.closingSilenceCheck()
+        #expect(!heard)
+        c.goHome()
+    }
+
+    /// The report the re-subscription delivers right after "Carry on" (a shut-looking 40°) never closes the card
+    /// again; the chest keeps stepping.
+    @Test func carryOnsOwnRefreshNeverClosesTheCard() {
+        let controller = makeFoldRun()
+        let t0 = CACurrentMediaTime()
+        controller.hingeSample(angle: 40, time: t0)
+        controller.carryOn()
+        #expect(!controller.isClosingPaused)
+        controller.hingeSample(angle: 40, time: t0 + 0.03)
+        let frame = 1.0 / 60.0
+        var t = t0 + 0.03
+        for _ in 0..<24 {
+            t += frame
+            _ = controller.advance(dt: frame, now: t)
+        }
+        #expect(!controller.isClosingPaused)
+        #expect(!controller.isPaused)
+        #expect(AppRules.carryOnRefreshGrace == 0.5)
+        controller.goHome()
+    }
+
+    // MARK: P1-D: the probe explains itself
+
+    @Test func theProbeExplainsItself() {
+        let frame = RootFrame(pose: .play, fold: true, turns: 3, interface: .landscapeLeft)
+        let value = AppRules.canvasProbeValue(window: duoLandscape, frame: frame, held: .landscapeLeft)
+        #expect(value == "k=3 w=951 h=669 fold=1 iface=landscapeLeft held=landscapeLeft")
+        let k = value.split(separator: " ").first(where: { $0.hasPrefix("k=") }).map(String.init)
+        #expect(k == "k=3")
+        let unheld = AppRules.canvasProbeValue(window: duoPortrait, frame: RootFrame(pose: .play, fold: true, turns: 2,
+                                                                                     interface: .portrait),
+                                               held: .unknown)
+        #expect(unheld.hasSuffix("iface=portrait held=unknown"))
+        #expect(DemoMode.parse("screen=run;hold=closing").holdClosing)
+        #expect(!DemoMode.parse("screen=run;hold=menu").holdClosing)
+        #expect(!DemoMode.parse("screen=run").holdClosing)
+    }
+
+    // MARK: P2-2: Settings never flips under the finger
+
+    @Test func settingsNeverFlipsUnderTheFinger() {
+        #expect(AppRules.drawnTurnRound(wanted: true, frozen: false) == false)
+        #expect(AppRules.drawnTurnRound(wanted: true, frozen: nil) == true)
+        let controller = makeController()
+        let start = controller.wantsTurnRound
+        controller.show(.settings)
+        controller.settings.turnRound = !start
+        #expect(controller.wantsTurnRound == !start)
+        #expect(controller.drawnTurnRound == start)
+        #expect(controller.turnRoundPending)
+        #expect(SettingsView.turnDetailLine(pending: true).hasSuffix(AppRules.turnAppliesLater))
+        #expect(SettingsView.turnDetailLine(pending: false) == SettingsView.turnDetail)
+        controller.show(.home)
+        #expect(controller.drawnTurnRound == !start)
+        #expect(!controller.turnRoundPending)
+        // Outside Settings a change applies at once.
+        controller.settings.turnRound = start
+        #expect(controller.drawnTurnRound == start)
+    }
+
+    // MARK: P2-3: the pose tip never covers a card
+
+    @Test func thePoseTipNeverCoversACard() {
+        #expect(AppRules.poseTipAllowed(closingCard: false, menu: false))
+        #expect(!AppRules.poseTipAllowed(closingCard: true, menu: false))
+        #expect(!AppRules.poseTipAllowed(closingCard: false, menu: true))
+        #expect(AppRules.showsPoseTip(duo: true, route: .lesson, lessonStep: 1, device: .landscapeLeft,
+                                      dismissed: false))
+        #expect(!AppRules.showsPoseTip(duo: true, route: .lesson, lessonStep: 1, device: .landscapeLeft,
+                                       dismissed: false, cardUp: true))
+        #expect(!AppRules.showsPoseTip(duo: true, route: .home, lessonStep: nil, device: .landscapeLeft,
+                                       dismissed: false, forced: true, cardUp: true))
+        // Lesson step 1 on a Duo waits on the closing card ("Move the lid a little"): no tip over it.
+        let controller = makeController()
+        controller.updateCanvas(duoPortrait, hasFold: true, quarterTurns: 2)
+        controller.startLesson(replay: false)
+        #expect(controller.isClosingPaused)
+        #expect(!controller.showsPoseTip)
+        controller.goHome()
+    }
+
+    // MARK: P2-4: menus don't re-rotate in the hand at a tabletop angle
+
+    @Test func theMenuHoldRule() {
+        var a = MenuOrientationHold()
+        let unsettled = a.update(duo: true, menus: true, inner: true, angle: 110, stableFor: 0.5)
+        #expect(!unsettled)
+        let settled = a.update(duo: true, menus: true, inner: true, angle: 110, stableFor: 1.2)
+        #expect(settled)
+        // Once on, it keeps holding to 178° (a flat Duo hovers 172–180) and lets go past it.
+        let nearFlat = a.update(duo: true, menus: true, inner: true, angle: 176, stableFor: 0)
+        #expect(nearFlat)
+        let flat = a.update(duo: true, menus: true, inner: true, angle: 179, stableFor: 9)
+        #expect(!flat)
+        let backAt176 = a.update(duo: true, menus: true, inner: true, angle: 176, stableFor: 9)
+        #expect(!backAt176)
+        let backAt120 = a.update(duo: true, menus: true, inner: true, angle: 120, stableFor: 9)
+        #expect(backAt120)
+        let low = a.update(duo: true, menus: true, inner: true, angle: 54, stableFor: 9)
+        #expect(!low)
+        // Never in a run, off the inner display, off a Duo, or with no angle.
+        let cases: [(Bool, Bool, Bool, Double?)] = [(true, false, true, 110), (true, true, false, 110),
+                                                    (false, true, true, 110), (true, true, true, nil)]
+        for (duo, menus, inner, angle) in cases {
+            var h = MenuOrientationHold()
+            let on = h.update(duo: duo, menus: menus, inner: inner, angle: angle, stableFor: 9)
+            #expect(!on)
+        }
+    }
+
+    /// The controller: a Duo on Home at 110° holds; a run takes over with its own hold; back home it holds again;
+    /// flat lets go.
+    @Test func menusHoldTheirOrientationAtATabletopAngle() {
+        let controller = makeController()
+        controller.updateCanvas(duoPortrait, hasFold: true, quarterTurns: 2)
+        controller.hinge.ingest(angleDegrees: 110, at: CACurrentMediaTime())
+        controller.refreshMenuHold(now: CACurrentMediaTime() + 2)
+        #expect(OrientationLock.menuHold)
+        #expect(OrientationLock.holding)
+        controller.play()
+        #expect(OrientationLock.liveRun)
+        #expect(!OrientationLock.menuHold)
+        controller.goHome()
+        #expect(!OrientationLock.liveRun)
+        controller.refreshMenuHold(now: CACurrentMediaTime() + 2)
+        #expect(OrientationLock.menuHold)
+        controller.hinge.ingest(angleDegrees: 179, at: CACurrentMediaTime() + 0.1)
+        controller.refreshMenuHold(now: CACurrentMediaTime() + 4)
+        #expect(!OrientationLock.menuHold)
+        #expect(!OrientationLock.holding)
+        // The masks a hold hands iOS never exclude the interface it captured, and never allow upside down.
+        for iface in [UIInterfaceOrientation.portrait, .landscapeLeft, .landscapeRight] {
+            let m = OrientationLock.mask(isDuo: true, liveRun: true, inner: true, interface: iface)
+            #expect(m.contains(UIInterfaceOrientationMask(rawValue: 1 << UInt(iface.rawValue))))
+            #expect(!m.contains(.portraitUpsideDown))
+        }
+        OrientationLock.setMenuHold(false)
+    }
+}

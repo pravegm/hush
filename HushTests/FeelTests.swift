@@ -1920,4 +1920,17 @@ struct FeelTests {
         #endif
         #expect(FeelHingeLog.isEnabled == FeelDemoLog.isEnabled)
     }
+
+    // MARK: - R8 (Hush QA-5 P1-C): the hinge reader can be re-subscribed on demand
+
+    /// The old call shapes still build and mean "no refresh token" (0); the App passes its counter, and any change of
+    /// it re-subscribes (the same off/on toggle as a scene activation).
+    @Test func hingeReaderKeepsItsAPIAndTakesARefreshToken() {
+        let plain = HingeReader(onUpdate: { _, _ in })
+        #expect(plain.refreshToken == 0)
+        let both = HingeReader(onUpdate: { _, _ in }, onUnavailable: {})
+        #expect(both.refreshToken == 0)
+        let bumped = HingeReader(onUpdate: { _, _ in }, onUnavailable: {}, refreshToken: 7)
+        #expect(bumped.refreshToken == 7)
+    }
 }

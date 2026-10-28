@@ -59,6 +59,9 @@ import UIKit
 //                                 only on a fold and only when k's parity fits the window (odd k = landscape window),
 //                                 so the drawn frame stays portrait. `fold=1;orient=landscape` also gives a phone sim the
 //                                 Duo's mask, so it can turn landscape.
+// - `hold=closing`                (R8, QA-5 P2-7) `screen=run`: start on the closing card, held whatever drives the
+//                                 lid, until its "Carry on" (shown after 3 s) is tapped. `HUSH-T demo hold closing`,
+//                                 then `HUSH-T carry on …`. CI's odd-k tap test (HushUITests).
 // - `golden=1`                    (R2) run/attract: the first seed (from `seed=`) whose chest #3 is a golden mimic;
 //                                 its arrival logs `HUSH-T event chestArrived … golden=1`.
 //
@@ -154,6 +157,8 @@ struct DemoMode: Equatable {
     var poseBook = false
     /// `quarter=<0…3>` (R6): force the canvas's quarter turns where they fit the window (`AppRules.forcedTurnsFit`).
     var quarter: Int?
+    /// `hold=closing` (R8, QA-5 P2-7): a run starts on the closing card, held whatever drives the lid, until "Carry on".
+    var holdClosing = false
 
     init(raw: String) { self.raw = raw }
 
@@ -221,6 +226,7 @@ struct DemoMode: Equatable {
             case "pose": config.poseBook = value.lowercased() == "book"
             case "quarter":
                 if let n = Int(value), (0...3).contains(n) { config.quarter = n }
+            case "hold": config.holdClosing = value.lowercased() == "closing"
             default: break
             }
         }

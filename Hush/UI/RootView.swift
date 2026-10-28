@@ -30,6 +30,8 @@ struct RootView: View {
     @State private var windowInsets = EdgeInsets()
     /// The interface orientation iOS last reported (only known values are kept).
     @State private var interface: UIInterfaceOrientation = .unknown
+    /// R8 (QA-5 P1-B): the window's SCREEN (the display the app is on; zero until read).
+    @State private var screenSize: CGSize = .zero
 
     var body: some View {
         GeometryReader { safeGeo in
@@ -58,15 +60,20 @@ struct RootView: View {
             .ignoresSafeArea()
         }
         .background(HushTheme.night.ignoresSafeArea())
+        // R8 (QA-5 P1-A): the window scene's effective geometry (KVO): a 180° turn with no size, inset or device
+        // change (a hold let go) is seen at once.
+        .background(SceneGeometryObserver { refreshWindowInsets() })
         .modifier(HingeReader(onUpdate: { angle, time in
             controller.hingeSample(angle: angle, time: time)
         }, onUnavailable: {
             controller.hingeUnavailable()
-        }))
+        }, refreshToken: controller.hingeRefresh))
         .onChange(of: scenePhase) { _, phase in
             controller.setScenePhase(phase)
             if phase == .active { refreshWindowInsets() }
         }
+        // R8 (QA-5 P1-A): every mask handed to iOS (a run's hold let go, a menu hold) re-reads the interface.
+        .onChange(of: controller.orientationEpoch) { _, _ in refreshWindowInsets() }
         .onReceive(NotificationCenter.default.publisher(for: UIDevice.orientationDidChangeNotification)) { _ in
             refreshWindowInsets()
             controller.deviceOrientationChanged()
@@ -80,14 +87,17 @@ struct RootView: View {
 
     /// The pose, the fold (judged on the portrait-equivalent canvas, so a Duo's inner display is a fold in landscape
     /// too), the interface orientation (made to agree with the window's shape) and k.
+    /// R8: the pose is judged on the window's SCREEN (P1-B); the interface falls back on the device (P2-1); Settings
+    /// keeps the turn-round it opened with (P2-2).
     private func rootFrame(_ window: CGSize) -> RootFrame {
         let pose = currentPose(window)
-        let iface = AppRules.settledInterface(interface, window: window, last: interface)
+        let iface = AppRules.settledInterface(interface, window: window, last: interface,
+                                              device: controller.deviceOrientation)
         let fold = AppRules.hasFold(canvas: AppRules.portraitSize(window), hingeSeen: controller.hingeSeen,
                                     demoFold: controller.demoFold)
         let onFold = fold && pose == .play
         var k = AppRules.quarterTurns(interface: iface,
-                                      turnRound: controller.wantsTurnRound && !controller.systemSheetUp,
+                                      turnRound: controller.drawnTurnRound && !controller.systemSheetUp,
                                       hasFold: onFold, last: controller.quarterTurns)
         if let forced = controller.demoQuarterTurns, AppRules.forcedTurnsFit(forced, window: window, hasFold: onFold) {
             k = forced
@@ -118,8 +128,10 @@ struct RootView: View {
             .animation(nil, value: k)
             .frame(width: window.width, height: window.height)
             if frame.pose == .cover {
+                // R8 (QA-5 P1-B): after 3 s with the hinge open ≥ 92°, the card offers "Carry on" / "Home".
                 CoverCard(midRun: controller.isLiveRun, portrait: controller.portraits.cover,
-                          reduceMotion: controller.reduceMotion)
+                          reduceMotion: controller.reduceMotion, escape: controller.coverEscape,
+                          onCarryOn: { controller.coverCarryOn() }, onHome: { controller.coverHome() })
                     .transition(.opacity)
             }
             if tipOn {
@@ -146,14 +158,20 @@ struct RootView: View {
 
     private func currentPose(_ canvas: CGSize) -> AppPose {
         if let forced = controller.forcedPose { return forced }
-        return AppRules.pose(canvas: canvas, hingeSeen: controller.hingeSeen, isShut: controller.isShut)
+        return AppRules.pose(window: canvas, screen: currentScreen(), hingeSeen: controller.hingeSeen,
+                             isShut: controller.isShut, coverOverridden: controller.coverOverridden)
+    }
+
+    /// The window's screen: the last read, else read now.
+    private func currentScreen() -> CGSize {
+        screenSize.width > 10 ? screenSize : OrientationLock.windowScreenSize()
     }
 
     private func handleCanvas(_ window: CGSize, _ frame: RootFrame) {
         guard window.width > 1, window.height > 1 else { return }
         controller.setPose(frame.pose, canvas: window)
         // Every layout change prints `HUSH-T canvas <w>x<h> fold=<0|1> turned=<0|1> k=<k>` (the real window).
-        controller.updateCanvas(window, hasFold: frame.fold, quarterTurns: frame.turns)
+        controller.updateCanvas(window, hasFold: frame.fold, quarterTurns: frame.turns, screen: currentScreen())
     }
 
     private func merged(_ a: EdgeInsets, _ b: EdgeInsets) -> EdgeInsets {
@@ -163,18 +181,27 @@ struct RootView: View {
 
     /// The window's insets and the interface orientation; again a beat later (the window settles after a rotation or
     /// a display handover, and a 180° flip doesn't change the window's size).
+    /// R8: the screen is re-read with them (P1-B).
     private func refreshWindowInsets() {
         let read = OrientationLock.windowSafeArea()
         if read != windowInsets { windowInsets = read }
+        refreshScreen()
         refreshInterface()
         Task { @MainActor in
             for delay in [UInt64(350_000_000), UInt64(550_000_000)] {
                 try? await Task.sleep(nanoseconds: delay)
                 let later = OrientationLock.windowSafeArea()
                 if later != windowInsets { windowInsets = later }
+                refreshScreen()
                 refreshInterface()
             }
         }
+    }
+
+    private func refreshScreen() {
+        let s = OrientationLock.windowScreenSize()
+        guard s.width > 10, s.height > 10, s != screenSize else { return }
+        screenSize = s
     }
 
     private func refreshInterface() {
@@ -272,15 +299,16 @@ struct RootView: View {
     }
 
     /// R6 (CI NEEDS): `debug.canvas` (demo runs only): a pure accessibility element, no hit testing, valued
-    /// `k=<k> w=<w> h=<h> fold=<0|1>` (the real window).
+    /// `k=<k> w=<w> h=<h> fold=<0|1>` (the real window). R8 (QA-5 P1-D): then `iface=<o> held=<o>` (the interface the
+    /// frame was drawn for, and what a hold has captured), so an artefact explains itself.
     private func canvasProbe(window: CGSize, frame: RootFrame) -> some View {
         Color.clear
             .frame(width: 2, height: 2)
             .position(x: 1, y: 1)
             .accessibilityElement()
             .accessibilityIdentifier("debug.canvas")
-            .accessibilityValue("k=\(frame.turns) w=\(Int(window.width.rounded())) h=\(Int(window.height.rounded())) "
-                                + "fold=\(frame.fold ? 1 : 0)")
+            .accessibilityValue(AppRules.canvasProbeValue(window: window, frame: frame,
+                                                          held: OrientationLock.lockedInterface))
             .allowsHitTesting(false)
     }
 
@@ -294,6 +322,58 @@ struct RootView: View {
         }
         .frame(width: canvas.width, height: canvas.height)
         .onAppear { IconExport.render() }
+    }
+}
+
+/// R8 (QA-5 P1-A): tells RootView whenever its window scene's `effectiveGeometry` changes (KVO; UIKit documents the
+/// property as key-value observable): the interface orientation, the size and the screen all live there, so a 180°
+/// turn that changes neither the window's size nor its insets (a hold let go, a rotation that commits late) is read
+/// at once instead of waiting for a device notification. A zero-size, non-interactive view; it re-attaches if the
+/// window (or its scene) changes.
+struct SceneGeometryObserver: UIViewRepresentable {
+    let onChange: () -> Void
+
+    func makeUIView(context: Context) -> ObserverView {
+        let view = ObserverView()
+        view.isUserInteractionEnabled = false
+        view.isAccessibilityElement = false
+        view.onChange = onChange
+        return view
+    }
+
+    func updateUIView(_ view: ObserverView, context: Context) {
+        view.onChange = onChange
+        view.attach()
+    }
+
+    final class ObserverView: UIView {
+        var onChange: (() -> Void)?
+        private var observation: NSKeyValueObservation?
+        private weak var observed: UIWindowScene?
+
+        override func didMoveToWindow() {
+            super.didMoveToWindow()
+            attach()
+        }
+
+        /// Observe the current window's scene (once per scene).
+        func attach() {
+            let scene = window?.windowScene
+            if let scene, scene === observed, observation != nil { return }
+            if scene == nil && observed == nil { return }
+            observation?.invalidate()
+            observation = nil
+            observed = scene
+            guard let scene else { return }
+            observation = scene.observe(\.effectiveGeometry, options: [.new]) { [weak self] _, _ in
+                guard let view = self else { return }
+                Task { @MainActor in view.fire() }
+            }
+        }
+
+        private func fire() {
+            onChange?()
+        }
     }
 }
 

@@ -269,16 +269,28 @@ struct DuoChestHalf: View {
 }
 
 /// Shut, on the cover display: the sleeping mimic (the Scene's portrait, asleep) and "Open to carry on".
+/// R8 (QA-5 P1-B, belt and braces): if the card has been up 3 s while the hinge says the Duo is open (≥ 92°), the app
+/// may be misjudging the display (iOS's letterboxed column on the inner display looks cover-sized), so the card offers
+/// a way on: "Carry on" in a run, and "Home" (`escape`).
 struct CoverCard: View {
     let midRun: Bool
     let portrait: MimicPortraitScene
     let reduceMotion: Bool
+    var escape = false
+    var onCarryOn: () -> Void = {}
+    var onHome: () -> Void = {}
 
     /// Pure; tested.
     static func title(midRun: Bool) -> String { midRun ? "Open to carry on" : "Open me… gently" }
     static func detail(midRun: Bool) -> String {
         midRun ? "Open me gently, then hold still. Your candle waits." : "There's gold in here. And something else."
     }
+    /// R8: the escape plate's line and buttons. Pure; tested.
+    static let escapeLine = "Already open?"
+    static let carryOnLabel = "Carry on"
+    static let homeLabel = "Home"
+    /// The escape plate's buttons, in order (a run: Carry on, then Home; menus: Home). Pure; tested.
+    static func escapeButtons(midRun: Bool) -> [String] { midRun ? [carryOnLabel, homeLabel] : [homeLabel] }
 
     /// R3 (UX P2-12, juror P1-11): the group is centred and the mimic fills the card (never top-heavy).
     var body: some View {
@@ -287,19 +299,27 @@ struct CoverCard: View {
             GeometryReader { geo in
                 ScrollView(showsIndicators: false) {
                     VStack(spacing: 16) {
-                        MimicPortraitView(scene: portrait, fps: 30)
-                            .frame(width: min(geo.size.width * 0.82, 380))
-                        Text(Self.title(midRun: midRun))
-                            .font(HushType.title(true))
-                            .foregroundStyle(HushTheme.parchment)
-                            .multilineTextAlignment(.center)
-                            .fixedSize(horizontal: false, vertical: true)
-                        Text(Self.detail(midRun: midRun))
-                            .font(HushType.body(true))
-                            .foregroundStyle(HushTheme.mist)
-                            .multilineTextAlignment(.center)
-                            .fixedSize(horizontal: false, vertical: true)
+                        VStack(spacing: 16) {
+                            MimicPortraitView(scene: portrait, fps: 30)
+                                .frame(width: min(geo.size.width * 0.82, 380))
+                            Text(Self.title(midRun: midRun))
+                                .font(HushType.title(true))
+                                .foregroundStyle(HushTheme.parchment)
+                                .multilineTextAlignment(.center)
+                                .fixedSize(horizontal: false, vertical: true)
+                            Text(Self.detail(midRun: midRun))
+                                .font(HushType.body(true))
+                                .foregroundStyle(HushTheme.mist)
+                                .multilineTextAlignment(.center)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                        .accessibilityElement(children: .combine)
+                        if escape {
+                            escapePlate(width: min(geo.size.width - 48, 380))
+                                .transition(.opacity)
+                        }
                     }
+                    .animation(HushTheme.settle(reduceMotion), value: escape)
                     .padding(.horizontal, 24)
                     .padding(.vertical, 40)
                     .frame(width: geo.size.width)
@@ -316,6 +336,27 @@ struct CoverCard: View {
             // R3 (Scene): asleep, a sliver open, the eye glinting through the seam, the chest filling the card.
             portrait.applyCoverStyle()
         }
-        .accessibilityElement(children: .combine)
+        .accessibilityElement(children: .contain)
+    }
+
+    /// "Already open?" with "Carry on" (a run) and "Home".
+    private func escapePlate(width: CGFloat) -> some View {
+        VStack(spacing: 10) {
+            Text(Self.escapeLine)
+                .font(HushType.headline(true))
+                .foregroundStyle(HushTheme.parchment)
+                .multilineTextAlignment(.center)
+            if midRun {
+                HushButton(kind: .primary, height: 56, compact: true, confirm: true, action: onCarryOn) {
+                    Text(Self.carryOnLabel)
+                }
+                .accessibilityHint("Resumes the chest now")
+            }
+            HushButton(kind: .leather, height: HushTheme.minTap, compact: true, action: onHome) {
+                Text(Self.homeLabel)
+            }
+        }
+        .frame(width: max(width, 200))
+        .hushPlate(padding: 14, radius: 22)
     }
 }

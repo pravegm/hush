@@ -309,3 +309,40 @@ For CI (details in `design/notes/app-R7.md`). Nothing blocking; no demo key chan
 - **Game Center:** `GameCenterManager.authenticate()` now runs on the first visit to Home after the lesson
   (`HUSH-T gc authenticate route=home`), or at once in demo runs (as before).
 - **Diagnostics:** "Copy log" = the event log, a blank line, then `HingeLidSource.traceText()`.
+
+## App engineer (R8)
+For CI (details in `design/notes/app-R8.md`, from `design/QA-5.md`). No existing demo key or log line changed meaning.
+- **Landscape drag (P1-D):** `testLandscapeTurnedDragBagsALitItem` now POLLS `debug.canvas` for up to 15 s until k is
+  odd, and FAILS (not skips) if it never is: "Landscape turned drag from a landscape launch: the layout never reached
+  an odd k in 15 s …". ci.yml's `verdict` already greps `$2 from[^(]*` for it. The skip grep for
+  "Landscape drag: the layout is k=" can go.
+- **`debug.canvas`** value is now `k=<k> w=<w> h=<h> fold=<0|1> iface=<o> held=<o>` (`iface` = the interface the frame
+  was drawn for, `held` = the orientation a hold captured, `unknown` = none). The `HUSH-T canvas` line is UNCHANGED;
+  `HUSH-T iface <o>` gains ` held=<o>` at its end.
+- **New UI test (P2-7):** `testLandscapeCarryOnTapsAtOddK` launches
+  `screen=run;mode=attract;seed=7;lid=0.9;turn=1;fold=1;orient=landscape;quarter=3;hold=closing`, polls k odd, taps
+  the "Carry on" button (shown after 3 s) and passes when it goes. Non-fatal like the drag; add a summary line if you
+  want one (`verdict testLandscapeCarryOnTapsAtOddK "Landscape Carry on tap"`).
+- **New demo key `hold=closing`** (DEBUG, `screen=run`): the run starts on the closing card whatever drives the lid
+  (`HUSH-T demo hold closing`), until "Carry on" (`HUSH-T carry on …`, `HUSH-T resumed angle -`) or Home.
+- **Cover display = the SCREEN (P1-B):** RootView passes the window's screen. A cover-sized window on an inner-sized
+  screen that shares one of its sides is iOS's letterboxed column: it PLAYS, is the inner display for every rule
+  (no hand-off, no `HUSH-T handoff`, resume allowed), logs `HUSH-T letterbox window=<w>x<h> screen=<w>x<h>` /
+  `HUSH-T letterbox on|off`, and after 0.5 s `HUSH-T letterbox heal` (the hold is dropped and iOS is asked for
+  `allButUpsideDown`; again every 2 s, 5 tries). The sim's real cover display (466 × 678 window on its own screen) is
+  unchanged: COVER-SLOW-CLOSE / COVER-SLOW-REOPEN should read the same. **Please check one Duo run's log**: if the
+  cover screen ever reports the inner display's bounds, the window rule still applies (no shared side), but say so.
+- **Cover card escape:** after 3 s on the cover card with the last hinge report ≥ 92°, it shows "Already open?" with
+  "Carry on" (in a run) and "Home" (`HUSH-T cover escape shown`, then `HUSH-T cover carry on` / `HUSH-T cover home`).
+  On the sim the cover display stays lit up to ~150° on a reopen, so COVER-SLOW-REOPEN's cover frames may show the
+  plate (nothing is tapped; behaviour unchanged). Never on a demo-forced `screen=cover`.
+- **Hinge refresh (P1-C):** `HUSH-T hinge refresh <reason>` (display small->inner / inner->small, closing silent,
+  carry on, cover …): `HingeReader` re-subscribes, so expect one extra `HUSH-H` report right after each. The reports in
+  the 0.5 s after "Carry on" never close the card again.
+- **Closing copy (P2-5):** 3 s on the closing card with no hinge report since it went up → "Move the lid a little"
+  (the awaiting copy) until the next report.
+- **Menus hold their orientation (P2-4):** on a Duo's inner display, off a run, with the hinge at 60–172° (let go below
+  55° or above 178°) after 1 s of a calm interface: `HUSH-T menu hold on|off`, and the `HUSH-T mask … menu=1` line
+  (`menu=` is new, at the end). **Never in demo runs** (DemoOrientation's asks would be refused), so no scenario changes.
+- **Settings (P2-2):** "Turn the chest round" now applies when Settings closes (`HUSH-T turn round applied <0|1>`); the
+  row adds "Turns round when you close Settings." while a change waits.

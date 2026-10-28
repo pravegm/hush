@@ -12,18 +12,40 @@ import SwiftUI
 /// state. After a hinge has been seen, a transient nil (display handover) must not demote the app to the slider; that
 /// policy belongs to the caller (`HingeLidSource.hasHinge` never goes back to false).
 ///
-/// Usage: `view.modifier(HingeReader(onUpdate: { angle, time in … }, onUnavailable: { … }))`
+/// R8 (Hush QA-5 P1-C): iOS may also go silent after a display hand-off WITHOUT a scene-phase change (the app moved
+/// back to the inner display, the subscription delivers nothing). The caller can bump `refreshToken` to make the same
+/// off/on re-subscription happen at any time (Hush bumps it on every cover ↔ inner change, after 3 s of silence on the
+/// closing card, and on "Carry on"). The default (0, never changed) behaves exactly as before.
+///
+/// Usage: `view.modifier(HingeReader(onUpdate: { angle, time in … }, onUnavailable: { … }, refreshToken: n))`
 struct HingeReader: ViewModifier {
     let onUpdate: (Double, TimeInterval) -> Void
     let onUnavailable: () -> Void
+    /// R8: any change re-subscribes (off, then on 30 ms later), which delivers the current hinge state.
+    let refreshToken: Int
 
     @Environment(\.scenePhase) private var scenePhase
     @State private var enabled = true
     @State private var refresh = 0
 
-    init(onUpdate: @escaping (Double, TimeInterval) -> Void, onUnavailable: @escaping () -> Void = {}) {
+    init(onUpdate: @escaping (Double, TimeInterval) -> Void, onUnavailable: @escaping () -> Void = {},
+         refreshToken: Int = 0) {
         self.onUpdate = onUpdate
         self.onUnavailable = onUnavailable
+        self.refreshToken = refreshToken
+    }
+
+    /// The off/on toggle: off now, on again 30 ms later (unless another re-subscription started meanwhile).
+    @MainActor
+    private func resubscribe() {
+        refresh &+= 1
+        let ticket = refresh
+        enabled = false
+        Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(30))
+            guard ticket == refresh else { return }
+            enabled = true
+        }
     }
 
     @ViewBuilder
@@ -42,14 +64,10 @@ struct HingeReader: ViewModifier {
                 }
                 .onChange(of: scenePhase) { _, phase in
                     guard phase == .active else { return }
-                    refresh &+= 1
-                    let ticket = refresh
-                    enabled = false
-                    Task { @MainActor in
-                        try? await Task.sleep(for: .milliseconds(30))
-                        guard ticket == refresh else { return }
-                        enabled = true
-                    }
+                    resubscribe()
+                }
+                .onChange(of: refreshToken) { _, _ in
+                    resubscribe()
                 }
         } else {
             content.onAppear(perform: onUnavailable)

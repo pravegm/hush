@@ -323,6 +323,10 @@ struct SettingsView: View {
     /// Pure; tested (UX P2-15 / brief copy). R3 (tester 6: "what does 'stays sharp' mean?"): plain words.
     static let turnTitle = "Turn the chest round"
     static let turnDetail = "Puts the loot on the half that stays flat, the lid on the half you lift"
+    /// R8 (QA-5 P2-2): while a change waits for Settings to close. Pure; tested.
+    static func turnDetailLine(pending: Bool) -> String {
+        pending ? turnDetail + ". " + AppRules.turnAppliesLater : turnDetail
+    }
     static let silentTitle = "Play sound on silent"
     /// The About card's version line (the hidden Diagnostics press is on it).
     static var versionText: String { "Version \(BuildChannel.versionLine)" }
@@ -362,8 +366,11 @@ struct SettingsView: View {
                                   compact: c)
                     if controller.hingeSeen || info.hasFold {
                         divider
-                        SettingToggle(title: Self.turnTitle, detail: Self.turnDetail, isOn: $settings.turnRound,
-                                      compact: c)
+                        // R8 (QA-5 P2-2): the page never flips under the finger; the change applies as Settings
+                        // closes, and the row says so meanwhile.
+                        SettingToggle(title: Self.turnTitle,
+                                      detail: Self.turnDetailLine(pending: controller.turnRoundPending),
+                                      isOn: $settings.turnRound, compact: c)
                     }
                     divider
                     SettingToggle(title: "Reduce motion", detail: "Calmer shakes and sparkles.",

@@ -16,8 +16,9 @@ import XCTest
 ///    count as a decimal string ("0", "1", …).
 ///  - `debug.loot` (DEBUG demo runs only): frame = the on-screen rect (after the turn) of the most-lit item that can be
 ///    grabbed now; `accessibilityValue` = "id=<n> kind=<k>". Absent while nothing is lit.
-///  - `debug.canvas` (R6 ask, optional): `accessibilityValue` = "k=<k> …". When present the landscape test checks that
-///    k is odd (else it SKIPS: it would only re-test a portrait layout). When absent the window shape is recorded.
+///  - `debug.canvas` (R6): `accessibilityValue` = "k=<k> w= h= fold= iface=<o> held=<o>" (R8 adds iface/held). R8
+///    (QA-5 P1-D): the landscape tests POLL it until k is odd (15 s) and FAIL if it never is (they used to read it once,
+///    too early, see k = 2 and skip).
 /// All must be pure accessibility (no hit testing), so the synthesized touch reaches the SpriteView underneath.
 /// UI tests can't read the app's stdout, hence accessibility instead of `HUSH-T event itemBagged`.
 ///
@@ -67,20 +68,11 @@ final class TurnedDragUITests: XCTestCase {
 
         var shape = "device=\(XCUIDevice.shared.orientation.rawValue) window=\(app.windows.firstMatch.frame.size)"
         if wantOddK {
-            // Give the orientation ask (re-asked every 2 s) time to land before the item is looked up.
-            let canvas = app.descendants(matching: .any)["debug.canvas"]
-            if canvas.waitForExistence(timeout: 6) {
-                let v = (canvas.value as? String) ?? ""
-                shape += " canvas=\(v)"
-                if let k = quarterTurns(v), k % 2 == 0 {
-                    attachText("canvas", shape)
-                    attachScreen(app, "even-k")
-                    throw XCTSkip("Landscape drag: the layout is k=\(k), not odd (no landscape interface and no `quarter=` "
-                                  + "key, design/NEEDS.md CI R6), so this would only re-test a portrait layout. \(shape)")
-                }
-            } else {
-                shape += " canvas=no debug.canvas element (k not verified)"
-            }
+            // R8 (QA-5 P1-D): `debug.canvas` exists from the first frame, long before the landscape ask (first at
+            // 0.4 s, re-asked every 2 s) lands, so one early read saw k = 2 and SKIPPED the R6 P0 path. Poll it until k
+            // is odd (up to 15 s), and FAIL if it never is.
+            guard let value = waitForOddK(app, label: label, shape: &shape) else { return }
+            shape += " canvas=\(value)"
         }
 
         let loot = app.descendants(matching: .any)["debug.loot"]
@@ -108,7 +100,73 @@ final class TurnedDragUITests: XCTestCase {
                       + "quarter turn (REVIEW-1-duo P1-3, ROUND-6 scene 1).")
     }
 
+    // MARK: - R8 (QA-5 P2-7): a SwiftUI control tapped at an odd k
+
+    /// `hold=closing` starts the run on the closing card (held whatever drives the lid); its "Carry on" shows after
+    /// 3 s. In landscape (k odd) the card is drawn turned a quarter turn, so this is a real synthesized tap through
+    /// SwiftUI's `rotationEffect` at 90°: if hit-testing doesn't follow the turn, the tap misses and the card stays.
+    static let carryOnDemo = "screen=run;mode=attract;seed=7;lid=0.9;turn=1;fold=1;orient=landscape;quarter=3;hold=closing"
+
+    func testLandscapeCarryOnTapsAtOddK() throws {
+        XCUIDevice.shared.orientation = .landscapeRight
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        app.launchArguments = ["-hushDemo", Self.carryOnDemo]
+        app.launch()
+        let label = "Landscape Carry on tap"
+        var shape = "device=\(XCUIDevice.shared.orientation.rawValue) window=\(app.windows.firstMatch.frame.size)"
+        let canvas = app.descendants(matching: .any)["debug.canvas"]
+        guard canvas.waitForExistence(timeout: 30) else {
+            attachScreen(app, "no-debug-canvas")
+            throw XCTSkip("No `debug.canvas` accessibility element (design/NEEDS.md, CI R6): can't verify k.")
+        }
+        guard let value = waitForOddK(app, label: label, shape: &shape) else { return }
+        shape += " canvas=\(value)"
+        let carryOn = app.buttons["Carry on"]
+        guard carryOn.waitForExistence(timeout: 12) else {
+            attachText("carry-on", shape)
+            attachScreen(app, "no-carry-on")
+            XCTFail("\(label) from the held closing card: no \"Carry on\" button within 12 s; \(shape)")
+            return
+        }
+        attachText("carry-on", "\(label): button at \(carryOn.frame); \(shape)")
+        attachScreen(app, "before-tap")
+        carryOn.tap()
+        let gone = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: carryOn)
+        let ok = XCTWaiter.wait(for: [gone], timeout: 5) == .completed
+        attachScreen(app, ok ? "after-tap-resumed" : "after-tap-still-held")
+        XCTAssertTrue(ok, "\(label) from the drawn button at \(carryOn.frame) did nothing: the closing card is still up; "
+                      + "\(shape). SwiftUI hit-testing through a 90° rotationEffect may be off (QA-5 P2-7).")
+    }
+
     // MARK: - Helpers
+
+    /// R8 (QA-5 P1-D): polls `debug.canvas` until its k is odd (15 s). Returns the value, or records a FAILURE (never
+    /// a skip: the R6 P0 path must have evidence) and returns nil.
+    private func waitForOddK(_ app: XCUIApplication, label: String, shape: inout String) -> String? {
+        let canvas = app.descendants(matching: .any)["debug.canvas"]
+        guard canvas.waitForExistence(timeout: 10) else {
+            attachScreen(app, "no-debug-canvas")
+            XCTFail("\(label) from a landscape launch: no `debug.canvas` element, so k can't be verified; \(shape)")
+            return nil
+        }
+        let odd = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+            guard let k = self.quarterTurns((canvas.value as? String) ?? "") else { return false }
+            return k % 2 == 1
+        }, object: nil)
+        let reached = XCTWaiter.wait(for: [odd], timeout: 15) == .completed
+        let value = (canvas.value as? String) ?? ""
+        guard reached else {
+            shape += " canvas=\(value)"
+            attachText("canvas", shape)
+            attachScreen(app, "even-k")
+            XCTFail("\(label) from a landscape launch: the layout never reached an odd k in 15 s, last \(value); "
+                    + "\(shape). The interface stayed portrait and `quarter=` could not apply, so the R6 P0 path "
+                    + "went untested (QA-5 P1-D).")
+            return nil
+        }
+        return value
+    }
 
     /// "k=<n>" in a `debug.canvas` value, or nil.
     private func quarterTurns(_ value: String) -> Int? {
