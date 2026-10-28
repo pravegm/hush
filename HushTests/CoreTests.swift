@@ -1674,26 +1674,38 @@ struct CoreTests {
         }
     }
 
-    /// R7: the onset only forgives blips. A real slam from still (150° → 100° in 0.25 s) still bites before it banks;
-    /// a careful real close (25 °/s, under the R7 closing line) is silent all the way down and banks Hushed.
+    /// R7: the onset only forgives blips. A real slam from still (150° → 100° in 0.25 s) still bites. R15c (playtest
+    /// P0): with loot in the bag the close IS the bank, silent at any speed, so the slam that bites is one over an
+    /// empty bag; the same slam with loot never bites and banks. A careful real close (25 °/s, under the R7 closing
+    /// line) is silent all the way down and banks Hushed.
     @Test func aRealSlamStillBitesThroughTheOnset() {
+        func slam(_ s: HeistSession, frames: Int) -> [HeistEvent] {
+            _ = s.step(dt: 1.0 / 120.0, lid: lidAt(0.77))
+            var o: Double = 0.77
+            var ev: [HeistEvent] = []
+            var i: Int = 0
+            while i < frames && count(ev, isBitten) == 0 && count(ev, isBanked) == 0 {
+                o = max(0, o - 200.0 / Tuning.lidTravel / 60.0)
+                ev.append(contentsOf: s.step(dt: 1.0 / 60.0, lid: lidAt(o, speed: o > 0 ? 200 : 0)))
+                i += 1
+            }
+            return ev
+        }
+        // An empty bag: the slam bites.
+        let (e, _) = lootingSession(seed: 71)
+        let eev: [HeistEvent] = slam(e, frames: 40)
+        #expect(count(eev, isBitten) == 1)
+        #expect(count(eev, isBanked) == 0)
+        // Loot in the bag: the same slam is the bank (R15c), never a bite.
         let (s, _) = lootingSession(seed: 71)
         guard let k = shallowest(s.snapshot) else {
             Issue.record("empty chest")
             return
         }
         _ = bagItem(s, k)
-        _ = s.step(dt: 1.0 / 120.0, lid: lidAt(0.77))
-        var o: Double = 0.77
-        var ev: [HeistEvent] = []
-        var i: Int = 0
-        while i < 15 && count(ev, isBitten) == 0 {
-            o = max(0, o - 200.0 / Tuning.lidTravel / 60.0)
-            ev.append(contentsOf: s.step(dt: 1.0 / 60.0, lid: lidAt(o, speed: 200)))
-            i += 1
-        }
-        #expect(count(ev, isBitten) == 1)
-        #expect(count(ev, isBanked) == 0)
+        let ev: [HeistEvent] = slam(s, frames: 120)
+        #expect(count(ev, isBitten) == 0)
+        #expect(count(ev, isBanked) == 1)
         let (c, _) = lootingSession(seed: 71)
         guard let kc = shallowest(c.snapshot) else { return }
         _ = bagItem(c, kc)

@@ -84,7 +84,10 @@ struct HushBalanceBands {
     static func bands(_ skill: PilotSkill) -> HushBalanceBands {
         switch skill {
         case .novice:
-            return HushBalanceBands(gold: 1_000...2_600, banked: 3...8, bites: 1...6, hushed: nil, seconds: nil)
+            // R15c (playtest P0): closing with loot in the bag is the bank, silent at any speed, so the novice is no
+            // longer bitten while closing to bank (an intended easing for first-timers). 8 seeds (CI run 40782538431):
+            // gold 4,216 (p10 2,552, p90 4,944), banked 10, bites 1 (was 1,347 / 5.5 / 4). Still under casual.
+            return HushBalanceBands(gold: 1_000...5_000, banked: 3...11, bites: 0...6, hushed: nil, seconds: nil)
         case .casual:
             // R7: real hands (see the header).
             return HushBalanceBands(gold: 3_500...7_000, banked: 6...12, bites: 0...0.5, hushed: 0.5...5,
