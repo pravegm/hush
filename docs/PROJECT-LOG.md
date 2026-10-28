@@ -87,3 +87,10 @@
   - The Duo UI tests now skip with that evidence when `win=0`.
   - A real-finger drag at a quarter turn on hardware is in the founder's test list.
 - **TestFlight 1.0 (3)** (R8) is VALID.
+- **TestFlight 1.0 (3)** (R8, VALID); the R9 diagnostics followed.
+- **R10 polish** (`design/VISUAL-REGRESSION-R9.md`): the pause coin/seat share one canvas centre for every k; Settings
+  and other pages scroll and use both Duo halves; the Results mimic ≥ 90 pt; the empty seat fades; the Hushed and
+  chain frames use the perfect pilot. CI 40643737595: **368 tests green**.
+- **Duo sim run 40641939161: 13 / 13 PASS** (FLAT-OPEN, LANDSCAPE-PLAY, WATCHDOG, both cover checks, slam, creak,
+  pauses).
+- **TestFlight 1.0 (4)** uploaded (run 40647337828). `docs/HANDOVER.md` is the founder's morning summary.
