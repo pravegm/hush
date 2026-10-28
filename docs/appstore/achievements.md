@@ -39,7 +39,7 @@
 
 | # | Achievement ID | Title | Pre-earned description | Earned description | Points | Hidden | Trigger (from the code) |
 |---|---|---|---|---|---|---|---|
-| 1 | `hush.ach.firsthaul` | First Haul | Bank your first chest. | In the bag, and the lid eased down. | 10 | No | `run.chestsBanked >= 1` |
+| 1 | `hush.ach.firsthaul` | First Haul | Bank your first chest. | In the bag, and quietly banked. | 10 | No | `run.chestsBanked >= 1` |
 | 2 | `hush.ach.notapeep` | Not a Peep | Bank a chest without the mimic ever stirring. | It never stopped snoring. | 25 | No | `run.hushed >= 1` |
 | 3 | `hush.ach.firstrelic` | Relic Hunter | Bank your first relic. | The first page of your Codex. | 15 | No | `relicsFound >= 1` or a relic banked this run |
 | 4 | `hush.ach.fivechests` | Light Fingers | Bank 5 chests in one run. | Five hauls, one candle. | 25 | No | `run.chestsBanked >= 5` |

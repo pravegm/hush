@@ -1,6 +1,6 @@
 # Hush launch runbook (for the founder)
 
-*Written Tue 27 Oct 2026; updated the same day in Round 3 (the device test in §4 is now the Duo specialist's script, in the order you do them; rewritten Wed 28 Oct for build 1.0 (4) with the QA-6 P1-3 release gate at step 10). This is the only document you need to follow. It lists **only the steps that need your own GitHub or Apple login, or your Duo**; Claude does everything else. Each step says exactly where to click and what to type. Everything Apple sees lives in `docs/appstore/`; the reason behind every choice is in `docs/appstore/DECISIONS.md`. Whenever a step says "tell Claude", a one-line message in chat is enough.*
+*Written Tue 27 Oct 2026; updated the same day in Round 3; the device test in §4 rewritten Wed 28 Oct for Round 15 (the phone is the chest, the outer-screen intro with Play, no forced lesson) and §5d for the ten-frame store set. This is the only document you need to follow. It lists **only the steps that need your own GitHub or Apple login, or your Duo**; Claude does everything else. Each step says exactly where to click and what to type. Everything Apple sees lives in `docs/appstore/`; the reason behind every choice is in `docs/appstore/DECISIONS.md`. Whenever a step says "tell Claude", a one-line message in chat is enough.*
 
 **Launch: Tuesday 1 December 2026, about 08:00 UK time, released by you (manual release).** Brim launches Tue 17 Nov and Swoop Tue 24 Nov, so the three games never share a week.
 
@@ -22,7 +22,7 @@ A few words used below:
 | Tue 27 – Thu 29 Oct | **First** the trademark check, **then** register Hush with Apple and create the app record (30 minutes) | §1 |
 | Tue 27 – Thu 29 Oct | Add the 4 GitHub secrets (10 minutes), then send the featuring nomination (by **Tue 10 Nov**; Apple wants 3 weeks' notice) | §2 |
 | When Claude says the build is ready (early November) | Run the TestFlight build (2 clicks) and install it | §3 |
-| The same day or weekend | The 17-step Duo test (about 20 minutes; step 10 is a release gate), then send Claude your notes and the copied log | §4 |
+| The same day or weekend | The device test: 13 steps on the Duo plus a 2-step lever check on another iPhone (about 25 minutes), then send Claude your notes and the copied log | §4 |
 | Until about Fri 20 Nov | Claude fixes and tunes from your notes; you repeat §4 on each new build | §4 |
 | Tue 17 Nov | **Brim's launch day.** No Hush work today | — |
 | **Sat 21 – Sun 22 Nov** | Fill in the listing with the App Store Connect robot, plus four clicks only you can do (one evening) | §5a–c |
@@ -149,68 +149,62 @@ You don't need to make any certificate or profile. The build uses **Apple's clou
 
 ---
 
-## §4. The Duo test: 17 steps, about 20 minutes
+## §4. The device test: Duo checklist (about 20 minutes) plus a quick check on another iPhone
 
-*Rewritten Wed 28 Oct for TestFlight 1.0 (4) (rounds 6 to 10): there is no book card and no "I've stood it up" button any more; Hush plays whichever way iOS turns the screen. Step 10 is a **release gate** (QA-6 P1-3).*
-
-**Why:** some things only your Duo can tell us: when the inner and outer screens switch over, which half blurs, whether touches land in the right place when the screen is turned sideways, and whether it gets warm. Do this on the release-candidate build and again on each new one.
+*Rewritten Wed 28 Oct for Round 15: on the Duo the phone IS the chest (shut is closed; any opening opens it). There is no pose to hold, no forced lesson, and the outer screen is the intro with the three rules and Play. Do this on the release-candidate build and again on each new one.*
 
 **Before you start:**
-- Sit at a table. Ringer **on**, volume about half.
-- Words used: the **floor** is the half lying flat on the table; the **lid** is the half you lift. **Upright** means the lid straight up, like a laptop screen.
-- **Screen recording** for steps 2, 8, 9 and 10: swipe down from the top-right corner to open Control Centre and tap the round record button (if it isn't there: Settings → Control Centre → add **Screen Recording**). Tap the red time at the top to stop; the video goes to Photos.
+- Ringer **on**, volume about half. Hold the Duo however is comfortable (a table or your hands).
+- **Screen recording** helps for steps 3–7: swipe down from the top-right corner to open Control Centre and tap the round record button (if it isn't there: Settings → Control Centre → add **Screen Recording**). Tap the red time at the top to stop; the video goes to Photos.
 - If something goes wrong, carry on with the next step and write it down. If anything ever seems stuck: Settings → About → press and hold **Version** for 2 s → **Copy log**, and paste it to Claude.
 
-| Step | Do this | What should happen (note anything different) |
-|---|---|---|
-| 1 | If an older Hush is on the Duo, delete it first. Install Hush from TestFlight. Hold the Duo open **like a book** (both halves standing up side by side) and open Hush. Then wiggle it gently for 5 seconds | Home appears **the right way up** for you, and nothing blocks it. A small tip says **"Stand it up like a little laptop"**; its ✕ hides it. The picture should **not keep flipping round** while you wiggle |
-| 2 | **Start recording.** Put the Duo on the table and lift the lid like a laptop | The chest or Home is **the right way up**. You should **never see a brass lever** on the Duo |
-| 3 | While lifting from flat, watch which half goes blurry for a moment | The half you lifted (the lid) blurs, **never the floor** |
-| 4 | The lesson (First Chest): stand the lid upright. Then open it slowly, taking about 8 seconds (count them) | First "That's it" (or "That'll do" after about 4 s), then "Open the lid… slowly. Watch the noise." While opening: **no noise, and a coin starts to glint.** Note whether the lid's picture moves smoothly or in little jumps. **Skip** appears after about 20 s if you want it |
-| 5 | Drag the coin into the pouch with one finger | The coin **stays under your finger** all the way |
-| 6 | In a real **Run**, ease the lid down to about upright to bank a chest ("Ease the lid down to bank"), then leave it upright for 5 seconds | Note **which screen stays lit**: the inside screen (with no card on it), or the outside screen |
-| 7 | Lower the lid **slowly** until it's shut, taking about 5 seconds. Watch the outside screen | The outside screen shows **only the sleeping mimic**, never a small chest flashing up |
-| 8 | **Start recording.** Reopen **slowly**: stop for 1 second at upright, then again about halfway between upright and flat, then carry on | The inside screen lights up and the run carries on **with no bite** (after a bank it carries on as you lift; mid-chest a card says **"Hold still…"** first), and the candle **hasn't burned down** while the screen was dark. If the sleeping mimic stays on an open Duo, after 3 s it offers **"Already open?" Carry on / Home** |
-| 9 | **Start recording.** Mid-run, open the Duo **fully flat**, wiggle it around for 5 seconds, then stand it back up like a laptop | It **keeps playing** ("That's wide enough" while flat, no pause), and after you stand it up the chest is still **the right way up**. The screen may now stay sideways in iOS's eyes: that's fine, and it's the set-up for step 10 |
-| 10 | **RELEASE GATE.** With the screen turned sideways (straight after step 9, or holding the Duo like a book), do these four things: **a)** drag a coin into the bag; **b)** press and hold the pause coin until the menu opens, then tap **Resume**; **c)** go Home → **Settings**, scroll it all the way down, tap **Done**; **d)** start a run, lower the lid until the pause card shows, wait 3 s, tap **Carry on**. Then Settings → About → hold **Version** 2 s → **Copy log** | Each of a–d works first time, with the touch landing where your finger is. In the copied log, a line starting **canvas** ends in **k=1** or **k=3** (that proves the screen really was sideways). Paste the whole log to Claude |
-| 11 | Mid-chest, **tap** the pause coin once. Then **press and hold** it. In the menu, tap **Resume** **while you're still moving the lid** | The tap only shows **"Hold to pause"**; the hold fills a ring and opens the menu. After Resume the run **waits until you hold the lid still** before it carries on |
-| 12 | Lower the lid to about halfway between upright and shut and keep it there | "Lift the lid a little to carry on". After 3 s **Carry on** and **Home** appear next to it. Then lift the lid back past upright and keep it there with tiny wiggles: within about 6 s it carries on **by itself** |
-| 13 | Settings: try **Vibration** (Off / Normal / Strong) and **Lid sensitivity** (Forgiving / Normal / Careful) | The rows say what they do; Lid sensitivity says "The scored Daily always plays Normal." Note which you'd keep |
-| 14 | Hold the Duo upright like a normal phone, camera at the top | A gold **"Other way round"** banner appears |
-| 15 | Stand it on the table again and lift the **floor** half instead on purpose | Note whether anything tells you |
-| 16 | While you were easing the lid in all of the above | Did your fingers ever **pause the game** by accident? |
-| 17 | Play **5 runs in a row** | Then note: is the Duo **warm**? Does the **creak** feel like the hinge itself? Is the buzz **in your fingers**, or a buzz on the table? Does careful opening feel fair? |
+### 4a. On the real iPhone Duo
+
+1. **Cold start, phone shut.** Delete any older Hush, install from TestFlight, close the phone, then open Hush on the **outer screen**. *Should:* the intro: the Hush wordmark, the sleeping mimic, "Steal the mimic's gold while it sleeps", three numbered rules ("The chest opens with the phone. Move it slowly." / "Drag the loot into your bag." / "Close the phone to bank it before your candle runs out."), a **Play** button and "Press Play, then open the phone slowly." No lesson, no "Close the phone to start".
+2. **Press Play** on the outer screen, then **open the phone slowly** (count to about 5). *Should:* the chest opens **with the phone from the first few degrees**; light spills in, loot glints, no noise.
+3. **Drag** a coin into the bag slowly; then try one drag fast on purpose. *Should:* the slow one stays under your finger; the fast one makes noise and the game says **"Slower…"**.
+4. **Close the phone** with loot in the bag (gently, as you would anyway). *Should:* the bank (ka-ching), with no noise, no "Slower…" and no bite. The outer screen shows **"Banked +N gold!"**, then "Open the phone slowly for the next chest", "Banked so far: …" and **End run**. The candle doesn't burn while it's shut.
+5. **Open the phone slowly** again. *Should:* the **next chest** was waiting closed and opens with the phone.
+6. **Open fast on purpose** (an ordinary quick open, never a slam). *Should:* the creak, the meter climbs; **"Freeze!"** at Waking (holding still lets it settle); keep going and it bites: **CHOMP**, the bag is lost and the candle drops **10 s**. Then "Close the phone for the next chest": close it, open it, and the next chest comes.
+7. **Play on the inner screen.** Go Home with the phone open and press **Play** there. *Should:* the run starts with the chest **already open** (no waiting, no "Close the phone to start").
+8. **Candle out.** Let a run burn down. *Should:* the run ends and **Results** show (the outer screen, if you close the phone, says "Run over · N gold").
+9. **Daily Dungeon.** Play today's scored try. *Should:* it counts once; a second go says Practice.
+10. **Codex.** Open it. *Should:* the relics you've banked are shown, the rest still hidden.
+11. **Settings.** Try **Lid sensitivity** Forgiving ("For shaky hands. Easier to stay quiet.") and Strict; tap **Replay First Chest** (the optional lesson: open, grab, freeze, bank) and leave it; Settings → About → hold **Version** 2 s → **Copy log**, and paste it into a note. *Should:* each works; the Lid sensitivity row says "The scored Daily always plays Normal."
+12. **VoiceOver quick check** (Settings → Accessibility → VoiceOver, or triple-click the side button if set up). Swipe through Home and Settings; start a run. *Should:* buttons and rules are read out; banks and bites are announced. Turn VoiceOver off.
+13. **Five runs in a row.** *Note:* is the Duo warm? Does the creak feel like the hinge itself? Is the buzz in your fingers? Did you ever pause it by accident? Does careful opening feel fair?
+
+### 4b. On any other iPhone (or a friend's)
+
+14. Install from TestFlight and open Hush. *Should:* Home shows the **lever rules** ("The chest opens with the lever. Slide it up slowly." / "Drag the loot into your bag." / "Slide the lever down to bank it before your candle runs out.") and **no Duo words** anywhere ("phone" as the thing you open, "outer screen", hinge).
+15. Press **Play**; **slide the lever up slowly**, drag a coin in, **slide it back down**. *Should:* the chest opens with the lever, the bank happens on the way down, and "Lever down for the next chest" / the next chest waits closed. If a run ends with nothing banked, Results say "Nothing banked. Slide the lever down to bank." A tap on the pause coin pauses.
 
 **Send Claude this (copy, fill in, paste in chat), plus the recordings, the copied log and any screenshots:**
 ```
 Hush build [number from TestFlight], iPhone Duo, iOS [version]
-1  Home right way up in book pose: [yes/no]   "Stand it up" tip, X hid it: [yes/no]   Kept flipping when I wiggled: [yes/no]
-2  Right way up on the table: [yes/no]   Saw a lever: [yes/no]
-3  Half that blurred: [lid / floor]
-4  "That's it" then "Open the lid... slowly": [yes/no]   Silent + coin glinted: [yes/no]   Lid moved: [smoothly / in jumps]
-5  Coin stayed under my finger: [yes/no]
-6  Screen lit when resting upright: [inside / outside]
-7  Outside screen showed only the sleeping mimic: [yes/no]
-8  Carried on after reopening: [yes/no]   Bitten on reopening: [yes/no]   Candle burned down while dark: [yes/no]   Saw "Already open?": [yes/no]
-9  Flat and back: kept playing: [yes/no]   Right way up after: [yes/no]
-10 GATE (sideways): a) drag [ok/failed]  b) hold-pause + Resume [ok/failed]  c) Settings scroll + Done [ok/failed]  d) Carry on [ok/failed]   Log shows k=[1/3/other]
-11 Tap said "Hold to pause": [yes/no]   Hold paused: [yes/no]   Resume waited for a still lid: [yes/no]
-12 Carry on + Home after 3 s: [yes/no]   Carried on by itself: [yes/no, after about _ s]
-13 Vibration I'd keep: [off/normal/strong]   Lid sensitivity I'd keep: [forgiving/normal/careful]
-14 "Other way round" banner: [yes/no]
-15 Lifted the floor half: anything told me? [what it said / nothing]
-16 Paused by accident: [never / sometimes / often]
-17 Warm after 5 runs: [no / a little / hot]   Creak feels like the hinge: [1-5]   Haptic: [in my fingers / on the table]   Careful opening fair: [1-5]
+1  Outer-screen intro (rules + Play, no lesson): [yes/no]
+2  Play on the outer screen, chest opened with the phone from the first degrees: [yes/no]
+3  Slow drag ok: [yes/no]   Fast drag said "Slower...": [yes/no]
+4  Close banked silently (ka-ching, no Slower/bite): [yes/no]   Outer screen "Banked +N gold!" then "Open the phone slowly for the next chest": [yes/no]   Candle waited: [yes/no]
+5  Next chest waited closed and opened with the phone: [yes/no]
+6  Fast open: Freeze! [yes/no]   CHOMP, bag lost, -10 s: [yes/no]   Next chest after close/open: [yes/no]
+7  Play on the inner screen started open: [yes/no]
+8  Candle out -> Results: [yes/no]
+9  Daily counted once: [yes/no]
+10 Codex ok: [yes/no]
+11 Forgiving/Strict ok: [yes/no]   First Chest replay ok: [yes/no]   Copy log ok: [yes/no]
+12 VoiceOver reads Home/Settings, announces bank/bite: [yes/no]
+13 Warm after 5 runs: [no / a little / hot]   Creak feels like the hinge: [1-5]   Haptic: [in my fingers / on the table]   Paused by accident: [never / sometimes / often]   Careful opening fair: [1-5]
+Other iPhone [model]: 14 lever rules, no Duo words: [yes/no]   15 lever open/bank/next chest: [yes/no]
 Runs (gold banked, chests, bites): 1 [ ] 2 [ ] 3 [ ] 4 [ ] 5 [ ]
-Comfort (hand or wrist tired? ever had to move the lid further or faster than felt natural?):
 Best moment:
 Worst moment:
 Bugs (what you did, what happened):
 Anything confusing:
 ```
-In TestFlight you can also take a screenshot in Hush and tap **Share Beta Feedback**. A phone video of your hand and the Duo from the side while you play helps a lot too.
+In TestFlight you can also take a screenshot in Hush and tap **Share Beta Feedback**. A phone video of your hand and the Duo while you play helps a lot too.
 
-**The release rule.** The release build is the one where every "should" above happens, nothing in steps 7, 8, 9 or 12 goes wrong, comfort is fine, and **step 10 passes: all four touches work and the log shows k=1 or k=3** (QA-6 P1-3: no automated test has ever passed a touch on a sideways screen, and that is your own path from the first TestFlight). If any of the four fails, don't submit: send Claude the log and the recording. If you genuinely can't get the screen to stay sideways, tell Claude; QA-6's fallback is to ship (Home is always reachable, so the risk is awkward play at one pose, not a dead end) and to make this check the first thing in 1.0.1.
+**The release rule.** The release build is the one where every "should" above happens on the Duo (steps 1–8 above all), the lever check passes, and comfort is fine. If step 1, 2, 4, 5 or 7 fails, don't submit: send Claude the log and the recording.
 
 ---
 
@@ -245,10 +239,10 @@ Open each page and check:
 
 ### 5d. Screenshots (Wed 25 Nov)
 
-Claude tells you on Mon 23 Nov whether the robot has uploaded the screenshots or sends you a download link with the order (`docs/appstore/screenshots.md`). On the 1.0 page, **Previews and Screenshots**:
-1. **6.9" Display:** P1–P6, in order.
-2. **6.3"/6.1" Display** (whichever "iPhone with Dynamic Island" slot it asks for): P1–P6.
-3. Open the device list. **If you see iPhone Duo**, add D1–D6 there and check them with Apple's preview. If there's no iPhone Duo entry, skip it (the Duo set comes with 1.0.1).
+The store set is made by the build robot: Claude runs `gh workflow run store.yml --ref main` on the final build and checks every frame against `docs/appstore/screenshots.md`. There are **ten frames per size**, named so a name sort is the upload order: **P01…P10** for the iPhones (P02 is Home's three lever rules) and **D01…D10** for the Duo (D02 is the outer-screen intro with Play). The same run's **`store-placements`** artifact also holds the optional product page header and search art. Claude tells you on Mon 23 Nov whether the robot has uploaded them or sends you a download link (and which run it is). On the 1.0 page, **Previews and Screenshots**:
+1. **6.9" Display:** P01–P10, in order.
+2. **6.3"/6.1" Display** (whichever "iPhone with Dynamic Island" slot it asks for): P01–P10.
+3. Open the device list. **If you see iPhone Duo**, add D01–D10 there and check them with Apple's preview. If there's no iPhone Duo entry, skip it (the Duo set comes with 1.0.1).
 
 ### 5e. Pick the build (Wed 25 Nov)
 

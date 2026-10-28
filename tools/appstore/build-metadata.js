@@ -46,8 +46,12 @@ const loc = (desc) => ({ name, subtitle, privacyPolicyUrl: site + 'privacy.html'
 const lbLoc = (n) => ({ name: n, formatterSuffix: ' gold', formatterSuffixSingular: ' gold' });
 // Frame names follow docs/appstore/screenshots.md; the store pipeline (store.yml) must write exactly these files.
 // R3 (27 Oct 2026): freeze, bank and chain lead (the first three sell the game in search); drag moved to the reserves.
-const phones = ['P1-hero-open', 'P2-freeze', 'P3-bank', 'P4-chain', 'P5-chomp', 'P6-codex'];
-const duo = ['D1-hero-open', 'D2-freeze', 'D3-bank', 'D4-chain', 'D5-chomp', 'D6-codex'];
+// R15 (28 Oct 2026): ten frames per set, two-digit names so a name sort is the upload order: the hero, how to start
+// (Duo: the cover-display intro with Play; iPhone: Home's three rules), drag the loot, Freeze!, bank, the bite, the
+// chain, a relic, the Codex, Results.
+const order = ['01-hero-open', '02-START', '03-loot', '04-freeze', '05-bank', '06-chomp', '07-chain', '08-relic', '09-codex', '10-results'];
+const phones = order.map(n => 'P' + n.replace('START', 'rules'));
+const duo = order.map(n => 'D' + n.replace('START', 'play'));
 const meta = {
   _comment: 'Generated 27 Oct 2026 (Round 3), regenerated 28 Oct 2026 for build 1.0 (4) (QA-6: review notes, R7 copy) from docs/appstore/metadata.md, review-notes.md, achievements.md and featuring-nomination.md (node tools/appstore/build-metadata.js); asc.swift pushes it (tools/appstore/README.md). No personal data: the copyright and the App Review contact are read at run time from Squish (--inherit-from com.pravegm.squish). Achievements synced with Hush/Core/Ranks.swift Achievements.all (R2 titles and thresholds; ids unchanged).',
   bundleId: 'com.pravegm.hush',
@@ -80,7 +84,7 @@ const meta = {
       localizations: { 'en-GB': lbLoc('Daily Dungeon'), 'en-US': lbLoc('Daily Dungeon') } }
   ],
   screenshots: {
-    _comment: 'Paths inside a downloaded App Store screenshots run (store.yml, still to be ported: DECISIONS.md section 2 #3). Until a run exists (DEFAULT_STORE_RUN in asc.yml), validate reports them as gaps and push skips them. Order: screenshots.md.',
+    _comment: 'Paths inside a downloaded App Store screenshots run (store.yml; DEFAULT_STORE_RUN in asc.yml). Order: docs/appstore/screenshots.md (R15: ten per size; D02-play is the cover-display intro framed in the inner-display slot).',
     APP_IPHONE_67: phones.map(n => `store-69/store/${n}.png`),
     APP_IPHONE_61: phones.map(n => `store-61/store/${n}.png`),
     duoInner: duo.map(n => `store-duo/duo-screens/store/${n}.png`)

@@ -2,7 +2,7 @@
 
 *For the founder to post by hand from their own accounts. Tone: warm, sly, a little giggly ("shh"): candlelight, a sleeping monster, a thief on tiptoe. Never suggest slamming, snapping or closing the phone fast, or "breaking your hinge". Never compare with or name other Duo games or *Creaks*.*
 
-**Links to fill in:** `https://apps.apple.com/app/id6827663529` = **https://apps.apple.com/app/id6827663529** (Apple ID 6827663529) (App Store Connect → App Information → Apple ID; exists once the record is created, live on launch day). `[site]` = `https://pravegm.github.io/hush/`. `[clip]` = the 15-second teaser (§3A). *(Rewritten Tue 27 Oct, Round 3: the app says "Freeze!", the candle, the lever and "bank"; every line below matches the build.)*
+**Links to fill in:** `https://apps.apple.com/app/id6827663529` = **https://apps.apple.com/app/id6827663529** (Apple ID 6827663529) (App Store Connect → App Information → Apple ID; exists once the record is created, live on launch day). `[site]` = `https://pravegm.github.io/hush/`. `[clip]` = the 15-second teaser (§3A). *(Rewritten Tue 27 Oct, Round 3: the app says "Freeze!", the candle, the lever and "bank". Updated Wed 28 Oct for Round 15: the phone is the chest (no laptop pose), "close the phone to bank", the outer-screen intro with Play; every line below matches the build.)*
 
 ---
 
@@ -26,17 +26,17 @@ Recount with Node and the real link before posting (X and Mastodon count a link 
 ### X (attach the 15-second clip)
 > Hush is out.
 >
-> Stand your iPhone Duo like a little laptop. The raised half is a treasure chest lid. Open it slowly, sneak the gold out, ease it down. Too fast and the mimic wakes.
+> Your iPhone Duo is a treasure chest. The chest opens with the phone, so open it slowly. Sneak the gold out, close the phone to bank it. Too fast and the mimic wakes.
 >
 > £1.99 / $1.99 · no ads · no IAP · a lever on every other iPhone
 > https://apps.apple.com/app/id6827663529
 
-*Alt text:* An iPhone Duo stands on a table like a small laptop. A hand slowly lifts the top half. On the lower screen, candlelight spills into a wooden chest full of gold coins and a red gem; on the upper screen, a big sleepy eye is shut. The hand drags a coin down into a leather bag, then eases the top half back down, and the coins glint and pour into a gold counter.
+*Alt text:* A closed iPhone Duo's outer screen shows a sleeping chest mimic, "Steal the mimic's gold while it sleeps", three rules and a Play button. A finger taps Play, then a hand slowly opens the phone. Inside, candlelight spills into a wooden chest full of gold coins and a red gem, and a big sleepy eye stays shut. The hand drags a coin down into a leather bag, then closes the phone, and the coins glint and pour into a gold counter.
 
 ### Bluesky (attach the clip)
 > Hush is out: your iPhone Duo is a treasure chest, and the chest is a sleeping mimic.
 >
-> Open the lid slowly to see the gold. Drag it out gently. Ease the lid down to bank it. The creak follows your exact speed, so go slow.
+> Open the phone slowly to see the gold. Drag it out gently. Close the phone to bank it. The creak follows your exact speed, so go slow.
 >
 > No ads, no IAP.
 >
@@ -45,9 +45,9 @@ Recount with Node and the real link before posting (X and Mastodon count a link 
 ### Mastodon (attach the clip)
 > Hush is out. 🕯️
 >
-> On iPhone Duo the hinge is a chest lid, and its speed is the whole game: open it slowly to light the loot, drag the gold into your bag, ease the lid down to bank it. Move too fast and it creaks (in the speaker and the haptics), the mimic wakes, and it bites.
+> On iPhone Duo the phone is the chest, and the hinge's speed is the whole game: open it slowly to light the loot, drag the gold into your bag, close the phone to bank it. Move too fast and it creaks (in the speaker and the haptics), the mimic wakes, and it bites.
 >
-> The chest is drawn so the half the Duo blurs when you fold is the lid, and the loot and warnings stay sharp. Bank while it sleeps and the Hush Chain pays more. Every other iPhone gets an on-screen lever.
+> With the phone shut, the outer screen shows three rules and Play. The loot and warnings stay on the half that doesn't blur when you fold. Bank while it sleeps and the Hush Chain pays more. Every other iPhone gets an on-screen lever.
 >
 > £1.99 / $1.99, no ads, no IAP, no tracking.
 >
@@ -59,9 +59,9 @@ Recount with Node and the real link before posting (X and Mastodon count a link 
 
 ### r/iPhoneDuo (only if the rules allow a launch post; otherwise the megathread)
 **Title:** [Dev] I made a Duo game where moving the hinge slowly is the skill: Hush is out
-> Developer here, so this is self-promo. Hush is for tabletop pose: the raised half is a treasure chest's lid. It reads how fast the hinge is moving, not just the angle, so a slow open is silent and a fast one creaks and wakes the mimic inside. About two slow strokes per chest, between about 100 and 165 degrees; it never asks you to lay it flat, close it or move it fast.
+> Developer here, so this is self-promo. In Hush the phone is a treasure chest: shut is closed, and the chest opens with the phone from the first degrees. It reads how fast the hinge is moving, not just the angle, so a slow open is silent and a fast one creaks and wakes the mimic inside. Close the phone to bank. No pose to hold; it never asks you to lay it flat or move it fast. With the phone shut, the outer screen is the intro: three rules and a Play button.
 >
-> The Duo blurs one half of the screen for a moment when a fold starts, so the chest is drawn turned round: the blurring half is the lid, and the loot, the noise meter and the warnings stay on the sharp half. Settings → "Turn the chest round" if yours differs.
+> The Duo blurs one half of the screen for a moment when a fold starts, so the loot, the noise meter and the warnings stay on the half that stays sharp. Settings → "Turn the chest round" if yours differs.
 >
 > £1.99/$1.99, no ads, no IAP, no data collected. There's a Daily Dungeon with the same chests for everyone, so post your haul here if you like.
 >
@@ -86,34 +86,34 @@ Use the real numbers from your Results screen, never made-up ones. (If the build
 
 ### 3A. Social teaser: "Shh" (15 seconds, vertical 1080 × 1920, 30 fps, sound on)
 
-**Shot:** the founder's real iPhone Duo standing in tabletop pose on a wooden table, filmed **from the side and slightly in front**, so the hand, the raised lid and both screens are in frame. Warm, low light (a lamp or a candle out of shot). Phone sound **on** (clip mic near the speaker). Real hands are fine here (not an App Store asset). The lid half is the one First Chest glows ("Lift this half"), the raised half in tabletop pose.
+**Shot:** the founder's real iPhone Duo on a wooden table (or in the hand: there is no pose to hold), filmed **from the side and slightly in front**, so the hand, the phone and the screens are in frame. Warm, low light (a lamp or a candle out of shot). Phone sound **on** (clip mic near the speaker). Real hands are fine here (not an App Store asset).
 
 | Time | Picture | On-screen text (big, top third, clear of the phone) | Sound |
 |---|---|---|---|
-| 0.0–2.0 | Cold open: the Duo standing almost shut. A finger on the top edge. Silence, then a snore | **Shh.** | a snore, drips |
-| 2.0–5.0 | The hand lifts the lid **very slowly**; light spills into the chest, gold glints appear, deeper as it opens | **Open it slowly.** | a faint creak, the tiptoe motif |
+| 0.0–2.0 | Cold open: the Duo shut, its outer screen showing the sleeping mimic and Play. A finger taps Play. Silence, then a snore | **Shh.** | a snore, drips |
+| 2.0–5.0 | The hand opens the phone **very slowly**; the chest opens with the phone, light spills in, gold glints appear, deeper as it opens | **Open it slowly.** | a faint creak, the tiptoe motif |
 | 5.0–7.5 | A finger drags a coin, then a gem, gently down into the bag | **Take the gold.** | clink, chime, soft bag thud |
-| 7.5–10.5 | The hand reaches for the relic at the back and opens the lid a touch too quickly: the creak, the snoring stops, the meter goes amber then red, a heartbeat; "Freeze!" appears and the hand freezes; it settles back to snoring | **Freeze!** | creak, heartbeat, then the snore again |
-| 10.5–13.0 | The lid eased down: the heavy thunk, coins cascading into the counter | **Ease it down.** | thunk, cascade, ka-ching |
+| 7.5–10.5 | The hand reaches for the relic at the back and opens the phone a touch too quickly: the creak, the snoring stops, the meter goes amber then red, a heartbeat; "Freeze!" appears and the hand freezes; it settles back to snoring | **Freeze!** | creak, heartbeat, then the snore again |
+| 10.5–13.0 | The phone closed: the bank, coins cascading into the counter | **Close it to bank.** | thunk, cascade, ka-ching |
 | 13.0–15.0 | End card over Home: "Hush" wordmark, "Don't Wake the Mimic", "Out 1 Dec" (launch day: "Out now") | **Hush · out 1 Dec** | one sleepy snore |
 
-Rules: no price in the video (it goes in the post text), no fast or repeated hinge movement, never closed or slammed, no flat phone. Export H.264, ≤ 60 MB (fits X, Bluesky, Mastodon, Threads, TikTok).
+Rules: no price in the video (it goes in the post text), no fast or repeated hinge movement, closed at an ordinary pace (never slammed), no flat phone. Export H.264, ≤ 60 MB (fits X, Bluesky, Mastodon, Threads, TikTok).
 
-**The bite clip (Mon 30 Nov, 6 s):** the same set-up; the lid opens a little too fast, the meter climbs, "Freeze!"... and the hand doesn't stop: CHOMP, the teeth across the fold, the coins fly into its mouth. Text: **Too fast.** then **CHOMP.** The motion stays an ordinary, slightly-too-quick lid speed (a steady open of about 40°/s for a second or two is enough to wake it, `Tuning` lid noise; never film a slam to get it).
+**The bite clip (Mon 30 Nov, 6 s):** the same set-up; the phone opens a little too fast, the meter climbs, "Freeze!"... and the hand doesn't stop: CHOMP, the teeth across the fold, the coins fly into its mouth. Text: **Too fast.** then **CHOMP.** The motion stays an ordinary, slightly-too-quick opening (never film a slam to get it; try Strict in Settings if it takes too long to wake).
 
 ### 3B. App Preview: "Open it slowly" (optional for 1.0; 25 s, portrait 886 × 1920, 30 fps)
 
-Apple's rules: 15–30 s; captures of the app only (**no hands, no people, no device frame**); no prices; autoplays muted, so every beat has a caption on screen ≥ 1.5 s; poster frame chosen by us. The Duo's tabletop canvas (aspect 0.70) is wider than 886 × 1920 (0.46), so scale the inner screen to 886 px wide, centre it, and put captions in the teal-black bands above and below. Never crop into the game.
+Apple's rules: 15–30 s; captures of the app only (**no hands, no people, no device frame**); no prices; autoplays muted, so every beat has a caption on screen ≥ 1.5 s; poster frame chosen by us. The Duo's inner canvas (aspect 0.70) is wider than 886 × 1920 (0.46), so scale the inner screen to 886 px wide, centre it, and put captions in the teal-black bands above and below. Never crop into the game.
 
 **Ships in 1.0 only if** it's recorded and checked by code freeze (Mon 23 Nov). Previews lock with the version, so a late one waits for 1.0.1. It needs a screen-recording step in CI (Squish has `preview.yml`; Hush doesn't yet: `DECISIONS.md` §2).
 
-| Time | Picture (app capture, Duo inner display, tabletop) | Caption |
+| Time | Picture (app capture, Duo inner display) | Caption |
 |---|---|---|
-| 00.0–03.0 | Cold open: Home, the little mimic peeking out as the lid lifts. **Poster frame 00:01.5** | **Your Duo is a *chest*** |
-| 03.0–07.0 | The lid opening slowly; the light reaching deeper, loot appearing by depth | **Open the lid *slowly*** |
+| 00.0–03.0 | Cold open: Home, the little mimic peeking out as the chest opens. **Poster frame 00:01.5** | **Your Duo is a *chest*** |
+| 03.0–07.0 | The chest opening slowly with the phone; the light reaching deeper, loot appearing by depth | **Open the phone *slowly*** |
 | 07.0–10.0 | Coins and a gem dragged into the bag | **Drag the gold in *gently*** |
 | 10.0–14.0 | Stirring then Waking: meter amber, red, "Freeze!"; it settles | **It's waking. *Freeze!*** |
-| 14.0–18.0 | The lid eased down: the bank, the counter rolling up | **Ease it down to *bank* it** |
+| 14.0–18.0 | The chest closing with the phone: the bank, the counter rolling up | **Close it to *bank* it** |
 | 18.0–21.0 | A relic found: the golden ray and its name | **Open wide for *relics*** |
 | 21.0–25.0 | Results; a quick cut of a bite (CHOMP) | **Too fast? *CHOMP.*** |
 
@@ -132,13 +132,13 @@ Send dates keep clear of Brim's and Swoop's sends (Brim emails 6–12 Nov; Swoop
 | Fri 27 Nov | **PocketGamer**, **TouchArcade** | Premium iOS games; push-your-luck fans | #3 |
 | Mon 30 Nov | **Digital Trends** (Vikhyaat Vivek), **Chonky Corgo blog**, **Fix Gaming Channel** | Covered Duo games and hinge input (Brim and Swoop wrote to them in November, so mention both in one line) | #4 |
 | Mon 30 Nov | **TechRadar**, **MacStories**, **PhoneArena**, **Stuff** | Duo reviews and app roundups | #1 |
-| Sat 28 – Mon 30 Nov | 15–25 **Duo creators** (TikTok, YouTube Shorts) who post "apps for your Duo" videos | A hand easing a lid open and a monster waking up is very watchable | #5 (needs promo codes, so after approval) |
+| Sat 28 – Mon 30 Nov | 15–25 **Duo creators** (TikTok, YouTube Shorts) who post "apps for your Duo" videos | A hand slowly opening a phone and a monster waking up is very watchable | #5 (needs promo codes, so after approval) |
 | Tue 1 Dec | Everyone above who was emailed | Launch note, in the same thread | #6 |
 | Tue 1 Dec | **r/iPhoneDuo**, **r/iPhoneduoapp** | Owners hunting for hinge apps; post only within the subs' rules, say you're the developer, reply to every comment for 2 hours | §2 |
 
 ## 5. Don'ts
 
-- No "break your hinge", "slam it" or wear jokes. No fast or repeated hinge movement on camera, and never closing the phone shut as part of play. The bite is shown at an ordinary, slightly-too-quick speed.
+- No "break your hinge", "slam it" or wear jokes. No fast or repeated hinge movement on camera; closing the phone to bank is shown at an ordinary pace, never snapped shut (a fast close with loot is silent in the game, but don't film one). The bite is shown at an ordinary, slightly-too-quick speed.
 - No competitor names (other Duo games, *Creaks*, "Don't Wake Up"), not even as "like X but".
 - No horror marketing ("terrifying", "jump scare"): Hush is cute-scary and rated 9+.
 - No "share to unlock", follow-for-codes giveaways or bought engagement.

@@ -2,21 +2,25 @@
 
 *Decided Tue 27 Oct 2026, updated in Round 3 from the code (`Hush/UI/Pages.swift`, `Hush/Scene/SceneMoments.swift`, `Hush/UI/RootView.swift`), with the method Squish, Brim and Swoop use: **claim a label only when the build earns it across every common task**, and verify on the release build first. Labels are voluntary, per device, and can only be published once a version is live, so this happens on **launch day, Tue 1 Dec** (runbook §6).*
 
+*Round 15 (Wed 28 Oct): the tasks below follow the R15 build: no forced lesson (first launch opens Home), the three rules on Home and on the Duo's outer-screen intro, "Close the phone to bank", Strict instead of Careful. The label answers don't change.*
+
 Common tasks for Hush:
-1. the first launch: get through **First Chest** (or skip it after step 2 or 20 s), including the dismissible "Stand it up" tip on a Duo held like a book;
-2. start a Run or the Daily Dungeon from Home;
-3. play a chest: open the lid (hinge on a Duo, the lever elsewhere), see which loot is lit, drag it to the bag, read the noise meter and the candle, react to Stirring/Waking/"Freeze!", ease the lid down to bank (the app's words: "Ease the lid down to bank"); on a Duo, pause with a 0.35 s press-and-hold on the pause coin (VoiceOver: activating it pauses at once);
+1. the first launch: Home opens, with the three rules under Play for the first runs (on a Duo with the phone shut, the outer screen's intro shows the rules and a Play button); First Chest is only an optional replay in Settings;
+2. start a Run or the Daily Dungeon from Home (or, on a Duo, Play on the outer-screen intro);
+3. play a chest: open it (the phone itself on a Duo, the lever elsewhere), see which loot is lit, drag it to the bag, read the noise meter and the candle, react to Stirring/Waking/"Freeze!", close the phone (or slide the lever down) to bank (the app's words: "Close the phone to bank" / "Slide the lever down to bank"); on a Duo, pause with a 0.35 s press-and-hold on the pause coin (VoiceOver: activating it pauses at once);
 4. read Results (gold banked, new best, chests, Hushed count, bites, relics, rank progress);
 5. open the Codex and read a relic's name and blurb;
-6. change Settings (Sound, Vibration (Off / Normal / Strong), Lid sensitivity (Forgiving / Normal / Careful), Play sound on silent, Turn the chest round (Duo only), Reduce motion, Replay First Chest).
+6. change Settings (Sound, Vibration (Off / Normal / Strong), Lid sensitivity (Forgiving / Normal / Strict), Play sound on silent, Turn the chest round (Duo only), Reduce motion, Replay First Chest).
 
 ## What the build gives us (27 Oct, Round 3)
 
 - **Every tell is on the sharp floor half and in sound and haptics** (`GAME-DESIGN.md` §3, §5): the noise meter (segments plus stage ticks, shaking near the top), the tongue's movement, the "Freeze!" hint, a snore that stops, a heartbeat that speeds up (sound at Stirring, sound and haptic at Waking), a growl. No cue is colour-only or sound-only by design.
 - **Reduce motion**, in Settings and following the iOS setting (`RootView` `systemReduceMotion`): no shake and no red flash on a bite (`SceneMoments`).
-- **A Sound switch, a Vibration choice (Off / Normal / Strong) and a Lid sensitivity choice (Forgiving / Normal / Careful; the scored Daily always plays Normal)**, and "Play sound on silent" (on by default).
-- **Two ways to move the lid:** the hinge (Duo) and the on-screen lever (other iPhones; a Duo never shows it, `ROUND-3.md` decision 4). Neither ever needs a fast or precise flick; both reward slow, steady movement.
-- **VoiceOver groundwork (Round 3, App):** elements for BANKED, the candle and NOISE, and spoken stage, bite and bank announcements. Still not enough for the VoiceOver label (task 3 needs sight of the lit loot).
+- **A Sound switch, a Vibration choice (Off / Normal / Strong) and a Lid sensitivity choice (Forgiving "For shaky hands. Easier to stay quiet." / Normal / Strict; the scored Daily always plays Normal)**, and "Play sound on silent" (on by default). A one-time Results nudge offers Forgiving to a player bitten often in their first runs (`AppRules.offersForgivingNudge`).
+- **Two ways to open the chest:** the hinge (Duo: the phone itself, no pose to hold) and the on-screen lever (other iPhones; a Duo never shows it, `ROUND-3.md` decision 4). Neither ever needs a fast or precise flick; both reward slow, steady movement. The lever is a drag, not a VoiceOver adjustable control (an open item from R13 QA).
+- **No forced tutorial, rules always in sight:** three numbered rules (`HowToPlay`) on Home for the first runs and on the Duo's outer-screen intro (read by VoiceOver as one element).
+- **VoiceOver groundwork:** elements for BANKED, the candle and NOISE, and spoken stage, bite and bank announcements (only while VoiceOver runs); VoiceOver focus moves to Carry on and to the outer-screen escape's buttons when they appear. Still not enough for the VoiceOver label (task 3 needs sight of the lit loot).
+- **Dynamic Type:** menus, Home and the cards read the text size (`dynamicTypeSize`), and the closing card fits or scrolls at the accessibility sizes. The HUD in play is not built for 200 %, so no Larger Text label.
 - **Dark by design:** the app forces the dark style (`UIUserInterfaceStyle: Dark` in `project.yml`), and every screen is candlelit gold on teal-black.
 - **Large targets:** HUD and menu targets ≥ 56 pt (ROUND-1 Theme).
 
@@ -25,7 +29,7 @@ Common tasks for Hush:
 | Label | 1.0 answer | Status | Why |
 |---|---|---|---|
 | VoiceOver | **No** | Decided | Menus can be labelled, but play (task 3) means seeing which loot is lit and dragging it to the bag. Apple's bar is all common tasks |
-| Voice Control | **No** | Decided | Dragging loot and easing the lid have no spoken alternative |
+| Voice Control | **No** | Decided | Dragging loot and opening the chest have no spoken alternative |
 | Larger Text | **No** | Decided | Menus may scale, but the HUD, the meter labels, the mimic's name tag and Results aren't designed to reach 200 % |
 | Dark Interface | **Yes**, if check D passes | **Verify** | Forced dark style; every screen is teal-black. This is the one Hush earns more easily than Brim or Swoop |
 | Differentiate Without Color Alone | **Yes**, if check A passes | **Verify** | The meter reads by fill level and stage ticks, the stages also by words, motion and sound; relics locked vs found by silhouette vs art |
@@ -61,10 +65,10 @@ Measure with a contrast checker on the release-build frames (the CI frame sets) 
 - [ ] Hush follows **Settings > Accessibility > Motion > Reduce Motion** as well as its own "Reduce motion" setting (either one turns it on).
 - [ ] With it on: no camera shake (bite, bank, the shaking meter becomes a steady pulse of its fill), **no full-screen red flash on a bite** (a red edge or the word CHOMP instead), no dust burst sweep, no golden-ray burst on a relic (a fade instead).
 - [ ] Menu transitions become fades or short moves, not springs and slides.
-- [ ] The lid, the light, the tongue's breathing and the teeth still move: that motion *is* the game's information, which Apple's criteria allow.
+- [ ] The chest's opening, the light, the tongue's breathing and the teeth still move: that motion *is* the game's information, which Apple's criteria allow.
 
 ### D. Dark Interface
-- [ ] Home, Run, Results, Codex, Settings, Daily, the pose tip, the pause and closing cards and the cover-display card are all dark panels (teal-black). No white sheets: the system share sheet or Game Center sheets are Apple's and don't count against it.
+- [ ] Home, Run, Results, Codex, Settings, Daily, the pause and closing cards and the cover-display intro (rules and Play) and mid-run card are all dark panels (teal-black). No white sheets: the system share sheet or Game Center sheets are Apple's and don't count against it.
 
 ## Photosensitivity (not a label, but a must)
 
