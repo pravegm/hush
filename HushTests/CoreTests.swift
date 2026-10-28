@@ -2087,9 +2087,7 @@ struct CoreTests {
         _ = s.step(dt: 1.0 / 60.0, lid: lidAt(0))
         _ = s.step(dt: 1.0 / 60.0, lid: lidAt(0.1))
         #expect(s.snapshot.phase == .looting)
-        withKnownIssue("HeistSession.play: peakOpenness isn't reset when the first chest opens") {
-            #expect(!s.endsEmptyOnShut)
-        }
+        #expect(!s.endsEmptyOnShut)
     }
 
     /// R14 (UX audit E): a fast drag makes noise, so it says "Slower…" (bites never feel random); a slow one doesn't.

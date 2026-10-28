@@ -417,6 +417,8 @@ final class HeistSession {
                 phase = .looting
                 chestsOpened += 1
                 chestTime = 0
+                // R14 (test review): the opening counts from here, not from the wait for the first close.
+                peakOpenness = o
             }
         }
         if isLooting {
