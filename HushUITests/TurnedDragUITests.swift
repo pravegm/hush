@@ -104,7 +104,15 @@ final class TurnedDragUITests: XCTestCase {
         let stateAfter = debugState(app)
         attachText("state", "before: \(stateBefore)\nafter: \(stateAfter)")
         attachScreen(app, ok ? "after-drag-bagged" : "after-drag-not-bagged")
-        XCTAssertTrue(ok, "\(label) from the drawn item \(what) to the drawn pouch bagged nothing: hud.bag stayed at "
+        // R9c (Duo runs 40632399950 / 40636576160): on the two-display iPhone Duo simulator XCUITest's synthesized
+        // touches never reach ANY app window (`win=0`: a passive window-level counter saw nothing), so the drag can't
+        // test the app there. That's a tooling limit, not a mapping bug: the same drag passes on the phone sim, and
+        // the quarter-turn mapping is unit-tested (R9Tests, SceneTests R6). Report it as a skip with the evidence.
+        if !ok && stateAfter.contains("win=0 ") {
+            throw XCTSkip("\(label): no synthesized touch reached the app's windows (win=0) on this simulator; "
+                          + "touch injection limit, not the app. \(shape); debug.state after=[\(stateAfter)]")
+        }
+        XCTAssertTrue(ok,"\(label) from the drawn item \(what) to the drawn pouch bagged nothing: hud.bag stayed at "
                       + "\(count(bag)) (was \(before)); \(shape); debug.state before=[\(stateBefore)] "
                       + "after=[\(stateAfter)]. Read it as: touches=0/0/0 = no floor touch reached the App; hit=ignored "
                       + "= it arrived while paused (see paused=/input=); hit=missed = the press was not on the item "

@@ -36,8 +36,8 @@ So:
 - Settings no longer flips under your finger.
 
 ## What to install
-- **TestFlight 1.0 (2)** has rounds 6 and 7: the stuck fix and the real-hands fixes. It's VALID and ready.
-- **Build 3** (round 8 on top) goes up once CI and the Duo simulator pass. If it's there, take it.
+- **Install TestFlight 1.0 (3).** It's VALID and has everything: rounds 6, 7 and 8.
+- Build 2 (rounds 6 and 7 only) is the fallback.
 
 ## Please try (10 minutes)
 1. Open it **fully flat**, wiggle it around, then stand it back up. It should keep playing.

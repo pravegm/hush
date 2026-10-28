@@ -78,3 +78,12 @@
 - **TestFlight 1.0 (2) uploaded** (run 40614564978): R6 + R7.
 - **QA-5 never-stuck audit:** no P0; 4 P1s (wrong way up after a run, a cover card on an open Duo, a silent hinge
   after a cover trip, the landscape UI test racing and skipping). **R8** is fixing them.
+- **Duo-sim drag investigation (R9 diagnostics):**
+  - `debug.state` showed `touches=0/0/0 raw=0 win=0`: no synthesized XCUITest touch reached ANY app window on the
+    two-display Duo simulator, in any orientation. XCUITest reports the app frame as 669 × 951 while the window is
+    951 × 669.
+  - Verdict: a simulator touch-injection limit, not the app. The phone-sim drag passes; the overlay/scene mapping
+    for every k is unit-tested and hand-checked.
+  - The Duo UI tests now skip with that evidence when `win=0`.
+  - A real-finger drag at a quarter turn on hardware is in the founder's test list.
+- **TestFlight 1.0 (3)** (R8) is VALID.
