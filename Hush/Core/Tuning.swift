@@ -221,6 +221,8 @@ enum Tuning {
     /// R7 `HeistSession.isFreshChest`: a `.ready` chest whose openness has never passed this (and an empty bag) is
     /// untouched, so the App may resume it without the stillness wait.
     static let freshChestOpenness: Double = 0.05
+    /// R14: a chest opened past this (≈ 30° of the phone) and closed with an empty bag ends (`endsEmptyOnShut`).
+    static let emptyShutOpenness: Double = 0.2
     /// A touch picks an item within radius + this (pt).
     static let grabSlop: Double = 14
 

@@ -644,6 +644,9 @@ final class GameController: ObservableObject, SceneDriver {
     }
 
     private func showTip(_ tip: RunTip, now: TimeInterval) {
+        // R14 (UX audit C): the extras (Hush Chain, jingle, golden…) keep their tips for the third run on, so the first
+        // runs are only open slowly, drag loot to the bag, close to bank. (Unmarked: they still show once, later.)
+        guard AppRules.extrasUnlocked(runs: store.data.runs) else { return }
         guard !tipsChecked.contains(tip) else { return }
         tipsChecked.insert(tip)
         guard !store.data.seenTips.contains(tip.rawValue) else { return }
@@ -1008,6 +1011,21 @@ final class GameController: ObservableObject, SceneDriver {
             AppTrace.t("HUSH-T cover escape shown forced midRun=\(isLiveRun ? 1 : 0)")
         }
         if newPose == .cover && !isDemo { UIAccessibility.post(notification: .screenChanged, argument: nil) }
+        // R14 (UX audit A, founder: "playing starts with the chest closed"): shut on Home, the cover card says "Open
+        // slowly to play"; opening the phone starts the run, its first chest already seen shut, opening with it.
+        if old == .cover && newPose == .play && route == .home && !isDemo && input == .hinge {
+            openToPlay()
+        }
+    }
+
+    /// R14: Home → the phone opened from shut → a run, the chest opening with the phone (one gesture, no Play tap).
+    private func openToPlay() {
+        start(.run)
+        guard let session else { return }
+        session.noteLidShut()
+        session.resumeGrace(seconds: AppRules.freshResumeGrace)
+        AppTrace.t("HUSH-T open to play")
+        note("open to play")
     }
 
     // MARK: - R8: the cover card's escape (QA-5 P1-B, belt and braces)
@@ -1401,12 +1419,16 @@ final class GameController: ObservableObject, SceneDriver {
             note("banked on shut (\(reason))")
             return
         }
-        guard session.awaitingClose else { return }
+        // R14 (UX audit B, D): the first chest closed to start (whatever step reached the shut zone, or none: an early
+        // cover hand-off), and a looted chest closed with an empty bag (it ends): Core takes both too.
+        let first = session.awaitsFirstShut
+        guard session.awaitingClose || first || session.endsEmptyOnShut else { return }
         session.noteLidShut()
         let fresh = session.isFreshChest
         if fresh != closingFresh { closingFresh = fresh }
-        AppTrace.t("HUSH-T next chest dealt under the pause reason=\(reason)")
-        note("next chest dealt (\(reason))")
+        AppTrace.t(first ? "HUSH-T first chest seen shut reason=\(reason)"
+                         : "HUSH-T next chest dealt under the pause reason=\(reason)")
+        note(first ? "first chest seen shut (\(reason))" : "next chest dealt (\(reason))")
     }
 
     private func setClosing(_ on: Bool) {

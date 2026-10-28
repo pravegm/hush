@@ -340,6 +340,16 @@ final class HeistSession {
             pending.append(contentsOf: ev)
             return []
         }
+        // R14 (UX audit change D): closing the phone always ends the chest. Opened and closed with nothing in the
+        // bag, it goes in the log with nothing banked and the next chest is dealt, closed (never "carry on").
+        if endsEmptyOnShut {
+            touches.removeAll(keepingCapacity: true)
+            chestLog.append(ChestOutcome(tier: chest.tier, golden: chest.golden, value: 0, hushed: false,
+                                         bitten: false))
+            nextChest(&ev)
+            pending.append(contentsOf: ev)
+            return []
+        }
         guard canBankOnShut else { return [] }
         bank(&ev)
         nextChest(&ev)
@@ -349,6 +359,15 @@ final class HeistSession {
     /// R12b: a chest being looted with loot in the bag: `noteLidShut()` would bank it. (R13: the lesson too; its
     /// script hears the `.banked` through the App's `deliver`.)
     var canBankOnShut: Bool { !isFinished && isLooting && bagCount > 0 }
+
+    /// R14: the run's first chest still waits for the phone to be seen shut ("Close the phone to start").
+    var awaitsFirstShut: Bool { !isFinished && phase == .ready && !sawShut }
+
+    /// R14 (UX audit D): a chest opened past the shut zone (so it was really opened, not a hand settling the phone)
+    /// with an empty bag: `noteLidShut()` ends it and deals the next. Never in the lesson (its script is one chest).
+    var endsEmptyOnShut: Bool {
+        !isFinished && mode != .lesson && isLooting && bagCount == 0 && peakOpenness > Tuning.emptyShutOpenness
+    }
 
     private func tick(_ h: Double, _ ev: inout [HeistEvent]) {
         time += h
@@ -866,6 +885,8 @@ final class HeistSession {
         if stage >= .waking { return .freeze }
         // During a resume grace the lid makes no noise, so it isn't "too fast" either; nor at a closed chest (R12).
         if lidGrace <= 0 && lidCounts && lid.speed > Tuning.loudSpeed { return .slower }
+        // R14 (UX audit E): a fast drag makes noise too, so it says "Slower…" (bites never feel random).
+        if touches.contains(where: { $0.speed > Tuning.dragQuietSpeed }) { return .slower }
         if options.torch && isLooting && bagCount > 0 && torch <= Tuning.torchLowSeconds { return .candleLow }
         // R14: the run's first chest waits for a closed lid: "Close the phone to start" (before "too wide": a flat
         // phone at the start is asked to close, nothing else).

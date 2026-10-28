@@ -289,9 +289,10 @@ struct HintLine: View {
     private func color(_ hint: HeistHint) -> Color {
         switch hint {
         case .freeze: return PlateArt.text(.urgent)
-        case .slower, .easeLidDown, .candleLow, .relicDeeper: return PlateArt.accent(.parchment)
+        case .slower, .candleLow, .relicDeeper: return PlateArt.accent(.parchment)
         case .tooWide: return PlateArt.muted(.parchment)
-        case .openSlowly, .dragToBag, .shutToBank, .closeForNext: return PlateArt.text(.parchment)
+        // R14: "Close the phone to start" is the first instruction, not a warning.
+        case .easeLidDown, .openSlowly, .dragToBag, .shutToBank, .closeForNext: return PlateArt.text(.parchment)
         }
     }
 }
@@ -356,7 +357,7 @@ struct ClosingCard: View {
         if awaitingHinge { return "Move the phone a little" }
         // R13: the lid is shut, so is the chest; it opens with the phone, from the first degree. R14: the run's first
         // chest (closed to start) says "start".
-        if fresh && first { return "Open the phone slowly to start" }
+        if fresh && first { return "Open slowly. Don't wake it." }
         if fresh { return "Open the phone slowly for the next chest" }
         return lifted ? "Hold still…" : "Open the phone slowly to carry on"
     }
@@ -364,8 +365,10 @@ struct ClosingCard: View {
     /// R6: the escape hatch's words.
     static let carryOn = "Carry on"
 
-    static func detail(lifted: Bool, awaitingHinge: Bool = false, fresh: Bool = false) -> String {
+    static func detail(lifted: Bool, awaitingHinge: Bool = false, fresh: Bool = false, first: Bool = false) -> String {
         if awaitingHinge { return "Then hold it still. The mimic waits." }
+        // R14 (UX audit E): the run's first chest gives the three rules (the lesson no longer runs first).
+        if fresh && first { return "Drag loot to your bag. Close the phone to bank. Your candle is the clock." }
         if fresh { return "The mimic waits. Your candle does too." }
         return lifted ? "Then we tiptoe on." : "The mimic waits. Your candle does too."
     }
@@ -413,10 +416,7 @@ struct ClosingCard: View {
         let fresh = controller.closingFresh
         return VStack(spacing: c ? 8 : 12) {
             HStack(spacing: 14) {
-                if full {
-                    DuoDiagram(style: .tabletop(angle: 115), reduceMotion: controller.reduceMotion || lifted)
-                        .frame(width: 96, height: 62)
-                }
+                // R14 (UX audit): no laptop-pose diagram (any pose plays); the words are enough.
                 VStack(alignment: .leading, spacing: 4) {
                     Text(Self.title(lifted: lifted, awaitingHinge: waiting, fresh: fresh,
                                     first: controller.closingFirstChest))
@@ -424,7 +424,8 @@ struct ClosingCard: View {
                         .foregroundStyle(HushTheme.parchment)
                         .fixedSize(horizontal: false, vertical: true)
                     if full {
-                        Text(Self.detail(lifted: lifted, awaitingHinge: waiting, fresh: fresh))
+                        Text(Self.detail(lifted: lifted, awaitingHinge: waiting, fresh: fresh,
+                                         first: controller.closingFirstChest))
                             .font(HushType.caption(c))
                             .foregroundStyle(HushTheme.mist)
                             .fixedSize(horizontal: false, vertical: true)

@@ -236,9 +236,13 @@ enum AppRules {
         }
     }
 
+    /// R14 (UX audit C): the first two runs teach only the three ideas; the extras' tips and hints wait. Pure; tested.
+    static func extrasUnlocked(runs: Int) -> Bool { runs >= 2 }
+
     static func showsHint(_ hint: HeistHint, runs: Int) -> Bool {
         // R14 (founder: "super complicated"): a phone opened flat is fine; "That's wide enough" was one card too many.
         if hint == .tooWide { return false }
+        if hint == .relicDeeper && !extrasUnlocked(runs: runs) { return false }
         return !isTeaching(hint) || runs < teachingRuns
     }
 
