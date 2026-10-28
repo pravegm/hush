@@ -38,22 +38,22 @@ Captured on the Duo simulator's tabletop canvas, **upright** (`turn=0`). On a re
 
 | # | File | In-game moment (the `ci/scenarios.txt` frame it matches) | Caption: headline / sub-line (words) | Demo args |
 |---|---|---|---|---|
-| **D1** | `D1-hero-open` | An Iron-bound or Wooden chest with the lid well open: light from the fold, coins and a gem glinting, the mimic asleep, the meter low (`31`/`32-reveal-fold`) | **Open the lid. *Slowly.*** (4) / Your Duo is the treasure chest. (6) | `screen=run;mode=run;seed=7;pilot=expert;turn=0;freezeOn=reveal` (frame 1 composite source) |
+| **D1** | `D1-hero-open` | An Iron-bound or Wooden chest with the lid well open: light from the fold, coins and a gem glinting, the mimic asleep, the meter low (`31`/`32-reveal-fold`) | **Open the lid. *Slowly.*** (4) / Your Duo is the treasure chest. (6) | `screen=run;mode=run;seed=7;pilot=casual;turn=0;freezeOn=reveal` (frame 1 composite source) |
 | **D2** | `D2-freeze` | Waking: the meter red, "Freeze!" on the hint plate, the tongue curled, the eye opening (`33-waking-fold`) | **It's waking. *Freeze!*** (3) / Hold still and it settles. (5) | `screen=run;mode=run;seed=7;pilot=novice;turn=0;freezeOn=waking` (fallback: `screen=run;mode=attract;seed=7;turn=0;lid=0.7;noise=0.85`, frame 18) |
-| **D3** | `D3-bank` | Banked: the lid eased low, loot flying into the BANKED plate (`14-bank`) | **Ease it shut to *bank*.** (5) / Bank before the candle burns out. (6) | `screen=run;mode=run;seed=7;pilot=casual;turn=0;freezeOn=bank` |
-| **D4** | `D4-chain` | A Hushed bank with the Hush Chain medal by BANKED ("GOLD ×1.2" or more) (`37-chain-badge`) | **Sleepy banks pay *more*.** (4) / Hush Chain: up to ×1.5 gold. (6) | `screen=run;mode=run;seed=7;pilot=perfect;turn=0;freezeAfter=24;freezeOn=bank` |
+| **D3** | `D3-bank` | Banked: the lid eased low, loot flying into the BANKED plate (`14-bank`) | **Ease it down to *bank*.** (5; the app says "Ease the lid down to bank", R7. `ci/duo-store-scenarios.txt` D3 still burns in "Ease it shut": fix that line and re-shoot D3 before upload) / Bank before the candle burns out. (6) | `screen=run;mode=run;seed=7;pilot=perfect;turn=0;freezeOn=bank;freezeDelay=0.25` (R10: the perfect pilot's first bank is Hushed) |
+| **D4** | `D4-chain` | A Hushed bank with the Hush Chain medal by BANKED ("GOLD ×1.2" or more) (`37-chain-badge`) | **Sleepy banks pay *more*.** (4) / Hush Chain: up to ×1.5 gold. (6) | `screen=run;mode=run;seed=7;pilot=perfect;turn=0;freezeAfter=24;freezeOn=bank;freezeDelay=0.6` |
 | **D5** | `D5-chomp` | The bite: teeth slammed across the fold, coins flying into the mouth, "−10s" off the candle (`13-bite`) | **Too loud? *CHOMP.*** (3) / Lose your bag and 10 seconds. (6) | `screen=run;mode=run;seed=7;pilot=novice;turn=0;freezeOn=bite` |
-| **D6** | `D6-codex` | The Relic Codex, mid progress: 9 relics drawn on velvet, the rest silhouettes (`22-codex-mid`) | **Twenty-four relics. One *Codex*.** (4) / Daily Dungeon, ranks, Game Center. (5) | `screen=codex;progress=mid` |
+| **D6** | `D6-codex` | The Relic Codex, mid progress: 9 relics drawn on velvet, the rest silhouettes (`22-codex-mid`) | **Twenty-four relics. One *Codex*.** (4) / Daily Dungeon, ranks, Game Center. (5) | `screen=codex;progress=mid;turn=0` |
 
 Reserves (same rules), in order of preference:
-- `DR1-golden` (`36-golden-mimic`): **A golden mimic. *Extra* gold.** (5) / But it sleeps lighter. (4). Args: `screen=run;mode=run;seed=7;pilot=casual;golden=1;turn=0;freezeOn=reveal`. Use only if the frame shows the gilded chest and "GOLDEN" on the plate.
-- `DR2-relic` (`15-relic`): **Open wide for *relics*.** (4) / The best loot sits deepest. (5). Args: `screen=run;mode=run;seed=7;pilot=expert;turn=0;skipTo=25;freezeOn=relic`. Use only if the relic card (art and name) is in the frame.
-- `DR3-results` (`20-results-mid`): **One more *chest*?** (3) / No ads. No in-app purchases. (5). Args: `screen=results;seed=7;progress=mid;pilot=casual`.
-- `DR4-lesson` (`39`/`34-lesson-fold`): **A short lesson shows *how*.** (5) / Open, grab, freeze, bank. (4). Args: `screen=lesson;lessonStep=2;lid=0.3` on the Duo sim.
+- `DR1-golden` (`36-golden-mimic`): **A golden mimic. *Extra* gold.** (5) / But it sleeps lighter. (4). Args: `screen=run;mode=run;seed=7;pilot=expert;golden=1;turn=0;freezeAfter=13;freezeOn=bank;freezeDelay=1.75`. Use only if the frame shows the gilded chest and "GOLDEN" on the plate.
+- `DR2-relic` (`15-relic`): **Open wide for *relics*.** (4) / The best loot sits deepest. (5). Args: `screen=run;mode=run;seed=7;pilot=expert;turn=0;skipTo=25;freezeOn=relic;freezeDelay=1.7`. Use only if the relic card (art and name) is in the frame.
+- `DR3-results` (`20-results-mid`): **One more *chest*?** (3) / No ads. No in-app purchases. (5). Args: `screen=results;seed=7;progress=mid;pilot=casual;turn=0`.
+- `DR4-lesson` (`39`/`34-lesson-fold`): **A short lesson shows *how*.** (5) / Open, grab, freeze, bank. (4). Args: `screen=lesson;lessonStep=2;lid=0.25;turn=0` on the Duo sim.
 
 **File names** (the App Store Connect tool expects exactly these, `tools/appstore/build-metadata.js`): `D1-hero-open`, `D2-freeze`, `D3-bank`, `D4-chain`, `D5-chomp`, `D6-codex` in `store-duo/duo-screens/store/`, and `P1-hero-open` … `P6-codex` (same suffixes) in `store-69/store/` and `store-61/store/`. Rename a frame here and in `build-metadata.js` together.
 
-Every Duo frame must log the folded inner canvas (`HUSH-T canvas 669x951 fold=1 turned=0`), so a cover-display or landscape capture is flagged, never uploaded.
+Every Duo frame must log the folded inner canvas (`HUSH-T canvas 669x951 fold=1 turned=0 k=0`), so a cover-display or quarter-turned (odd k) capture is flagged, never uploaded.
 
 ## B. iPhone 6.9" (1320 × 2868) and 6.3" class (1206 × 2622 / 1179 × 2556): 6 frames each
 
@@ -61,7 +61,7 @@ The same moments as A, captured on the iPhone 18 Pro Max and the iPhone 18 Pro (
 
 | # | File | Caption: headline / sub-line (where it differs from A) | Demo args |
 |---|---|---|---|
-| **P1** | `P1-hero-open` | **Open the lid. *Slowly.*** / Any iPhone. Best on iPhone Duo. (6) | the frame-1 composite of D1 (fallback: `screen=run;mode=run;seed=7;pilot=expert;freezeOn=reveal`, frame `10-run-reveal`) |
+| **P1** | `P1-hero-open` | **Open the lid. *Slowly.*** / Any iPhone. Best on iPhone Duo. (6) | the frame-1 composite of D1 (fallback: `screen=run;mode=run;seed=7;pilot=casual;freezeOn=reveal`, frame `10-run-reveal`) |
 | **P3** | `P3-bank` | **Slide it down to *bank*.** (5) / Bank before the candle burns out. (6) (the phone's words follow the lever, `ROUND-3.md` decision 4) | as D3 without `turn=0` (frame `14`) |
 | **P2, P4–P6** | `P2-freeze`, `P4-chain`, `P5-chomp`, `P6-codex` | as D2, D4–D6 | as D2, D4–D6 without `turn=0` (frames `12`, `37`, `13`, `22`) |
 
@@ -70,7 +70,7 @@ The same moments as A, captured on the iPhone 18 Pro Max and the iPhone 18 Pro (
 - [ ] **Only what the app renders.** Every screen is an unedited capture from the app (frame 1: only warped onto the device); captions sit outside it. No composited coins, glows, teeth, eyes or medals.
 - [ ] **Frame 1's device is a real iPhone Duo pose** (tabletop, lid raised about 120–150°), never a non-folding iPhone drawn folded, never closed or flat.
 - [ ] **No hands, no people, no photos** in 1.0's sets.
-- [ ] **Every caption is true of the build:** a bite costs the bag and 10 s of candle (`Tuning`); the app shows "Freeze!" at Waking; banking is easing the lid shut (the lever down on phones); the Hush Chain tops out at ×1.5 (`Tuning.chainMax` 5 × `chainStep` 0.1); 24 relics in the Codex. If any of these change, change the caption.
+- [ ] **Every caption is true of the build:** a bite costs the bag and 10 s of candle (`Tuning`); the app shows "Freeze!" at Waking; banking is easing the lid down (the app says "Ease the lid down to bank"; the lever down on phones); the Hush Chain tops out at ×1.5 (`Tuning.chainMax` 5 × `chainStep` 0.1); 24 relics in the Codex. If any of these change, change the caption.
 - [ ] **D4 shows a chain medal** (×1.2 or more) and **D3's floor is not blacked out** (QA: the Round 2 bank moment darkened the whole floor on wooden and iron chests, frames 14 and 37; the Scene fixes it in Round 3). If either is wrong on the store run, use the next reserve.
 - [ ] **Seeded states are reachable states:** pilots play real runs; `noise=` and `lid=` hold real levels a player passes through; "mid progress" is 9 relics and a 5,200 best (`DemoMode` presets). Never seed all 24 relics or an impossible haul.
 - [ ] **The Duo frames are upright** (`turn=0`), as the player sees them after turning the Duo round.

@@ -3,18 +3,18 @@
 *Decided Tue 27 Oct 2026, updated in Round 3 from the code (`Hush/UI/Pages.swift`, `Hush/Scene/SceneMoments.swift`, `Hush/UI/RootView.swift`), with the method Squish, Brim and Swoop use: **claim a label only when the build earns it across every common task**, and verify on the release build first. Labels are voluntary, per device, and can only be published once a version is live, so this happens on **launch day, Tue 1 Dec** (runbook §6).*
 
 Common tasks for Hush:
-1. the first launch: get through **First Chest** (or skip it after step 2), including the pose card on a Duo;
+1. the first launch: get through **First Chest** (or skip it after step 2 or 20 s), including the dismissible "Stand it up" tip on a Duo held like a book;
 2. start a Run or the Daily Dungeon from Home;
-3. play a chest: open the lid (hinge on a Duo, the lever elsewhere), see which loot is lit, drag it to the bag, read the noise meter and the candle, react to Stirring/Waking/"Freeze!", ease the lid shut to bank;
+3. play a chest: open the lid (hinge on a Duo, the lever elsewhere), see which loot is lit, drag it to the bag, read the noise meter and the candle, react to Stirring/Waking/"Freeze!", ease the lid down to bank (the app's words: "Ease the lid down to bank"); on a Duo, pause with a 0.35 s press-and-hold on the pause coin (VoiceOver: activating it pauses at once);
 4. read Results (gold banked, new best, chests, Hushed count, bites, relics, rank progress);
 5. open the Codex and read a relic's name and blurb;
-6. change Settings (Sound, Haptics, Play sound on silent, Turn the chest round (Duo only), Reduce motion, Replay First Chest).
+6. change Settings (Sound, Vibration (Off / Normal / Strong), Lid sensitivity (Forgiving / Normal / Careful), Play sound on silent, Turn the chest round (Duo only), Reduce motion, Replay First Chest).
 
 ## What the build gives us (27 Oct, Round 3)
 
 - **Every tell is on the sharp floor half and in sound and haptics** (`GAME-DESIGN.md` §3, §5): the noise meter (segments plus stage ticks, shaking near the top), the tongue's movement, the "Freeze!" hint, a snore that stops, a heartbeat that speeds up (sound at Stirring, sound and haptic at Waking), a growl. No cue is colour-only or sound-only by design.
 - **Reduce motion**, in Settings and following the iOS setting (`RootView` `systemReduceMotion`): no shake and no red flash on a bite (`SceneMoments`).
-- **Sound and Haptics switches**, and "Play sound on silent" (on by default).
+- **A Sound switch, a Vibration choice (Off / Normal / Strong) and a Lid sensitivity choice (Forgiving / Normal / Careful; the scored Daily always plays Normal)**, and "Play sound on silent" (on by default).
 - **Two ways to move the lid:** the hinge (Duo) and the on-screen lever (other iPhones; a Duo never shows it, `ROUND-3.md` decision 4). Neither ever needs a fast or precise flick; both reward slow, steady movement.
 - **VoiceOver groundwork (Round 3, App):** elements for BANKED, the candle and NOISE, and spoken stage, bite and bank announcements. Still not enough for the VoiceOver label (task 3 needs sight of the lit loot).
 - **Dark by design:** the app forces the dark style (`UIUserInterfaceStyle: Dark` in `project.yml`), and every screen is candlelit gold on teal-black.
@@ -64,7 +64,7 @@ Measure with a contrast checker on the release-build frames (the CI frame sets) 
 - [ ] The lid, the light, the tongue's breathing and the teeth still move: that motion *is* the game's information, which Apple's criteria allow.
 
 ### D. Dark Interface
-- [ ] Home, Run, Results, Codex, Settings, Daily, the pose cards and the cover-display card are all dark panels (teal-black). No white sheets: the system share sheet or Game Center sheets are Apple's and don't count against it.
+- [ ] Home, Run, Results, Codex, Settings, Daily, the pose tip, the pause and closing cards and the cover-display card are all dark panels (teal-black). No white sheets: the system share sheet or Game Center sheets are Apple's and don't count against it.
 
 ## Photosensitivity (not a label, but a must)
 
@@ -72,7 +72,7 @@ The bite's red flash must never strobe: one flash per bite, under about 3 flashe
 
 ## What we can say in copy today
 
-The description says "Every warning is shown on screen too, so you can play with the sound off", "Sound and haptics each have a switch, and there's a Reduce Motion setting". None of this claims a VoiceOver or Larger Text label. If check A's sound-off line fails, cut the first sentence; if check C fails, cut "and there's a Reduce Motion setting" only if the setting itself is missing.
+The description says "Every warning is shown on screen too, so you can play with the sound off" and "Settings has Sound, Vibration, Lid sensitivity and Reduce motion". None of this claims a VoiceOver or Larger Text label. If check A's sound-off line fails, cut the first sentence; if check C fails, cut "and Reduce motion" only if the setting itself is missing.
 
 ## 1.0.1 list to earn more labels honestly
 

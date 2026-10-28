@@ -26,7 +26,7 @@ Recount with Node and the real link before posting (X and Mastodon count a link 
 ### X (attach the 15-second clip)
 > Hush is out.
 >
-> Stand your iPhone Duo like a little laptop. The raised half is a treasure chest lid. Open it slowly, sneak the gold out, ease it shut. Too fast and the mimic wakes.
+> Stand your iPhone Duo like a little laptop. The raised half is a treasure chest lid. Open it slowly, sneak the gold out, ease it down. Too fast and the mimic wakes.
 >
 > £1.99 / $1.99 · no ads · no IAP · a lever on every other iPhone
 > https://apps.apple.com/app/id6827663529
@@ -36,7 +36,7 @@ Recount with Node and the real link before posting (X and Mastodon count a link 
 ### Bluesky (attach the clip)
 > Hush is out: your iPhone Duo is a treasure chest, and the chest is a sleeping mimic.
 >
-> Open the lid slowly to see the gold. Drag it out gently. Ease the lid shut to bank it. The creak follows your exact speed, so go slow.
+> Open the lid slowly to see the gold. Drag it out gently. Ease the lid down to bank it. The creak follows your exact speed, so go slow.
 >
 > No ads, no IAP.
 >
@@ -45,7 +45,7 @@ Recount with Node and the real link before posting (X and Mastodon count a link 
 ### Mastodon (attach the clip)
 > Hush is out. 🕯️
 >
-> On iPhone Duo the hinge is a chest lid, and its speed is the whole game: open it slowly to light the loot, drag the gold into your bag, ease the lid shut to bank it. Move too fast and it creaks (in the speaker and the haptics), the mimic wakes, and it bites.
+> On iPhone Duo the hinge is a chest lid, and its speed is the whole game: open it slowly to light the loot, drag the gold into your bag, ease the lid down to bank it. Move too fast and it creaks (in the speaker and the haptics), the mimic wakes, and it bites.
 >
 > The chest is drawn so the half the Duo blurs when you fold is the lid, and the loot and warnings stay sharp. Bank while it sleeps and the Hush Chain pays more. Every other iPhone gets an on-screen lever.
 >
@@ -86,7 +86,7 @@ Use the real numbers from your Results screen, never made-up ones. (If the build
 
 ### 3A. Social teaser: "Shh" (15 seconds, vertical 1080 × 1920, 30 fps, sound on)
 
-**Shot:** the founder's real iPhone Duo standing in tabletop pose on a wooden table, filmed **from the side and slightly in front**, so the hand, the raised lid and both screens are in frame. Warm, low light (a lamp or a candle out of shot). Phone sound **on** (clip mic near the speaker). Real hands are fine here (not an App Store asset). The lid half is the one the pose card says to lift.
+**Shot:** the founder's real iPhone Duo standing in tabletop pose on a wooden table, filmed **from the side and slightly in front**, so the hand, the raised lid and both screens are in frame. Warm, low light (a lamp or a candle out of shot). Phone sound **on** (clip mic near the speaker). Real hands are fine here (not an App Store asset). The lid half is the one First Chest glows ("Lift this half"), the raised half in tabletop pose.
 
 | Time | Picture | On-screen text (big, top third, clear of the phone) | Sound |
 |---|---|---|---|
@@ -94,7 +94,7 @@ Use the real numbers from your Results screen, never made-up ones. (If the build
 | 2.0–5.0 | The hand lifts the lid **very slowly**; light spills into the chest, gold glints appear, deeper as it opens | **Open it slowly.** | a faint creak, the tiptoe motif |
 | 5.0–7.5 | A finger drags a coin, then a gem, gently down into the bag | **Take the gold.** | clink, chime, soft bag thud |
 | 7.5–10.5 | The hand reaches for the relic at the back and opens the lid a touch too quickly: the creak, the snoring stops, the meter goes amber then red, a heartbeat; "Freeze!" appears and the hand freezes; it settles back to snoring | **Freeze!** | creak, heartbeat, then the snore again |
-| 10.5–13.0 | The lid eased shut: the heavy thunk, coins cascading into the counter | **Ease it shut.** | thunk, cascade, ka-ching |
+| 10.5–13.0 | The lid eased down: the heavy thunk, coins cascading into the counter | **Ease it down.** | thunk, cascade, ka-ching |
 | 13.0–15.0 | End card over Home: "Hush" wordmark, "Don't Wake the Mimic", "Out 1 Dec" (launch day: "Out now") | **Hush · out 1 Dec** | one sleepy snore |
 
 Rules: no price in the video (it goes in the post text), no fast or repeated hinge movement, never closed or slammed, no flat phone. Export H.264, ≤ 60 MB (fits X, Bluesky, Mastodon, Threads, TikTok).
@@ -113,7 +113,7 @@ Apple's rules: 15–30 s; captures of the app only (**no hands, no people, no de
 | 03.0–07.0 | The lid opening slowly; the light reaching deeper, loot appearing by depth | **Open the lid *slowly*** |
 | 07.0–10.0 | Coins and a gem dragged into the bag | **Drag the gold in *gently*** |
 | 10.0–14.0 | Stirring then Waking: meter amber, red, "Freeze!"; it settles | **It's waking. *Freeze!*** |
-| 14.0–18.0 | The lid eased shut: the bank, the counter rolling up | **Ease it shut to *bank* it** |
+| 14.0–18.0 | The lid eased down: the bank, the counter rolling up | **Ease it down to *bank* it** |
 | 18.0–21.0 | A relic found: the golden ray and its name | **Open wide for *relics*** |
 | 21.0–25.0 | Results; a quick cut of a bite (CHOMP) | **Too fast? *CHOMP.*** |
 

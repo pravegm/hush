@@ -1,8 +1,8 @@
 # Hush: App Store metadata (v1.0)
 
-*Rewritten Tue 27 Oct 2026 (Round 3, QA-2 P1-2) by the launch lead, from the code as it is now (`Hush/Core/Tuning.swift`, `Ranks.swift`, `Catalogs.swift`, `Hush/UI/PlayHUD.swift`, `Pages.swift`) and the founder's Round 3 decisions (`design/ROUND-3.md`). Paste from the code blocks exactly (or let the App Store Connect tool push them: `tools/appstore/README.md`). Counts are Unicode characters, counted with Node by `tools/appstore/build-metadata.js`, except keywords, which Apple counts in bytes (all ASCII here, so the same). Each choice has a one-line reason in `DECISIONS.md`. §10 lists every claim with the code that makes it true; tick each one again on the release-candidate build. If a claim is false on the build, change the copy, never the other way round.*
+*Rewritten Tue 27 Oct 2026 (Round 3, QA-2 P1-2) and corrected Wed 28 Oct for build 1.0 (4) (QA-6 P2-6, P2-7: "ease the lid down", the Vibration and Lid sensitivity rows, the R7 numbers) by the launch lead, from the code as it is now (`Hush/Core/Tuning.swift`, `Ranks.swift`, `Catalogs.swift`, `Hush/UI/PlayHUD.swift`, `Pages.swift`) and the founder's Round 3 decisions (`design/ROUND-3.md`). Paste from the code blocks exactly (or let the App Store Connect tool push them: `tools/appstore/README.md`). Counts are Unicode characters, counted with Node by `tools/appstore/build-metadata.js`, except keywords, which Apple counts in bytes (all ASCII here, so the same). Each choice has a one-line reason in `DECISIONS.md`. §10 lists every claim with the code that makes it true; tick each one again on the release-candidate build. If a claim is false on the build, change the copy, never the other way round.*
 
-**Words the copy uses** (the game's own words, as the app shows them): *the lid*, *open slowly*, *ease the lid shut*, *bank* (the one verb for keeping loot), *loot*, *the bag* (IN BAG: not safe yet), *BANKED*, *the mimic* (Asleep, Stirring, Waking), *creak*, *the noise meter*, *"Freeze!"*, *bite / CHOMP*, *the candle* (the art is a candle; never another word for it), *oil*, *chest* (Wooden, Iron-bound, Gilded, Royal), *golden mimic*, *Hushed*, *Hush Chain*, *relics*, *the Relic Codex*, *thief rank*, *Daily Dungeon*, *First Chest*, *the lever* (other iPhones). Never "slam it", "snap it shut" or "close it fast" as an instruction (it's how you *lose*, and the copy says so once, as a warning).
+**Words the copy uses** (the game's own words, as the app shows them): *the lid*, *open slowly*, *ease the lid down* (the app's words since R7, `HushCopy.bankLid` "Ease the lid down to bank"; never "shut"), *bank* (the one verb for keeping loot), *loot*, *the bag* (IN BAG: not safe yet), *BANKED*, *the mimic* (Asleep, Stirring, Waking), *creak*, *the noise meter*, *"Freeze!"*, *bite / CHOMP*, *the candle* (the art is a candle; never another word for it), *oil*, *chest* (Wooden, Iron-bound, Gilded, Royal), *golden mimic*, *Hushed*, *Hush Chain*, *relics*, *the Relic Codex*, *thief rank*, *Daily Dungeon*, *First Chest*, *the lever* (other iPhones). Never "slam it", "snap it shut", "ease it shut" or "close it fast" as an instruction (it's how you *lose*, and the copy says so once, as a warning).
 
 Localisations: **English (U.K.)** is the primary language, plus **English (U.S.)**. Every other storefront shows en-GB. Only the description differs between the two (§4).
 
@@ -37,7 +37,7 @@ Alternative to try later (a version change; Product Page Optimization can't test
 ## 3. Promotional text (limit 170; can change any time without a new version)
 
 ```
-Stand your iPhone Duo like a little laptop and lift the lid, slowly. Grab the gold, ease it shut to bank it, don't wake the mimic. Lever on other iPhones. No ads, no IAP.
+Stand your iPhone Duo like a little laptop and lift the lid, slowly. Grab the gold, ease it down to bank it, don't wake the mimic. Lever on other iPhones. No ads, no IAP.
 ```
 **170 / 170**, both locales. It leads with the Duo pose, because if the Duo screenshot slot is missing on upload day this line, frame 1 and the description carry the Duo pitch, and it says straight away that other iPhones can play.
 
@@ -47,14 +47,14 @@ Rotation ideas for later (count before pasting):
 
 ## 4. Description (limit 4,000)
 
-**en-GB 3,935 / 4,000; en-US 3,935 / 4,000** (counted by `build-metadata.js`; the two spelling changes keep the length). Any addition must cut as much elsewhere.
+**en-GB 3,957 / 4,000; en-US 3,957 / 4,000** (28 Oct, after the R7 wording and Settings fixes) (counted by `build-metadata.js`; the two spelling changes keep the length). Any addition must cut as much elsewhere.
 
 ### en-GB (English U.K.)
 
 ```
 Your iPhone Duo is a treasure chest. The chest is a sleeping mimic.
 
-Stand your Duo like a little laptop: the raised half is the lid. Open it slowly and the candlelight spills in, showing the gold. Drag the loot into your bag gently, then ease the lid shut to bank it. Too fast, and the lid creaks, the mimic wakes, and it bites.
+Stand your Duo like a little laptop: the raised half is the lid. Open it slowly and the candlelight spills in, showing the gold. Drag the loot into your bag gently, then ease the lid down to bank it. Too fast, and the lid creaks, the mimic wakes, and it bites.
 
 The game where you have to be gentle.
 
@@ -64,7 +64,7 @@ SLOW HANDS WIN
 - Open the lid slowly: the light reaches deeper into the chest as it opens
 - Coins sit near the front, gems further back, and relics deep inside: open wide for those
 - Drag gently: a fast drag rattles, and loot dropped outside the bag clunks
-- Loot in your bag isn't safe yet. Ease the lid shut to bank it, and gently: closing fast is noisy too
+- Loot in your bag isn't safe yet. Ease the lid down to bank it, and gently: closing fast is noisy too
 - A bite costs everything in your bag and 10 seconds of candle
 
 WATCH THE MIMIC
@@ -86,10 +86,10 @@ FIRST CHEST
 Your first chest is a short lesson: open, grab, freeze, bank. Replay it from Settings any time.
 
 MADE FOR THE FOLD. PLAYS ON EVERY iPhone.
-On iPhone Duo the hinge is the lid, and how gently you move it is the whole skill: about two slow strokes per chest. You never need to lay the phone flat, close it or move it fast. Moving fast is how you lose. iPhone Duo softens one half of its screen for a moment when a fold starts, so Hush keeps the loot, the noise meter and every warning on the half that stays sharp, and shows you which half to lift. Fold the lid down past upright, or close the Duo, and the run pauses, candle and all. On any other iPhone, an on-screen lever opens and shuts the lid. Same chests, same mimic, same leaderboards, but on the Duo you feel the lid creak under your fingers.
+On iPhone Duo the hinge is the lid, and how gently you move it is the whole skill: about two slow strokes per chest. You never need to lay the phone flat, close it or move it fast. Moving fast is how you lose. iPhone Duo softens one half of its screen for a moment when a fold starts, so Hush keeps the loot, the noise meter and every warning on the half that stays sharp, and shows you which half to lift. Fold the lid down past upright, or close the Duo, and the run pauses, candle and all. On any other iPhone, an on-screen lever raises and lowers the lid. Same chests, same mimic, same leaderboards, but on the Duo you feel the lid creak under your fingers.
 
 SOUND AND FEEL
-The creak follows your exact speed, in sound and in haptics. The snores, the heartbeat, the coin clinks, the cascade of a banked haul and the CHOMP are all synthesised live in the app. Every warning is shown on screen too, so you can play with the sound off. Sound plays on silent unless you switch that off, and Settings has switches for sound, haptics and Reduce motion.
+The creak follows your exact speed, in sound and in haptics. The snores, the heartbeat, the coin clinks, the cascade of a banked haul and the CHOMP are all synthesised live in the app. Every warning is shown on screen too, so you can play with the sound off. Sound plays on silent unless you switch that off, and Settings has Sound, Vibration, Lid sensitivity and Reduce motion.
 
 GAME CENTER
 Leaderboards for your Best Haul and the Daily Dungeon, and 12 achievements. It's optional: Hush works fully without signing in.
@@ -105,7 +105,7 @@ Identical except two spellings: practise → practice, synthesised → synthesiz
 ```
 Your iPhone Duo is a treasure chest. The chest is a sleeping mimic.
 
-Stand your Duo like a little laptop: the raised half is the lid. Open it slowly and the candlelight spills in, showing the gold. Drag the loot into your bag gently, then ease the lid shut to bank it. Too fast, and the lid creaks, the mimic wakes, and it bites.
+Stand your Duo like a little laptop: the raised half is the lid. Open it slowly and the candlelight spills in, showing the gold. Drag the loot into your bag gently, then ease the lid down to bank it. Too fast, and the lid creaks, the mimic wakes, and it bites.
 
 The game where you have to be gentle.
 
@@ -115,7 +115,7 @@ SLOW HANDS WIN
 - Open the lid slowly: the light reaches deeper into the chest as it opens
 - Coins sit near the front, gems further back, and relics deep inside: open wide for those
 - Drag gently: a fast drag rattles, and loot dropped outside the bag clunks
-- Loot in your bag isn't safe yet. Ease the lid shut to bank it, and gently: closing fast is noisy too
+- Loot in your bag isn't safe yet. Ease the lid down to bank it, and gently: closing fast is noisy too
 - A bite costs everything in your bag and 10 seconds of candle
 
 WATCH THE MIMIC
@@ -137,10 +137,10 @@ FIRST CHEST
 Your first chest is a short lesson: open, grab, freeze, bank. Replay it from Settings any time.
 
 MADE FOR THE FOLD. PLAYS ON EVERY iPhone.
-On iPhone Duo the hinge is the lid, and how gently you move it is the whole skill: about two slow strokes per chest. You never need to lay the phone flat, close it or move it fast. Moving fast is how you lose. iPhone Duo softens one half of its screen for a moment when a fold starts, so Hush keeps the loot, the noise meter and every warning on the half that stays sharp, and shows you which half to lift. Fold the lid down past upright, or close the Duo, and the run pauses, candle and all. On any other iPhone, an on-screen lever opens and shuts the lid. Same chests, same mimic, same leaderboards, but on the Duo you feel the lid creak under your fingers.
+On iPhone Duo the hinge is the lid, and how gently you move it is the whole skill: about two slow strokes per chest. You never need to lay the phone flat, close it or move it fast. Moving fast is how you lose. iPhone Duo softens one half of its screen for a moment when a fold starts, so Hush keeps the loot, the noise meter and every warning on the half that stays sharp, and shows you which half to lift. Fold the lid down past upright, or close the Duo, and the run pauses, candle and all. On any other iPhone, an on-screen lever raises and lowers the lid. Same chests, same mimic, same leaderboards, but on the Duo you feel the lid creak under your fingers.
 
 SOUND AND FEEL
-The creak follows your exact speed, in sound and in haptics. The snores, the heartbeat, the coin clinks, the cascade of a banked haul and the CHOMP are all synthesized live in the app. Every warning is shown on screen too, so you can play with the sound off. Sound plays on silent unless you switch that off, and Settings has switches for sound, haptics and Reduce motion.
+The creak follows your exact speed, in sound and in haptics. The snores, the heartbeat, the coin clinks, the cascade of a banked haul and the CHOMP are all synthesized live in the app. Every warning is shown on screen too, so you can play with the sound off. Sound plays on silent unless you switch that off, and Settings has Sound, Vibration, Lid sensitivity and Reduce motion.
 
 GAME CENTER
 Leaderboards for your Best Haul and the Daily Dungeon, and 12 achievements. It's optional: Hush works fully without signing in.
@@ -269,15 +269,15 @@ Why the other risky items are None or No:
 
 ## 10. Claims, and the code that makes each one true
 
-Checked against the code on Tue 27 Oct 2026 (Round 3). Before submission, Claude (or whoever cuts the release candidate) ticks each line again on that build ("RC"), or changes the copy here, in `review-notes.md`, the site and the press kit. Never the build to match the words.
+Checked against the code on Tue 27 Oct 2026 (Round 3); re-checked on Wed 28 Oct against build 1.0 (4) (rounds 6 to 10, QA-6 P2-6 and P2-7). Before submission, Claude (or whoever cuts the release candidate) ticks each line again on that build ("RC"), or changes the copy here, in `review-notes.md`, the site and the press kit. Never the build to match the words.
 
-| Claim (where) | The code (27 Oct, R3) | RC |
+| Claim (where) | The code (28 Oct, build 4) | RC |
 |---|---|---|
-| Tabletop pose: the raised half is the lid; open slowly to light the loot by depth; drag to the bag; ease shut to bank (shut zone ≤ 110°, held 0.35 s, loot in the bag) | `Tuning.shutZoneAngle` 110, `shutHoldSeconds` 0.35; `lightRamp`, `revealLight`, `grabLight` | [ ] |
+| Tabletop pose: the raised half is the lid; open slowly to light the loot by depth; drag to the bag; ease the lid down to bank (≤ 110°, held 0.35 s, loot in the bag; the app says "Ease the lid down to bank") | `Tuning.shutZoneAngle` 110, `shutHoldSeconds` 0.35; `HushCopy.bankLid`; `lightRamp`, `revealLight`, `grabLight` | [ ] |
 | Too fast = creak, the mimic wakes and bites; a bite costs the bag and **10 s of candle** | `Tuning` bite penalty 10 s; `HeistEvent.biteCost` | [ ] |
 | Coins near the front, gems further back, relics deep (open wide) | `Tuning` copper 0–0.45, silver 0.2–0.6, gem 0.45–0.8, relic 0.80–0.88 depth | [ ] |
 | A fast drag rattles; dropping outside the bag clunks | `Tuning.dragQuietSpeed` 350, `dropNoise` 0.08 | [ ] |
-| Closing fast is noisy too | `Tuning.closeQuietSpeed` 18 (lid noise applies while closing) | [ ] |
+| Closing fast is noisy too | `Tuning.closeQuietSpeed` 28 (R7; lid noise applies while closing, after the 0.08 s `loudOnsetSeconds`) | [ ] |
 | Noise meter on the floor fills/drains; snoring stops and a slow heartbeat starts at Stirring; tongue twitches; red + **"Freeze!"** at Waking | `HushCopy.hint(.freeze)` = "Freeze!"; `FeedbackDirector` heartbeat (slow at Stirring, fast + haptic at Waking) | [ ] |
 | Loot in the bag keeps a little noise in the air (the bag jingle) | `Tuning.jinglePerItem` 0.035 × items, max 0.30 (under Stirring) | [ ] |
 | Name tags; Snorer, Light sleeper, Heavy sleeper, Dreamer (fake twitches) | `MimicNames`, `Tuning` personalities, the lid nameplate's trait line | [ ] |
@@ -291,12 +291,12 @@ Checked against the code on Tue 27 Oct 2026 (Round 3). Before submission, Claude
 | 24 named relics (Moth-Eaten Crown … Idol of the Sleepy God), found once, kept in the **Relic Codex** | `RelicCatalog.all`; `Pages.swift` "Relic Codex" | [ ] |
 | 12 thief ranks, Pickpocket to Mimic Whisperer, by lifetime gold | `ThiefRanks.titles` | [ ] |
 | First Chest: a short lesson (open, grab, freeze, bank); Settings "Replay First Chest" | `App/LessonScript.swift`; `Pages.swift` | [ ] |
-| About two slow strokes per chest; never flat, closed or fast; folding past upright or closing pauses, candle and all | `Tuning.closingAngle` 70 (0.4 s), `tooWideAngle` 172; resume at ≥ 95° held still (`HingeLidSource.canResume`); noise and candle frozen while paused (`ROUND-3.md` decision 2) | [ ] |
-| Loot, meter and warnings on the sharp half; the game shows which half to lift; Settings "Turn the chest round" | `Pages.swift` `turnTitle`; the pose card | [ ] |
-| Other iPhones: an on-screen lever; a Duo never shows it | `ROUND-3.md` decision 4; the scene's lever (no fold) | [ ] |
+| About two slow strokes per chest; never flat, closed or fast; folding past upright or closing pauses, candle and all | `Tuning.closingAngle` 70 (0.4 s), `tooWideAngle` 172; resume at ≥ 92° (released < 88°) held still (`HingeLidSource.canResume`); Carry on / Home after 3 s, the 6 s watchdog; noise and candle frozen while paused (`ROUND-3.md` decision 2) | [ ] |
+| Loot, meter and warnings on the sharp half, drawn the right way up in any orientation; the game shows which half to lift; Settings "Turn the chest round" | `Pages.swift` `turnTitle`; `AppRules.quarterTurns`; lesson step 1 glows the lid half ("Lift this half", `LessonScript` `marksLid`) | [ ] |
+| Other iPhones: an on-screen lever that raises and lowers the lid; a Duo never shows it | `ROUND-3.md` decision 4; the scene's lever (no fold) | [ ] |
 | Creak follows speed in sound and haptics; all sound synthesised live; no audio files | `Feedback/FeelSoundBook.swift`; no audio files in the bundle | [ ] |
 | Every warning also on screen (playable with sound off) | the floor tells (meter, tongue, "Freeze!"), the candle countdown | [ ] |
-| Sound on silent by default, switchable ("Play sound on silent"); Sound and Haptics switches; "Reduce motion" | `Pages.swift` `SettingsView` | [ ] |
+| Sound on silent by default, switchable ("Play sound on silent"); Sound, **Vibration** (Off / Normal / Strong), **Lid sensitivity** (Forgiving / Normal / Careful) and "Reduce motion" | `Pages.swift` `SettingsView`; `AppRules.vibrationTitle`, `sensitivityTitle` | [ ] |
 | 2 leaderboards + 12 achievements report from the build | `App/GameCenterManager.swift`; `achievements.md` | [ ] |
 | No network code, no SDKs | `privacy.md` §3 grep | [ ] |
 

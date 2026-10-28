@@ -1,6 +1,6 @@
 # Hush: Featuring nomination (App Launch)
 
-*Final copy, rewritten Tue 27 Oct 2026 (Round 3) from the code as it is now (the candle; the Hush Chain and golden mimics; the lever on other iPhones; the pause and resume rule). Ready to paste, or pushed by the App Store Connect tool's `nomination` step, which presses Submit. The founder submits it (needs an App Store Connect login: Account Holder, Admin, App Manager or Marketing role).*
+*Final copy, rewritten Tue 27 Oct 2026 (Round 3) from the code as it is now (the candle; the Hush Chain and golden mimics; the lever on other iPhones; the pause and resume rule), and corrected Wed 28 Oct for build 1.0 (4) ("ease the lid down", Carry on). Ready to paste, or pushed by the App Store Connect tool's `nomination` step, which presses Submit. The founder submits it (needs an App Store Connect login: Account Holder, Admin, App Manager or Marketing role).*
 
 ## Timing
 
@@ -26,11 +26,11 @@ If the launch moves to the fallback date (**Tue 15 Dec**, runbook timeline), edi
 | Localizations | leave the auto-selection (English (U.K.), English (U.S.)) | — |
 | In-App Events | none | — |
 | Supplemental Materials | 1. `https://pravegm.github.io/hush/` 2. the teaser post URL (once posted, Thu 26 Nov; add it by editing the nomination) 3. the TestFlight public link (only if you open external testing) | up to 5 URLs |
-| Helpful Details | the block below | **468 / 500** |
+| Helpful Details | the block below | **479 / 500** |
 
 ### Description
 ```
-Hush turns iPhone Duo into a treasure chest, and the chest is a sleeping mimic. Stand the Duo like a little laptop: the raised half is the lid. Open it slowly and candlelight spills in to show the gold; drag the loot into your bag gently, then ease the lid shut to bank it. Too fast, and the lid creaks, the mimic wakes and it bites.
+Hush turns iPhone Duo into a treasure chest, and the chest is a sleeping mimic. Stand the Duo like a little laptop: the raised half is the lid. Open it slowly and candlelight spills in to show the gold; drag the loot into your bag gently, then ease the lid down to bank it. Too fast, and the lid creaks, the mimic wakes and it bites.
 
 It is the first game we know of that scores how slowly you move the hinge. The game reads how fast you move the lid, and the creak in your speaker and your fingers follows it exactly, so being gentle is the whole challenge, and the losing move is the one that is hard on a hinge.
 
@@ -39,14 +39,14 @@ Push-your-luck runs of about two minutes against a burning candle, chests that g
 
 ### Helpful Details
 ```
-Optimized for iPhone Duo: built for tabletop pose on the inner display. iOS blurs one half of the screen when a fold starts, so Hush draws the chest turned round: the loot and warnings stay on the sharp half. Closing or folding past upright pauses the run; it resumes only once the lid is open and still. Public iOS 27.1 hinge API; never asks for flat, closed or fast. A First Chest lesson teaches by doing. All sound synthesized. Also from us: Squish, Brim and Swoop.
+Optimized for iPhone Duo: built for tabletop pose on the inner display. iOS blurs one half of the screen when a fold starts, so Hush draws the chest turned round: the loot and warnings stay on the sharp half. Closing or folding past upright pauses the run; it resumes once the lid is open and still, or on Carry on. Public iOS 27.1 hinge API; never asks for flat, closed or fast. A First Chest lesson teaches by doing. All sound synthesized. Also from us: Squish, Brim and Swoop.
 ```
 
 **Why this copy:**
 - **New hardware first:** the opening line, and "Optimized for iPhone Duo" in Helpful Details (Apple's Duo guidance asks for exactly that phrase).
 - **Unique input:** hinge *speed*, not angle, which `research/01-market.md` found in no other Duo game. Editors look for apps that do something only the new device can.
 - **Craft:** a creak in sound and haptics that follows the hinge exactly; synthesized audio.
-- **Built for the real device:** the blurred-half answer and the pause/resume rule (closing is a pause; it waits for an open, still lid), said plainly; editors look for apps that handle the Duo's quirks.
+- **Built for the real device:** the blurred-half answer and the pause/resume rule (closing is a pause; it waits for an open, still lid, and Carry on and Home appear after 3 s, so it never gets stuck), said plainly; editors look for apps that handle the Duo's quirks.
 - **Kind to the hardware, by design:** the losing move is the rough one. That answers the wear question before an editor asks it.
 - **Replayability:** short runs, the Hush Chain, golden mimics, the Daily Dungeon, the Codex, Game Center.
 - **Reach:** every iPhone plays with the lever. No VoiceOver claim (`accessibility.md`).

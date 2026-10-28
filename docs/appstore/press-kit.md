@@ -8,7 +8,7 @@
 
 ## The pitch (one paragraph)
 
-**Hush turns the iPhone Duo into a treasure chest, and the chest is a sleeping mimic.** Stand the Duo like a little laptop: the raised half is the lid. Open it slowly and candlelight spills in, showing the gold; drag the loot into your bag gently, then ease the lid shut to bank it. Too fast, and the lid creaks, the mimic wakes, and it bites. The game reads how fast you move the hinge, and the creak, in sound and in haptics, follows your exact speed, so being gentle is the whole skill. Coins sit near the front, gems further back and relics deep inside, so every chest asks the same question: open wider, or bank what you have? Your candle burns down while you loot; the chests get richer from Wooden to Royal; banks where the mimic never stirred build a Hush Chain worth up to ×1.5 gold; now and then a golden mimic pays double; and when the candle goes out, the run is over. There's a Daily Dungeon with the same chests for everyone, a Codex of 24 named relics, 12 thief ranks from Pickpocket to Mimic Whisperer, and Game Center. It plays on every other iPhone too, with an on-screen lever. £1.99 / $1.99, no ads, no in-app purchases, no data collected, rated 9+.
+**Hush turns the iPhone Duo into a treasure chest, and the chest is a sleeping mimic.** Stand the Duo like a little laptop: the raised half is the lid. Open it slowly and candlelight spills in, showing the gold; drag the loot into your bag gently, then ease the lid down to bank it. Too fast, and the lid creaks, the mimic wakes, and it bites. The game reads how fast you move the hinge, and the creak, in sound and in haptics, follows your exact speed, so being gentle is the whole skill. Coins sit near the front, gems further back and relics deep inside, so every chest asks the same question: open wider, or bank what you have? Your candle burns down while you loot; the chests get richer from Wooden to Royal; banks where the mimic never stirred build a Hush Chain worth up to ×1.5 gold; now and then a golden mimic pays double; and when the candle goes out, the run is over. There's a Daily Dungeon with the same chests for everyone, a Codex of 24 named relics, 12 thief ranks from Pickpocket to Mimic Whisperer, and Game Center. It plays on every other iPhone too, with an on-screen lever. £1.99 / $1.99, no ads, no in-app purchases, no data collected, rated 9+.
 
 **One-liner:** *Your iPhone Duo is a treasure chest: open the lid slowly, steal the gold, and don't wake the mimic.*
 
@@ -29,9 +29,9 @@
 | **Age rating** | 9+ (mild cartoon peril: the mimic's comic bite) |
 | **Modes** | Run (until the candle burns out, about two minutes) · Daily Dungeon (the same chests for everyone, one scored try a day) · First Chest (the lesson, replayable) |
 | **Features** | Hinge-speed stealth: a slow lid is quiet, a fast lid creaks · loot revealed by how far the lid is open · a noise meter and a mimic that snores, stirs and wakes · four chest tiers, four kinds of mimic and rare golden mimics (they double a chest's gold) · the Hush Chain (sleepy banks in a row pay up to ×1.5) · a candle timer and oil flasks (+6 s) · a 24-relic Codex · 12 thief ranks · Game Center leaderboards (Best Haul, Daily Dungeon) and 12 achievements |
-| **Built for the Duo's screen** | iOS blurs one half of the inner screen for a moment when a fold starts, so Hush draws the chest turned round: the blurring half is the lid and the loot, meters and warnings stay on the sharp half. Folding past upright or closing the Duo pauses the run (candle and noise frozen); it carries on only once the lid is open past upright and still |
+| **Built for the Duo's screen** | iOS blurs one half of the inner screen for a moment when a fold starts, so Hush draws the chest turned round: the blurring half is the lid and the loot, meters and warnings stay on the sharp half. It draws the right way up whichever way iOS turns the screen (portrait or landscape). Folding past upright or closing the Duo pauses the run (candle and noise frozen); it carries on once the lid is open past upright and still, or straight away with **Carry on** (offered after 3 s, next to Home) |
 | **Sound** | Every sound synthesised live in the app (the creak, snores, heartbeat, clinks, CHOMP); no recordings or licensed assets |
-| **Accessibility** | Every sound cue is also on screen (playable with sound off) · Reduce motion (in-app or the iOS setting) · Sound and Haptics switches · dark by design |
+| **Accessibility** | Every sound cue is also on screen (playable with sound off) · Reduce motion (in-app or the iOS setting) · a Sound switch, Vibration (Off / Normal / Strong) and Lid sensitivity (Forgiving / Normal / Careful; the scored Daily always plays Normal) · dark by design |
 | **Privacy** | Data Not Collected. No accounts, no tracking, no third-party SDKs |
 | **Languages** | English |
 | **Size** | ~[XX] MB (fill in from App Store Connect after processing) |
@@ -92,7 +92,7 @@ Plain text, under 150 words, clip link in the first two lines, never attach vide
 >
 > 15-second clip, sound on: [clip link]
 >
-> I'm launching Hush on Tue 1 Dec. Stand the iPhone Duo like a little laptop and the raised half is the lid of a treasure chest, which is a sleeping mimic. Open it slowly to see the gold, drag it into your bag, ease the lid shut. Move the hinge too fast and it creaks, the mimic wakes, and it bites.
+> I'm launching Hush on Tue 1 Dec. Stand the iPhone Duo like a little laptop and the raised half is the lid of a treasure chest, which is a sleeping mimic. Open it slowly to see the gold, drag it into your bag, ease the lid down. Move the hinge too fast and it creaks, the mimic wakes, and it bites.
 >
 > - It reads the hinge's speed, not its angle: being gentle is the skill.
 > - A Daily Dungeon with the same chests for everyone, a 24-relic Codex, Game Center.
@@ -109,7 +109,7 @@ Plain text, under 150 words, clip link in the first two lines, never attach vide
 
 > Hi,
 >
-> Could you add Hush to your iPhone Duo games list? In tabletop pose the raised half is a treasure chest's lid: open it slowly to light the loot, ease it shut to bank it. The game reads how fast the hinge moves, so slow is quiet and fast wakes the mimic.
+> Could you add Hush to your iPhone Duo games list? In tabletop pose the raised half is a treasure chest's lid: open it slowly to light the loot, ease it down to bank it. The game reads how fast the hinge moves, so slow is quiet and fast wakes the mimic.
 >
 > - About two slow strokes per chest; never flat, closed or fast. The loot and warnings stay on the half that doesn't blur when a fold starts.
 > - A First Chest lesson, a Daily Dungeon, a 24-relic Codex, Game Center.
@@ -159,7 +159,7 @@ Plain text, under 150 words, clip link in the first two lines, never attach vide
 
 > Hey,
 >
-> I make Hush: stand your Duo like a little laptop, and the raised half is the lid of a chest with a sleeping mimic inside. Open it slowly, sneak the gold out, ease it shut. It's very watchable from the side: you see the hand, the lid and the screen, and the moment it wakes.
+> I make Hush: stand your Duo like a little laptop, and the raised half is the lid of a chest with a sleeping mimic inside. Open it slowly, sneak the gold out, ease it down. It's very watchable from the side: you see the hand, the lid and the screen, and the moment it wakes.
 >
 > Here's a free code: [promo code] (redeem by [expiry]). No script, no obligation. If you post, a "gifted" tag keeps you right with the platform rules, and caption-free clips are here: [press folder].
 >

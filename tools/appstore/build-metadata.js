@@ -49,7 +49,7 @@ const lbLoc = (n) => ({ name: n, formatterSuffix: ' gold', formatterSuffixSingul
 const phones = ['P1-hero-open', 'P2-freeze', 'P3-bank', 'P4-chain', 'P5-chomp', 'P6-codex'];
 const duo = ['D1-hero-open', 'D2-freeze', 'D3-bank', 'D4-chain', 'D5-chomp', 'D6-codex'];
 const meta = {
-  _comment: 'Generated 27 Oct 2026 (Round 3) from docs/appstore/metadata.md, review-notes.md, achievements.md and featuring-nomination.md (node tools/appstore/build-metadata.js); asc.swift pushes it (tools/appstore/README.md). No personal data: the copyright and the App Review contact are read at run time from Squish (--inherit-from com.pravegm.squish). Achievements synced with Hush/Core/Ranks.swift Achievements.all (R2 titles and thresholds; ids unchanged).',
+  _comment: 'Generated 27 Oct 2026 (Round 3), regenerated 28 Oct 2026 for build 1.0 (4) (QA-6: review notes, R7 copy) from docs/appstore/metadata.md, review-notes.md, achievements.md and featuring-nomination.md (node tools/appstore/build-metadata.js); asc.swift pushes it (tools/appstore/README.md). No personal data: the copyright and the App Review contact are read at run time from Squish (--inherit-from com.pravegm.squish). Achievements synced with Hush/Core/Ranks.swift Achievements.all (R2 titles and thresholds; ids unchanged).',
   bundleId: 'com.pravegm.hush',
   primaryLocale: 'en-GB',
   copyrightHolder: null,

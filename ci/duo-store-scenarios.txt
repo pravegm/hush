@@ -32,7 +32,7 @@
 #   since R7 the casual stirs chest #1 and banks it un-Hushed.
 D1-hero-open|screen=run;mode=run;seed=7;pilot=casual;turn=0;freezeOn=reveal|25|Open the lid. *Slowly.* / Your Duo is the treasure chest.|HUSH-T freeze reveal|tabletop
 D2-freeze|screen=run;mode=run;seed=7;pilot=novice;turn=0;freezeOn=waking|60|It's waking. *Freeze!* / Hold still and it settles.|HUSH-T freeze waking
-D3-bank|screen=run;mode=run;seed=7;pilot=perfect;turn=0;freezeOn=bank;freezeDelay=0.25|60|Ease it shut to *bank*. / Bank before the candle burns out.|HUSH-T event banked value=[1-9]
+D3-bank|screen=run;mode=run;seed=7;pilot=perfect;turn=0;freezeOn=bank;freezeDelay=0.25|60|Ease it down to *bank*. / Bank before the candle burns out.|HUSH-T event banked value=[1-9]
 D4-chain|screen=run;mode=run;seed=7;pilot=perfect;turn=0;freezeAfter=24;freezeOn=bank;freezeDelay=0.6|90|Sleepy banks pay *more*. / Hush Chain: up to ×1.5 gold.|HUSH-T event chainUp count=[0-9]+ multiplier=1\.[2-5]
 D5-chomp|screen=run;mode=run;seed=7;pilot=novice;turn=0;freezeOn=bite|60|Too loud? *CHOMP.* / Lose your bag and 10 seconds.|HUSH-T event bitten
 D6-codex|screen=codex;progress=mid;turn=0|8|Twenty-four relics. One *Codex*. / Daily Dungeon, ranks, Game Center.|HUSH-T canvas

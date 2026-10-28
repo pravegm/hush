@@ -18,7 +18,7 @@ There's no tracking question once you choose "No". For the record, Hush doesn't 
 
 | Thing | Declare? | Why |
 |---|---|---|
-| **Hinge angle and lid speed** | No | Read through the public `onHingeChange` API only to move the chest lid while the game is on screen. Never leaves the phone; the only thing kept (on the phone) is the angle at which the Duo last switched screens, for an on-device diagnostics panel. Apple: "collect" means transmitting data off the device |
+| **Hinge angle and lid speed** | No | Read through the public `onHingeChange` API only to move the chest lid while the game is on screen. Never leaves the phone. Kept **on the phone only**: the diagnostics event log (`Persistence/EventLog.swift`, UserDefaults `hush.diag.events`: the last 80 events, each with its hinge angle, across launches) and the last hand-off and relight angles (`hush.diag.handoff`, `hush.diag.relight`). The policy says so (QA-6 P1-2). Nothing is transmitted; it leaves the device only if the user taps Copy log and pastes it somewhere themselves. Apple: "collect" means transmitting data off the device |
 | **Touches** (dragging loot, the lever) | No | Used live for play only; never stored or sent |
 | **Game Center** (sign-in, leaderboard scores, achievements) | No | Apple collects it under Apple's privacy policy. Apple: "You are not responsible for disclosing data collected by Apple." Hush never sends it anywhere itself |
 | **Crash reports** via iOS "Share With App Developers" | No | Apple-collected and opt-in. We add no crash SDK. *If one is ever added, the label must declare Crash Data first* |
@@ -38,7 +38,7 @@ There's no tracking question once you choose "No". For the record, Hush doesn't 
 | Tracking: `AppTrackingTransparency`, `ATTrackingManager` | none | [ ] |
 | Cloud: `CloudKit`, `NSUbiquitousKeyValueStore` | none | [ ] |
 | Notifications: `UNUserNotificationCenter` | none | [ ] |
-| Hinge angle written to disk (`ProgressStore`, `SettingsStore`, files) | never | [ ] |
+| Hinge angle written to disk | only the diagnostics log (`EventLog` `hush.diag.events`, 80 entries) and `hush.diag.handoff` / `hush.diag.relight`, all UserDefaults on the device; never in `ProgressStore` or `SettingsStore`, never sent | [ ] |
 | Packages in `project.yml` | none (true on 27 Oct) | [ ] |
 | `NS*UsageDescription` keys in `project.yml` | none (true on 27 Oct) | [ ] |
 | `Hush/PrivacyInfo.xcprivacy` in the built app | present | [ ] |
@@ -60,10 +60,13 @@ One-line grep: `URLSession|URLRequest|NWConnection|WKWebView|SFSafari|openURL|Li
 > Nothing. Hush has no sign-up and no login. It contains no advertising, analytics, crash-reporting or tracking code from anyone, and it doesn't ask for your camera, microphone, photos, contacts or location.
 >
 > ## The hinge on iPhone Duo
-> On iPhone Duo, Hush reads how far, and how fast, the phone is opening or closing, only to move the chest lid while you play. That reading never leaves your iPhone and isn't stored.
+> On iPhone Duo, Hush reads how far, and how fast, the phone is opening or closing, only to move the chest lid while you play. That reading never leaves your iPhone.
+>
+> ## The diagnostics log
+> To help fix problems, Hush keeps a short diagnostics log on your iPhone: the last 80 game events (such as a pause, a resume or the screen turning), each with the hinge angle at that moment, and the angles at which the Duo last switched screens. It stays on your iPhone (like the rest of the app's data, it is part of your device backup), it is never sent to us or anyone else, and it is deleted with the app. It leaves your iPhone only if you copy it yourself (Settings > About > hold Version > Copy log) and choose where to paste it.
 >
 > ## What stays on your device
-> Your best hauls, your Daily Dungeon results, the relics in your Codex, your thief rank, your achievements and your settings are saved only on your iPhone. We can't see them. If you delete the app, they're deleted too.
+> Your best hauls, your Daily Dungeon results, the relics in your Codex, your thief rank, your achievements, your settings and the diagnostics log are saved only on your iPhone. We can't see them. If you delete the app, they're deleted too.
 >
 > ## Game Center (optional)
 > If you're signed in to Game Center, your scores and achievements are handled by Apple under Apple's Privacy Policy (apple.com/legal/privacy). We don't receive your Game Center profile.

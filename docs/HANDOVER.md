@@ -46,8 +46,11 @@ slips. So:
 
 ## Please try (10 minutes)
 1. Open it **fully flat**, wiggle it around, then stand it back up. It should keep playing, drawn the right way up.
-2. **Drag a coin into the bag after that.** This is the one thing I couldn't automate: the Duo simulator can't inject
-   touches, though every position checks out by hand and in tests.
+2. **Release gate: with the screen still sideways after step 1** (or holding the Duo like a book), drag a coin into
+   the bag, press and hold the pause coin then tap Resume, scroll Settings and tap Done, and lower the lid until the
+   pause card shows, wait 3 s, tap **Carry on**. Then Copy log (step 5): a `canvas` line must end `k=1` or `k=3`.
+   This is the one thing I couldn't automate: the Duo simulator can't inject touches, though every position checks
+   out by hand and in tests. Full script: runbook §4, step 10.
 3. Play 3 runs. Does careful opening feel fair? Does the creak feel like the hinge?
 4. Close it fully, then reopen. It should carry on with no bite.
 5. If anything gets stuck or feels wrong:
@@ -57,7 +60,15 @@ slips. So:
    The log shows exactly what the app saw: orientation, angles, pauses and the raw hinge trace.
 
 ## Known, in my hands
-- In CI, the landscape drag and Carry-on UI tests can't run on the Duo simulator (its touch injection never reaches
-  the app). They pass or skip on a phone simulator. Your step 2 is the real check.
-- App Store steps after your test are unchanged (runbook §5). The store copy, review notes and screenshots match the
-  build.
+- In CI, the landscape drag and Carry-on UI tests never actually run: the Duo simulator skips them (its touch
+  injection never reaches the app) and the phone job doesn't run the landscape tests. So no automated test has passed
+  a touch on a sideways screen (QA-6 P1-3). Your step 2 is the real check, and a release gate.
+- App Store steps after your test are unchanged (runbook §5).
+- **The docs did NOT match build 4 until 28 Oct** (QA-6 P1-1, P1-2, P2-6, P2-7). The review notes still described the
+  R3 game (a book card, "Play anyway", resume at 95°, speed to 168°) and the privacy policy said the hinge reading
+  "isn't stored", though the on-device diagnostics log keeps the last 80 events with their angles. Both are now
+  rewritten from the code, as are the description ("ease the lid down to bank", Vibration and Lid sensitivity), the
+  site, support page, press kit, social plan, nomination and runbook §4. Before Submit, tick the check tables in
+  `docs/appstore/review-notes.md` and `metadata.md` on the release candidate.
+- The D3 Duo screenshot caption is fixed in `ci/duo-store-scenarios.txt` ("Ease it down to *bank*."). The store set
+  is re-shot after round 11.
