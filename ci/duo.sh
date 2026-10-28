@@ -482,6 +482,17 @@ bad_hints() {
 # open_from_below <θ> (R15): put the hinge at θ coming UP from 5°, so the sim's inner display is lit there (closing, the
 # sim hands the app to its cover display at 62–92°; opening, it relights at ~22°, duo run 40725260104). Before a launch.
 open_from_below() { hinge_sweep 5 6; hinge_wiggle 5 1; hinge_sweep "$1" 2; hinge_set "$1"; }
+# slam_ready <log> (R15b): 0 once the launched run's first chest is open (lidCracked within 5 s) at SLAM_FROM; if the
+# sim's cover display still holds the launch (`cover_up`), up to 60° for the relight (SLAM_FROM=60) and wait again.
+SLAM_FROM=40
+slam_ready() {
+  hinge_wiggle "$SLAM_FROM" 1
+  wait_for "$1" "HUSH-T event lidCracked" 5 && return 0
+  cover_up "$1" || return 1
+  log "the sim's cover display held the launch at ${SLAM_FROM}°: up to 60° for the relight"
+  SLAM_FROM=60; hinge_sweep 60 1.5; hinge_wiggle 60 1
+  wait_for "$1" "HUSH-T event lidCracked" 5
+}
 # dt_lines <log> <l1> <l2>: seconds from line l1 to line l2 by the line clock, or "none".
 dt_lines() {
   local t1 t2
@@ -619,19 +630,22 @@ if [[ " $PASSES " == *" hinge "* ]]; then
   #    happens opening). The retry closes gently to 5° and comes back to 30° first. No open first chest: INCONCLUSIVE.
   #    R15: no prelude: the hinge reaches 30° from below BEFORE the launch (inner display lit), and Play with the lid
   #    up loots the first chest at once (openness 0.2). Not open within 5 s: INCONCLUSIVE (START-OPEN judges that).
-  open_from_below 30
+  #    R15b (run 40775254497: SLAM-CREAK launched at 30° on the still-lit cover display; the relight is at ~22–33°):
+  #    the slam starts at SLAM_FROM = 40° (40 → 160° in 0.4 s, 300°/s physical ≈ 130 lid °/s), and `slam_ready` goes up
+  #    to 60° (SLAM_FROM = 60) when the cover display still holds the launch.
+  SLAM_FROM=40; open_from_below "$SLAM_FROM"
   launch slam "screen=run;mode=run;seed=7;freezeOn=bite" 1
   SM="$OUT_ABS/logs/slam.txt"
-  hinge_wiggle 30 1
-  sfc_ok=0; wait_for "$SM" "HUSH-T event lidCracked" 5 && sfc_ok=1
-  sfc_note="launched at 30° (from below): first chest $( (( sfc_ok )) && echo "open at once (lidCracked@$(first_line "$SM" "HUSH-T event lidCracked" 0))" || echo 'never opened (R15 expects it open at once)')"
+
+  sfc_ok=0; slam_ready "$SM" && sfc_ok=1
+  sfc_note="launched at ${SLAM_FROM}° (from below): first chest $( (( sfc_ok )) && echo "open at once (lidCracked@$(first_line "$SM" "HUSH-T event lidCracked" 0))" || echo 'never opened (R15 expects it open at once)')"
   log "SLAM: $sfc_note"
-  h0=$(nlines "$SM"); hinge_wiggle 30 1; sleep 1.5
+  h0=$(nlines "$SM"); hinge_wiggle "$SLAM_FROM" 1; sleep 1.5
   hl2=$(sed -n "$(( h0 + 1 )),\$p" "$SM" | lid_vals speed | grep -E '^-?[0-9.]+$' | tail -1)
-  result STILL-RUN INFO "last speed 1.5 s into the hold at 30 (real run)=${hl2:-none}"
+  result STILL-RUN INFO "last speed 1.5 s into the hold at ${SLAM_FROM} (real run)=${hl2:-none}"
   attempt=1; froze=""; hit=""; bit=""; peak=none; pn=none; n0=none; ns=""; scov=""
   while (( sfc_ok )); do
-    hinge_wiggle 30 2
+    hinge_wiggle "$SLAM_FROM" 2
     n0=$(head -n "$(nlines "$SM")" "$SM" | lid_vals noise | grep -E '^-?[0-9.]+$' | tail -1)
     s0=$(nlines "$SM")
     hinge_sweep 160 0.4
@@ -650,12 +664,12 @@ if [[ " $PASSES " == *" hinge "* ]]; then
     { [[ "$peak" == none ]] || lt "$peak" "$SLAM_MIN_PEAK" || [[ -n "$scov" ]]; } || break
     (( attempt >= 2 )) && break
     attempt=2
-    log "SLAM: peak ${peak} lid°/s (line ${SLAM_MIN_PEAK}), no hit${scov:+, the sim cover display took over}: close gently to 5°, back to 30° and slam again"
-    hinge_sweep 5 6; hinge_wiggle 5 1; hinge_sweep 30 3
+    log "SLAM: peak ${peak} lid°/s (line ${SLAM_MIN_PEAK}), no hit${scov:+, the sim cover display took over}: close gently to 5°, back to ${SLAM_FROM}° and slam again"
+    hinge_sweep 5 6; hinge_wiggle 5 1; hinge_sweep "$SLAM_FROM" 3
     sleep 1
   done
   rise=$(awk -v a="${n0:-0}" -v b="$pn" 'BEGIN { if (b !~ /^-?[0-9.]+$/) print "none"; else printf "%.2f\n", b - (a ~ /^-?[0-9.]+$/ ? a : 0) }')
-  d="$sfc_note; attempt $attempt/2; slam 30 → 160° in 0.4 s; peakSpeed=${peak} lid°/s (hinge × 0.4333); slam samples: $ns; noise ${n0:-none} -> $pn (rise $rise); first: ${hit:-none}; bite: ${bit:-none}; $froze${scov:+; cover: $scov}"
+  d="$sfc_note; attempt $attempt/2; slam ${SLAM_FROM} → 160° in 0.4 s; peakSpeed=${peak} lid°/s (hinge × 0.4333); slam samples: $ns; noise ${n0:-none} -> $pn (rise $rise); first: ${hit:-none}; bite: ${bit:-none}; $froze${scov:+; cover: $scov}"
   # R7 (real hands: closing quiet 28 deg/s, 0.08 s onset): a sim slam (the tool's peak is ~80 deg/s) may only stir;
   # it must still register as clearly too loud (noise rise >= 0.35, i.e. Stirring).
   if (( ! sfc_ok )); then result SLAM INCONCLUSIVE "$sfc_note (no open chest to slam: START-OPEN judges the first chest)"
@@ -678,15 +692,15 @@ if [[ " $PASSES " == *" hinge "* ]]; then
   #     slam. FAIL: no creak line although the logged noise rose > 0.25 over 3 lid samples. INFO otherwise (no line,
   #     no measurable jump: the App hook or the attract noise may be missing).
   #     R13: the same slam as SLAM, 160 → 20° in 0.4 s from an open start at 160°. R14: as SLAM, `open_first_chest` to
-  #     30°, then the opening slam 30 → 160° in 0.4 s; no open first chest: INCONCLUSIVE. R15: as SLAM, launched at 30°
-  #     (reached from below): the first chest loots at once, no prelude.
-  open_from_below 30
+  #     30°, then the opening slam 30 → 160° in 0.4 s; no open first chest: INCONCLUSIVE. R15: as SLAM, launched at
+  #     SLAM_FROM (40°, reached from below; `slam_ready`): the first chest loots at once, no prelude.
+  SLAM_FROM=40; open_from_below "$SLAM_FROM"
   launch slam-creak "screen=run;mode=attract;seed=7;freezeOn=creak" 1
   SK="$OUT_ABS/logs/slam-creak.txt"
-  hinge_wiggle 30 1
-  kfc_ok=0; wait_for "$SK" "HUSH-T event lidCracked" 5 && kfc_ok=1
-  kfc_note="launched at 30° (from below): first chest $( (( kfc_ok )) && echo 'open at once' || echo 'never opened (R15 expects it open at once)')"
-  hinge_wiggle 30 1; sleep 1.5; hinge_wiggle 30 1
+
+  kfc_ok=0; slam_ready "$SK" && kfc_ok=1
+  kfc_note="launched at ${SLAM_FROM}° (from below): first chest $( (( kfc_ok )) && echo 'open at once' || echo 'never opened (R15 expects it open at once)')"
+  hinge_wiggle "$SLAM_FROM" 1; sleep 1.5; hinge_wiggle "$SLAM_FROM" 1
   k0=$(nlines "$SK")
   hinge_sweep 160 0.4
   if wait_for "$SK" "HUSH-T (freeze creak|event creak|creak )" 3; then shoot_now duo-h2c-slam-creak; got="creak line seen"
@@ -1175,8 +1189,10 @@ if [[ " $PASSES " == *" hinge "* ]]; then
     result START-OPEN FAIL "$d; the first chest never opened with the phone up at 150° (R15: open at Play = open chest)"
   elif [[ -n "$sbad" ]]; then
     result START-OPEN FAIL "$d; bad hint (R15: easeLidDown is never produced): $sbad"
-  elif [[ -n "$sph" && "$sph" != *phase=looting* ]]; then
-    result START-OPEN FAIL "$d; the first chest did not start looting"
+  elif [[ -n "$sph" && "$sph" != *phase=looting* ]] && ! le "$(echo "$sph" | grep -oE "openness=[0-9.]+" | cut -d= -f2)" 0.05; then
+    # R15b (run 40775254497): the line is the first STEP, often before the first hinge report (`openness=0.00`, a
+    # still lid never seen); only an open lid there (> 0.05) must already be looting.
+    result START-OPEN FAIL "$d; the first chest did not start looting although its first step read the lid open"
   elif num "$sdt" && ! le "$sdt" "$slim"; then
     result START-OPEN FAIL "$d; lidCracked ${sdt} s after the run started (> ${SO_LIMIT} s)"
   elif ! num "$sdt" && ! le "$snl" "$snlim"; then
