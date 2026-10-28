@@ -1,35 +1,34 @@
-# Hush App Store frames, iPhone sets (docs/appstore/screenshots.md §B, Round 3 plan, 27 Oct).
+# Hush App Store frames, iPhone sets (docs/appstore/screenshots.md §B). R15 set (28 Oct 2026): ten frames.
 # Run by .github/workflows/store.yml: ci/store-capture.sh phone → ci/screenshots.sh (SCENARIOS=this file,
 # SCENARIO_FILTER='^P[0-9]', WAIT_FREEZE=1) on the iPhone 18 Pro Max (6.9", 1320 x 2868) and the iPhone 18 Pro (6.3",
 # 1206 x 2622, or 1179 x 2556), then ci/store-set.sh captions them (ci/store-frame.swift) into <set>/store/ with a
 # MANIFEST. The Duo set lives in ci/duo-store-scenarios.txt. File names are the ones tools/appstore/build-metadata.js
-# and screenshots.md expect (P1-hero-open … P6-codex): rename here and there together.
+# and screenshots.md expect (P01-hero-open … P10-results; two digits so a name sort is the upload order): rename here
+# and there together.
 #
 # Same format as ci/duo-store-scenarios.txt: name|demo args|wait|caption|expect|frame.
-#  - frame tabletop:<Duo name> = the tabletop composite of that Duo capture (raw-duo/store-<name>.png). P1's own
-#    capture here is only the fallback when the Duo capture is missing (then P1 is FLAGGED: frame 1 must be the Duo).
+#  - frame tabletop:<Duo name> = the tabletop composite of that Duo capture (raw-duo/store-<name>.png). P01's own
+#    capture here is only the fallback when the Duo capture is missing (then P01 is FLAGGED: frame 1 must be the Duo).
 #  - No fold on a phone, so the lever is drawn and the app speaks the lever's words (ROUND-3 decision 4); the workflow
-#    requires an unfolded canvas (REQUIRE_CANVAS 'fold=0') in every iPhone log. No Duo-only line appears in a capture.
+#    requires an unfolded canvas (REQUIRE_CANVAS 'fold=0') in every iPhone log. No Duo-only line appears in a capture
+#    (the cover-display intro is a Duo-only frame: P02 is Home's three lever rules instead).
 #  - Six words max per headline and per sub-line; `*word*` is the one swash word; candle, never torch; "Freeze!".
+# History: R4 freezeDelay 0.25 (bank) / 0.6 (chain); R10 P05 (was P3) uses the perfect pilot (its first bank is
+#   "Hushed! BANKED +197 / Hush Chain ×1.1"). R15: the set is re-shot for the phone-is-the-chest copy (Home's three
+#   rules, no forced lesson) and grows to ten frames.
 
-# ---- iPhone 6.9" (1320 x 2868) and 6.3" (1206 x 2622): six frames ------------------------------------------------
-# R4 (store1 frames, design/notes/ci-R4.md): P3/D3 and P4/D4 froze 1.25 s after the bank + 0.4 s scene hold, past the
-#   whole bank group (0.15–1.15 s), so the frame was a black interior and nothing else. freezeDelay=0.25 (bank: the
-#   toast and the loot in flight) and 0.6 (chain: "Hush Chain ×1.3" up) land on the moment. PR1/DR1: `ready` is never
-#   seen after a bank, so they freeze 1.75 s after bank #2 (0.35 s into the golden chest #3, banner up); "Double gold"
-#   became "Extra gold" (R4 App: the seal shows the real total multiplier, ×3 on an Iron-bound golden; screenshots.md
-#   to follow, design/NEEDS.md CI R4).
-# R10 (design/VISUAL-REGRESSION-R9.md R2): P3 uses the perfect pilot. Since R7's realistic hands the casual stirs chest
-#   #1 and banks it un-Hushed (BANKED +179, STIRRING, no chain); the perfect's first bank is "Hushed! BANKED +197 /
-#   Hush Chain ×1.1" (ci17s logs/37: banked value=197 items=6 hushed=1, chainUp 1.10), the store beat it was.
-P1-hero-open|screen=run;mode=run;seed=7;pilot=casual;freezeOn=reveal|25|Open the lid. *Slowly.* / Any iPhone. Best on iPhone Duo.|HUSH-T freeze reveal|tabletop:D1-hero-open
-P2-freeze|screen=run;mode=run;seed=7;pilot=novice;freezeOn=waking|60|It's waking. *Freeze!* / Hold still and it settles.|HUSH-T freeze waking
-P3-bank|screen=run;mode=run;seed=7;pilot=perfect;freezeOn=bank;freezeDelay=0.25|60|Slide it down to *bank*. / Bank before the candle burns out.|HUSH-T event banked value=[1-9]
-P4-chain|screen=run;mode=run;seed=7;pilot=perfect;freezeAfter=24;freezeOn=bank;freezeDelay=0.6|90|Sleepy banks pay *more*. / Hush Chain: up to ×1.5 gold.|HUSH-T event chainUp count=[0-9]+ multiplier=1\.[2-5]
-P5-chomp|screen=run;mode=run;seed=7;pilot=novice;freezeOn=bite|60|Too loud? *CHOMP.* / Lose your bag and 10 seconds.|HUSH-T event bitten
-P6-codex|screen=codex;progress=mid|6|Twenty-four relics. One *Codex*. / Daily Dungeon, ranks, Game Center.|HUSH-T canvas
+# ---- iPhone 6.9" (1320 x 2868) and 6.3" (1206 x 2622): ten frames ------------------------------------------------
+# P03: freezeAfter=3.25 lands inside the casual pilot's first gem drag (R11 log: itemPicked ~3.1 s, itemBagged ~3.4 s).
+P01-hero-open|screen=run;mode=run;seed=7;pilot=casual;freezeOn=reveal|25|Open the chest. *Slowly.* / Any iPhone. Best on iPhone Duo.|HUSH-T freeze reveal|tabletop:D01-hero-open
+P02-rules|screen=home;progress=fresh|6|Learn it in *three* lines. / No tutorial to sit through.|HUSH-T canvas
+P03-loot|screen=run;mode=run;seed=7;pilot=casual;freezeAfter=3.25|25|Drag the loot to your *bag*. / Slowly: quick hands make noise.|HUSH-T event itemPicked
+P04-freeze|screen=run;mode=run;seed=7;pilot=novice;freezeOn=waking|60|It's waking. *Freeze!* / Keep still and it settles.|HUSH-T freeze waking
+P05-bank|screen=run;mode=run;seed=7;pilot=perfect;freezeOn=bank;freezeDelay=0.25|60|Slide it down to *bank*. / Bank before the candle burns out.|HUSH-T event banked value=[1-9]
+P06-chomp|screen=run;mode=run;seed=7;pilot=novice;freezeOn=bite|60|Too loud? *CHOMP.* / Lose your bag and 10 seconds.|HUSH-T event bitten
+P07-chain|screen=run;mode=run;seed=7;pilot=perfect;freezeAfter=24;freezeOn=bank;freezeDelay=0.6|90|Sleepy banks pay *more*. / Hush Chain: up to ×1.5 gold.|HUSH-T event chainUp count=[0-9]+ multiplier=1\.[2-5]
+P08-relic|screen=run;mode=run;seed=7;pilot=expert;skipTo=25;freezeOn=relic;freezeDelay=1.7|120|Open wide for *relics*. / The best loot sits deepest.|HUSH-T event relicFound
+P09-codex|screen=codex;progress=mid|6|Twenty-four relics. One *Codex*. / Daily Dungeon, ranks, Game Center.|HUSH-T canvas
+P10-results|screen=results;seed=7;progress=mid;pilot=casual|10|One more *chest*? / No ads. No in-app purchases.|HUSH-T run gold=
 
 # reserves (phone): not captured by default; run them with a filter like '^(P[0-9]|PR)'.
 PR1-golden|screen=run;mode=run;seed=7;pilot=expert;golden=1;freezeAfter=13;freezeOn=bank;freezeDelay=1.75|60|A golden mimic. *Extra* gold. / But it sleeps lighter.|event chestArrived .*golden=1
-PR2-relic|screen=run;mode=run;seed=7;pilot=expert;skipTo=25;freezeOn=relic;freezeDelay=1.7|120|Open wide for *relics*. / The best loot sits deepest.|HUSH-T event relicFound
-PR3-results|screen=results;seed=7;progress=mid;pilot=casual|10|One more *chest*? / No ads. No in-app purchases.|HUSH-T run gold=

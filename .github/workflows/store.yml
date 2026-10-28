@@ -14,7 +14,11 @@ name: App Store screenshots
 #  • assemble: captions every set with ci/store-set.sh + ci/store-frame.swift. D1 (a real Duo inner capture) becomes the
 #    tabletop composite that is frame 1 of EVERY set, so this job waits for both capture jobs. Artifacts, laid out as
 #    tools/appstore/build-metadata.js and asc.yml expect: store-69 (store/P*.png), store-61 (store/P*.png), store-duo
-#    (duo-screens/store/D*.png), each store/ with MANIFEST.txt / MANIFEST.tsv and _flagged/.
+#    (duo-screens/store/D*.png), each store/ with MANIFEST.txt / MANIFEST.tsv and _flagged/. R15: also store-placements
+#    (header-3840x1646.png, search-3840x2560.png: the optional product page header and search results art, drawn from
+#    D01 by ci/store-placements.sh). R15 sets: ten frames each (P01–P10, D01–D10); the Duo's D02-play is the outer
+#    screen's intro, captured by a second Duo pass with the hinge shut (STORE_ANGLE=0, 1398 x 2034) and framed in the
+#    inner-display slot. One command re-shoots everything: `gh workflow run store.yml --ref main`.
 # One bad frame never fails the run: it is listed in its MANIFEST (and the run summary) as MISSING, FLAGGED, FAILED or
 # REJECTED (a caption with a banned word, e.g. "torch": no frame is made). Upload only store/*.png, never _flagged/.
 on:
@@ -255,7 +259,28 @@ jobs:
           UDID: ${{ steps.sim.outputs.udid }}
           FILTER: ${{ inputs.duo_filter }}
           ORIENT: portrait
-        run: bash ci/store-capture.sh duo raw-duo ci/duo-store-scenarios.txt "$FILTER" "2007x2853"
+        # R15: the `cover` lines (the outer screen's intro) are captured by the next step, with the hinge shut.
+        run: |
+          grep -vE '\|cover[[:space:]]*$' ci/duo-store-scenarios.txt > "$RUNNER_TEMP/duo-inner.txt"
+          bash ci/store-capture.sh duo raw-duo "$RUNNER_TEMP/duo-inner.txt" "$FILTER" "2007x2853"
+
+      # R15: phone shut, the outer (cover) display shows the intro: wordmark, mimic, the three rules and Play. The same
+      # store pass with the hinge at 0° (STORE_ANGLE): ci/duo.sh keeps the lit panel, the cover, at 1398 x 2034.
+      - name: Capture the Duo cover-display intro (hinge shut)
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        continue-on-error: true
+        timeout-minutes: 20
+        env:
+          UDID: ${{ steps.sim.outputs.udid }}
+          FILTER: ${{ inputs.duo_filter }}
+          ORIENT: portrait
+          STORE_ANGLE: "0"
+        run: |
+          grep -E '\|cover[[:space:]]*$' ci/duo-store-scenarios.txt > "$RUNNER_TEMP/duo-cover.txt" || true
+          [ -f raw-duo/capture-report.txt ] && cp raw-duo/capture-report.txt raw-duo/capture-report-inner.txt
+          bash ci/store-capture.sh duo raw-duo "$RUNNER_TEMP/duo-cover.txt" "$FILTER" "1398x2034"
+          [ -f raw-duo/capture-report.txt ] && mv raw-duo/capture-report.txt raw-duo/capture-report-cover.txt
+          true
 
       - name: Upload the Duo captures
         if: always()
@@ -367,6 +392,22 @@ jobs:
           TABLETOP_DIR: raw-duo
           REQUIRE_CANVAS: "fold=0"
         run: bash ci/store-set.sh raw-61 'iPhone 6.3-inch (1206 x 2622)' "1206x2622 1179x2556" ci/store-scenarios.txt "$FILTER"
+
+      # R15: the optional product page header (3840 x 1646) and search results art (3840 x 2560) from D01's clean
+      # Duo capture (ci/store-placements.sh, ci/store-frame.swift --banner). asc.yml places them from placements_run.
+      - name: Draw the product page header and search results art
+        if: always()
+        continue-on-error: true
+        timeout-minutes: 15
+        run: bash ci/store-placements.sh raw-duo store-placements
+
+      - name: Upload store-placements
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: store-placements
+          path: store-placements/
+          if-no-files-found: ignore
 
       - name: Lay out the upload artifacts
         # tools/appstore/build-metadata.js reads store-69/store/<name>.png, store-61/store/<name>.png and

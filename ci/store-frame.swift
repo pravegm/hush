@@ -138,9 +138,30 @@ let edgeDark: UInt32 = 0x0C0E11      // the floor half's front edge
 /// A top-left-origin rect → Core Graphics' bottom-left origin.
 func cg(_ r: CGRect) -> CGRect { CGRect(x: r.minX, y: H - r.maxY, width: r.width, height: r.height) }
 
+// R15 (founder: "the header and all as per requirement"): `--banner header|search` lays the same caption system and
+// the same tabletop Duo out for Apple's optional creative assets (App Store Connect Help, "Creative assets
+// specifications"): the product page header 21:9 (3840 x 1646) and the search results art 3:2 (3840 x 2560).
+// header: the words in a column on the left, the Duo on the right, both inside the area an iPhone shows (about 8 % is
+//   lost per side under the back/share buttons) and the device's centre near the template's safe area.
+// search: one headline line and the sub-line across the top, the Duo big and centred under it.
+let bannerKind = (options["banner"] ?? "").lowercased()
+if !bannerKind.isEmpty && bannerKind != "header" && bannerKind != "search" { fail("--banner is header or search") }
+
 // Top-left-origin boxes for the caption and the picture.
-let band = CGRect(x: W * 0.06, y: H * 0.030, width: W * 0.88, height: H * 0.185)
-let pictureBox = CGRect(x: W * 0.04, y: H * 0.235, width: W * 0.92, height: H * 0.735)
+let band: CGRect = {
+    switch bannerKind {
+    case "header": return CGRect(x: W * 0.11, y: H * 0.20, width: W * 0.36, height: H * 0.60)
+    case "search": return CGRect(x: W * 0.06, y: H * 0.045, width: W * 0.88, height: H * 0.19)
+    default: return CGRect(x: W * 0.06, y: H * 0.030, width: W * 0.88, height: H * 0.185)
+    }
+}()
+let pictureBox: CGRect = {
+    switch bannerKind {
+    case "header": return CGRect(x: W * 0.49, y: H * 0.05, width: W * 0.40, height: H * 0.90)
+    case "search": return CGRect(x: W * 0.08, y: H * 0.255, width: W * 0.84, height: H * 0.715)
+    default: return CGRect(x: W * 0.04, y: H * 0.235, width: W * 0.92, height: H * 0.735)
+    }
+}()
 
 // MARK: Background
 
@@ -615,9 +636,10 @@ func roundedFont(_ size: CGFloat, _ weight: NSFont.Weight) -> CTFont {
 }
 
 // Portrait: the type follows the width (cap height 7.2 % of W, shrinking in 5 % steps to a 4.6 % floor).
-let capStart = W * 0.072
-let capFloor = W * 0.046
-let maxHeadLines = 2
+// R15 banners: the type follows the band's height (header: a big wordmark-sized headline; search: one line).
+let capStart: CGFloat = bannerKind == "header" ? H * 0.17 : (bannerKind == "search" ? H * 0.072 : W * 0.072)
+let capFloor: CGFloat = bannerKind == "header" ? H * 0.07 : (bannerKind == "search" ? H * 0.04 : W * 0.046)
+let maxHeadLines = bannerKind == "search" ? 1 : 2
 let maxSubLines = 2
 
 var reportCap: CGFloat = 0
@@ -704,6 +726,7 @@ guard let flat = ctx.makeImage(),
 CGImageDestinationAddImage(destination, flat, nil)
 guard CGImageDestinationFinalize(destination) else { fail("cannot write \(output)") }
 let capPercent = String(format: "%.1f", Double(reportCap / W * 100))
-print("store-frame: \(output) \(width)x\(height) mode=\(tabletopMode ? "tabletop" : "flat") layout=top "
+let layoutName = bannerKind.isEmpty ? "top" : "banner-\(bannerKind)"
+print("store-frame: \(output) \(width)x\(height) mode=\(tabletopMode ? "tabletop" : "flat") layout=\(layoutName) "
       + "cap=\(capPercent)%W lines=\(reportLines) font=\(reportFont.isEmpty ? "-" : reportFont) "
       + "rounded=\(usedRounded ? "yes" : "no")" + tabletopReport)

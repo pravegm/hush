@@ -22,6 +22,9 @@
 #                      iPhone sets use this for frame 1 (D1's Duo capture). If that capture is missing or not
 #                      $TABLETOP_SOURCE_SIZE, the frame falls back to this set's own flat capture and is FLAGGED.
 #   A tabletop frame is made at the set's own raw size if that is a slot size, else at the first slot size.
+#   cover            (R15) a Duo cover-display capture ($COVER_SIZE, default 1398x2034: the outer screen's intro with
+#                    Play), drawn unaltered and scaled to fit under the caption at the first slot size; its log's last
+#                    canvas must match $COVER_REQUIRE (default 466x678) instead of $REQUIRE_CANVAS.
 #
 # Checks per frame, against the app log snapshotted at capture (logs/<prefix><name>.at-capture.txt, else .txt; for a
 # tabletop:<name> frame, the source capture's log): "HUSH-T demo '…' starts"; "HUSH-T freeze <tag>" for freezeOn=<tag>
@@ -57,6 +60,8 @@ TABLETOP_REQUIRE="${TABLETOP_REQUIRE:-669x951 fold=1}"
 TABLETOP_ANGLE="${TABLETOP_ANGLE:-125}"
 TABLETOP_ELEVATION="${TABLETOP_ELEVATION:-28}"
 STORE_ROTATE="${STORE_ROTATE:-}"
+COVER_SIZE="${COVER_SIZE:-1398x2034}"
+COVER_REQUIRE="${COVER_REQUIRE:-466x678}"
 FIRST_SIZE="${SIZES%% *}"
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -253,7 +258,9 @@ while IFS= read -r -u 3 line || [[ -n "$line" ]]; do
     fi
   fi
 
-  if [[ "$mode" == flat && ! -f "$raw" ]]; then
+  # R15: a cover-display capture (the Duo shut: the outer screen's intro), scaled to fit this set's slot, unaltered.
+  [[ "$frame" == cover ]] && mode=cover
+  if [[ "$mode" != tabletop && ! -f "$raw" ]]; then
     row "$name.png" - no - MISSING "$mode" "$caption" "no capture $PREFIX$name.png (launch or screenshot failed; see the capture log)"
     warn "$name MISSING (no capture)"
     missing=$((missing + 1))
@@ -267,10 +274,22 @@ while IFS= read -r -u 3 line || [[ -n "$line" ]]; do
   # capture: this set's REQUIRE_CANVAS (the iPhone's unfolded canvas) doesn't apply to it, only TABLETOP_REQUIRE.
   if [[ "$mode" == tabletop && "$frame" == tabletop:* ]]; then check_log "$srclog" "$srcargs" "$srcexpect" "$TABLETOP_REQUIRE"
   elif [[ "$mode" == tabletop ]]; then check_log "$srclog" "$srcargs" "$srcexpect" "$REQUIRE_CANVAS" "$TABLETOP_REQUIRE"
+  elif [[ "$mode" == cover ]]; then check_log "$srclog" "$srcargs" "$srcexpect" "$COVER_REQUIRE"
   else check_log "$srclog" "$srcargs" "$srcexpect" "$REQUIRE_CANVAS"; fi
 
   # Output size.
-  if [[ "$mode" == tabletop ]]; then
+  if [[ "$mode" == cover ]]; then
+    rinfo=$(png_info "$raw"); rawdims="${rinfo%% *}"
+    if [[ "$rawdims" != "$COVER_SIZE" ]]; then
+      why="raw capture is $rawdims, not the Duo cover display $COVER_SIZE (the inner display was lit, or the hinge never shut): not framed"
+      row "$name.png" "$rawdims" no - FLAGGED "$mode" "$caption" "$why"
+      warn "$name: $why"
+      flagged=$((flagged + 1))
+      continue
+    fi
+    outsize="$FIRST_SIZE"
+    notes+=("cover display $COVER_SIZE scaled to fit $FIRST_SIZE")
+  elif [[ "$mode" == tabletop ]]; then
     outsize="$FIRST_SIZE"
     if [[ -f "$raw" ]]; then rinfo=$(png_info "$raw"); is_slot "${rinfo%% *}" && outsize="${rinfo%% *}"; fi
     notes+=("tabletop from $(basename "$src") at ${TABLETOP_ANGLE}°")
