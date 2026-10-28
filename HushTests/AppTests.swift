@@ -789,11 +789,12 @@ struct PauseRuleTests {
         #expect(ClosingCard.title(lifted: true) == "Hold still…")
         #expect(ClosingCard.detail(lifted: false).contains("candle"))
         #expect(CoverCard.title(midRun: true) == "Open the phone slowly")
-        // R14 (UX audit A, E): shorter; shut on Home, opening the phone starts the run, and the card gives the rules.
         #expect(CoverCard.detail(midRun: true) == "The chest opens with the phone. Your candle waits.")
-        #expect(CoverCard.title(midRun: false) == "Open slowly to play")
-        #expect(CoverCard.detail(midRun: false)
-                == "The chest opens with the phone. Drag loot to your bag, then close the phone to bank it.")
+        // R15 (founder, build 9): outside a run the cover card is the intro (the rules and Play); opening the phone no
+        // longer starts a run by itself, so its line says Play first.
+        #expect(CoverCard.title(midRun: false) == "Don't wake the mimic")
+        #expect(CoverCard.detail(midRun: false) == "Press Play, then open the phone slowly.")
+        #expect(CoverCard.playLabel == "Play")
         // R14: the run's first chest, closed to start, gives the three rules; a later fresh chest keeps its words.
         #expect(ClosingCard.title(lifted: false, fresh: true, first: true) == "Open slowly. Don't wake it.")
         #expect(ClosingCard.detail(lifted: false, fresh: true, first: true)
@@ -3884,12 +3885,62 @@ struct R12Tests {
     @Test func theRunStartBannerFollowsTheLid() {
         #expect(GameController.startBanner(.run) == "Candle lit. Open it gently.")
         #expect(GameController.startBanner(.run, lidOpen: false) == "Candle lit. Open it gently.")
-        // R14: with the phone open at the start the chest waits for a close (the hint says so): no "candle lit".
-        #expect(GameController.startBanner(.run, lidOpen: true) == "Shh… a sleeping mimic.")
+        // R15 (founder, build 9): with the phone open at Play the chest is open at once: the candle is lit, and the
+        // banner never says "open" to an open phone.
+        #expect(GameController.startBanner(.run, lidOpen: true) == "Candle lit. Gently does it.")
         #expect(!(GameController.startBanner(.run, lidOpen: true) ?? "").lowercased().contains("open"))
         #expect(HushCopy.wordCount(GameController.startBanner(.run, lidOpen: true) ?? "") <= 6)
         #expect(GameController.startBanner(.attract, lidOpen: true) == nil)
         #expect(GameController.startBanner(.lesson, lidOpen: true) == nil)
+    }
+
+    /// R15 (founder, build 9: "as a first time user i will have zero clue as to how this game works"): the whole game
+    /// in three lines, the same on the cover intro and on Home. The Duo's lines name the phone (never a "lid"); the
+    /// lever's name the lever.
+    @Test func howToPlayIsThreeLines() {
+        let duo = HowToPlay.lines(slider: false)
+        let lever = HowToPlay.lines(slider: true)
+        #expect(duo.count == 3)
+        #expect(lever.count == 3)
+        #expect(duo == ["Open the phone slowly. The chest opens with it.",
+                        "Drag the loot into your bag.",
+                        "Close the phone to bank it. Don't wake the mimic."])
+        #expect(lever == ["Slide the lever up slowly. The chest opens with it.",
+                          "Drag the loot into your bag.",
+                          "Slide it back down to bank it. Don't wake the mimic."])
+        for line in duo {
+            #expect(!line.lowercased().contains("lid"), "\(line)")
+            #expect(!line.lowercased().contains("lever"), "\(line)")
+            #expect(!line.lowercased().contains("torch"), "\(line)")
+        }
+        #expect(duo.filter { $0.lowercased().contains("phone") }.count == 2)
+        #expect(lever[0].lowercased().contains("lever"))
+        for line in lever {
+            #expect(!line.lowercased().contains("phone"), "\(line)")
+            #expect(!line.lowercased().contains("lid"), "\(line)")
+            #expect(!line.lowercased().contains("torch"), "\(line)")
+        }
+        // Open, loot, bank: the order of the game, and the mimic last.
+        #expect(duo[0].lowercased().hasPrefix("open"))
+        #expect(duo[1].lowercased().contains("bag"))
+        #expect(duo[2].lowercased().contains("bank"))
+        #expect(duo[2].hasSuffix("Don't wake the mimic."))
+        #expect(lever[2].lowercased().contains("bank"))
+        #expect(lever[2].hasSuffix("Don't wake the mimic."))
+        // The cover intro: its title, its Play and the line under Play; mid-run the card keeps its R13 words.
+        #expect(CoverCard.title(midRun: false) == "Don't wake the mimic")
+        #expect(CoverCard.detail(midRun: false) == "Press Play, then open the phone slowly.")
+        #expect(CoverCard.playLabel == "Play")
+        #expect(CoverCard.title(midRun: true) == "Open the phone slowly")
+        #expect(CoverCard.detail(midRun: true) == "The chest opens with the phone. Your candle waits.")
+        #expect(!CoverCard.title(midRun: false).lowercased().contains("open"))
+        #expect(!CoverCard.detail(midRun: false).lowercased().contains("lid"))
+        // Home teaches the rules for the first three runs, then the one-line caption.
+        #expect(HomeView.teachesRules(runs: 0))
+        #expect(HomeView.teachesRules(runs: 1))
+        #expect(HomeView.teachesRules(runs: 2))
+        #expect(!HomeView.teachesRules(runs: 3))
+        #expect(!HomeView.teachesRules(runs: 50))
     }
 
     @Test func homeTeachesTheOpeningOnlyWhileClosed() {
@@ -4074,15 +4125,12 @@ struct R12Tests {
         #expect(DemoBagPlan.bagPoint.y >= FloorSpace.bagMinY)
     }
 
-    /// R14: a run started with the phone open waits for the close ("Close the phone to start"). This closes it
-    /// (150 → 2° in 4 s: 16°/s on the lid's scale; the closing pause over the first chest) and reopens it at 25°/s of
-    /// hinge (≈ 11°/s on the lid's scale, under the 14°/s quiet line) into the open first chest.
+    /// R14 closed and reopened the phone here (the first chest waited for a close). R15 (founder, build 9: "it does
+    /// not make sense that my duo is open, i click play and the game thinks its closed"): with the phone open at Play
+    /// the first chest is open at once, so this only lets it settle with the phone held where it is.
     @discardableResult
-    private func openFirstChest(_ hand: DuoHand, to target: Double = 150) -> [HeistEvent] {
-        var out = hand.move(to: 2, seconds: 4) + hand.hold(0.8)
-        out += hand.move(to: target, seconds: max((target - 2) / 25, 0.5))
-        out += hand.hold(0.4)
-        return out
+    private func openFirstChest(_ hand: DuoHand) -> [HeistEvent] {
+        hand.hold(0.4)
     }
 
     /// R14 (founder: "the game also feels super complicated"): a first launch (no lesson yet, no demo) opens on Home,
@@ -4098,13 +4146,13 @@ struct R12Tests {
         done(c)
     }
 
-    // MARK: R14: every run-start path with the phone open waits for the close, then opens with the phone
+    // MARK: R15: every run-start path with the phone open opens the first chest at once
 
-    /// R14 (founder: "playing starts with the chest closed right? so ask the user to close the phone if it is not to
-    /// start playing, then the chest should open as the phone opens"). Inverts R12 rule 2 ("a run started with the lid
-    /// up opens at once"): the first chest stays closed (`.ready`, no crack, the candle unburnt) and the plate says
-    /// "Close the phone to start", never "open"; after a close and a reopen it opens with the phone.
-    @Test func everyRunStartWithThePhoneOpenWaitsForTheClose() {
+    /// R15 (founder, build 9: "i click play, duo screen still open, it shows chest but it does not start"), undoing
+    /// R14's "Close the phone to start" and restoring R12 rule 2 ("a run started with the lid up opens at once"): the
+    /// first chest is looting on the first frames (cracked), the plate never says "Close the phone to start" nor
+    /// "open" to the open phone, and the candle burns from the start.
+    @Test func everyRunStartWithThePhoneOpenOpensAtOnce() {
         let paths: [(String, @MainActor (GameController, DuoHand) -> Void)] = [
             ("play", { c, _ in c.play() }),
             ("daily", { c, _ in c.playDaily() }),
@@ -4129,6 +4177,7 @@ struct R12Tests {
             var lowered = false
             var closeToStart = false
             var events = hand.hold(0.1)
+            #expect(hand.last.phase == .looting, "\(name): \(hand.last.phase)")
             let torchAtStart = hand.last.torchRemaining
             events += hand.hold(1.5) { c, s, _, _ in
                 if s.hint == .easeLidDown { lowered = true }
@@ -4136,27 +4185,93 @@ struct R12Tests {
                 if c.hud.lidOpen, let text = self.plateText(c), AppRules.asksToOpen(text) { asked.append(text) }
             }
             #expect(!c.isPaused, "\(name)")
-            #expect(hand.last.phase == .ready, "\(name): \(hand.last.phase)")
-            #expect(!has(events, isCrack), "\(name)")
-            #expect(lowered, "\(name)")
-            #expect(closeToStart, "\(name)")
-            #expect(asked.isEmpty, "\(name): \(asked)")
-            #expect(c.hud.lidOpen, "\(name)")
-            // "Your candle waits": it doesn't burn before the first chest opens.
-            #expect(torchAtStart > 0, "\(name)")
-            #expect(hand.last.torchRemaining == torchAtStart, "\(name)")
-            if c.mode == .run {
-                #expect(c.hud.banner == nil || c.hud.banner == "Shh… a sleeping mimic.", "\(name)")
-            }
-            // Closed, then reopened: the chest opens with the phone.
-            let opened = openFirstChest(hand)
-            #expect(!c.isPaused, "\(name)")
             #expect(!c.isClosingPaused, "\(name)")
             #expect(hand.last.phase == .looting, "\(name): \(hand.last.phase)")
-            #expect(has(opened, isCrack), "\(name)")
-            #expect(hand.last.hint != .easeLidDown, "\(name)")
+            #expect(has(events, isCrack), "\(name)")
+            #expect(!lowered, "\(name)")
+            #expect(!closeToStart, "\(name)")
+            #expect(asked.isEmpty, "\(name): \(asked)")
+            #expect(c.hud.lidOpen, "\(name)")
+            #expect(hand.last.loot.contains { $0.grabbable }, "\(name)")
+            // The chest is open, so the candle burns.
+            #expect(torchAtStart > 0, "\(name)")
+            #expect(hand.last.torchRemaining < torchAtStart - 1.0, "\(name)")
+            if c.mode == .run {
+                #expect(c.hud.banner == nil || c.hud.banner == "Candle lit. Gently does it.", "\(name): \(c.hud.banner ?? "")")
+            }
             done(c)
         }
+    }
+
+    // MARK: R15: the cover intro's Play
+
+    /// R15 (founder: "so that the duo is closed, i press play, and then i open the chest and the duo screen"): the
+    /// cover intro's Play starts a run only when none is live (a second tap mid-run is ignored: the candle is not
+    /// relit); after the run, it starts a new one.
+    @Test func coverPlayStartsARunOnlyWhenNoneIsLive() {
+        let (c, hand) = makeDuo(at: 150)
+        #expect(c.route == .home)
+        #expect(!c.isLiveRun)
+        c.coverPlay()
+        #expect(c.route == .playing)
+        #expect(c.mode == .run)
+        #expect(c.isLiveRun)
+        hand.hold(1.2)
+        #expect(hand.last.phase == .looting)
+        let burnt = hand.last.torchRemaining
+        #expect(burnt < Tuning.torchSeconds - 1.0)
+        c.coverPlay()   // mid-run: nothing
+        hand.hold(0.1)
+        #expect(c.isLiveRun)
+        #expect(hand.last.torchRemaining <= burnt)
+        #expect(hand.last.phase == .looting)
+        // Home, then Play again: a fresh run.
+        c.goHome()
+        #expect(!c.isLiveRun)
+        c.coverPlay()
+        #expect(c.route == .playing)
+        #expect(c.isLiveRun)
+        hand.hold(0.1)
+        #expect(hand.last.torchRemaining > burnt)
+        done(c)
+    }
+
+    /// R15: Play on the cover intro, the phone shut: the run starts with the chest closed (the candle waits), and the
+    /// chest opens with the phone. No run starts by itself when the phone opens on Home (R14b's open-to-play is gone).
+    @Test func coverPlayWithThePhoneShutOpensWithThePhone() {
+        let cover = CGSize(width: 466, height: 678)
+        let inner = CGSize(width: 669, height: 951)
+        // Shut on Home, then opened, with no Play: still Home.
+        let (h, homeHand) = makeDuo(at: 2)
+        h.setPose(.cover, canvas: cover)
+        homeHand.hold(0.3)
+        homeHand.move(to: 60, seconds: 2.5)
+        h.setPose(.play, canvas: inner)
+        homeHand.hold(0.5)
+        #expect(h.route == .home)
+        #expect(!h.isLiveRun)
+        done(h)
+        // Shut, Play on the cover intro: a run, its first chest closed; opened: it opens with the phone.
+        let (c, hand) = makeDuo(at: 2)
+        c.setPose(.cover, canvas: cover)
+        c.coverPlay()
+        #expect(c.route == .playing)
+        #expect(c.isLiveRun)
+        hand.hold(0.8)
+        #expect(hand.last.phase == .ready)
+        let t0 = hand.last.torchRemaining
+        hand.hold(1.0)
+        #expect(hand.last.torchRemaining == t0)
+        c.setPose(.play, canvas: inner)
+        // 2 → 60° in 2.5 s (23°/s of hinge, quiet), then held.
+        let events = hand.move(to: 60, seconds: 2.5) + hand.hold(0.5)
+        #expect(!c.isPaused)
+        #expect(!c.isClosingPaused)
+        #expect(has(events, isCrack))
+        #expect(hand.last.phase == .looting)
+        #expect(hand.last.hint != .easeLidDown)
+        #expect(hand.last.torchRemaining < t0)
+        done(c)
     }
 
     /// With the lid closed, the first chest arrives closed and opens with the phone ("Open the phone… slowly" is right).
@@ -4194,7 +4309,7 @@ struct R12Tests {
         let (c, hand) = makeDuo(at: 150)
         c.play()
         hand.hold(0.4)
-        // R14: the first chest waits for a close; open it with the phone first.
+        // R15: with the phone open at Play the first chest is open at once; let it settle.
         openFirstChest(hand)
         #expect(hand.last.phase == .looting)
         c.nudgeSessionNoise(to: 1)
@@ -4254,7 +4369,7 @@ struct R12Tests {
         let (c, hand) = makeDuo(at: 150)
         c.play()
         hand.hold(0.4)
-        // R14: the first chest waits for a close; open it with the phone first.
+        // R15: with the phone open at Play the first chest is open at once; let it settle.
         openFirstChest(hand)
         let item = try #require(hand.last.loot.first { $0.place == .inChest && $0.grabbable })
         c.floorTouchBegan(1, at: item.position, time: hand.t)
