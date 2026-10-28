@@ -1346,7 +1346,7 @@ final class GameController: ObservableObject, SceneDriver {
         if closingPause.paused && !isClosingPaused { setClosing(true) }
         // R12 rule 4: under any closing card (a menu Resume's hold included), a lid seen in the shut zone is a closed
         // lid: a robbed chest still waiting gets its next chest (the session doesn't step while paused).
-        if isClosingPaused, let a = angle, a.isFinite, a <= Tuning.shutZoneAngle { noteLidShutIfRobbed("closing") }
+        if isClosingPaused, let a = angle, a.isFinite, a <= Tuning.hingeShutZoneAngle { noteLidShutIfRobbed("closing") }
         // R7 (ROUND-7 App 1, DEVICE-RISKS-1 item 3): over a fresh chest (banked, then folded on down), lifting the lid
         // to Feel's line is enough: no "Hold still…". A chest in play keeps the full rule.
         let fresh = session?.isFreshChest ?? false

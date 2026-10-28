@@ -8,7 +8,9 @@ import Foundation
 
 extension AppRules {
     /// R12: the lid reads open past this openness: the shut zone's edge (θ 110° on the hinge, 0.15 on the lever).
-    static let lidOpenLine: Double = 0.15
+    /// R13 (founder: "even 1 degree open lid means chest is opening"): 0.15 → 0.03 (≈ 4.5° of the phone, the hinge's
+    /// ±5°; 3 % of the lever), so the words call the chest open as soon as it is.
+    static let lidOpenLine: Double = 0.03
 
     /// R12: the lid is open (past the shut zone) for the words. NaN reads as shut. Pure; tested.
     static func lidReadsOpen(_ openness: Double) -> Bool {

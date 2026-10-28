@@ -106,8 +106,12 @@ struct HomeView: View {
         // R4 (tester 8): the phone's words are the lever's ("slide"), the same verb the run and the lesson use.
         // R11 (tester 11, the third round running: "Slide its lid up" vs the game's "Slide the lever up"): the lever's
         // own words, exactly the lesson's and the run's line (`phoneCaption`; a drag up on the chest still lifts it).
-        return hinge ? "Lift the lid… slowly." : Self.phoneCaption
+        // R13 (founder): the chest opens with the lid from the first degree, so Home says so.
+        return hinge ? Self.duoCaption : Self.phoneCaption
     }
+
+    /// R13: the Duo Home caption.
+    static let duoCaption = "Open the lid slowly. The chest opens with it."
 
     /// R11: the phone Home caption, word for word the lesson's step-1 line and the run's `openSlowly` hint. Tested.
     static let phoneCaption = "Slide the lever up… slowly."

@@ -190,7 +190,9 @@ final class HeistSession {
         self.bestRun = bestRun
         self.options = options
         self.found = foundRelics
-        let gate: Bool = mode == .lesson
+        // R13 (founder, build 7: "open means open and closed means closed"): the lesson drops the R1–R12 shut-first
+        // gate too. Its chest opens with the lid like every other; `shutGate` is never on.
+        let gate: Bool = false
         self.shutGate = gate
         // R12 rule 2: outside the lesson every chest counts as "seen shut", so a run started with the lid up opens at once.
         self.sawShut = !gate

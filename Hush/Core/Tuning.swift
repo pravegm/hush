@@ -23,9 +23,30 @@ enum Tuning {
     static let shutZoneAngle: Double = 110
     /// θ > this shows "That's wide enough" (no penalty; keeps players off flat).
     static let tooWideAngle: Double = 172
-    /// θ below this for `closingDwell` s pauses the game ("Lift the lid a little"). R2: 85 → 70 (REVIEW-1-duo: 85° sat
-    /// within the hinge's ±5° of the natural 90° rest).
-    static let closingAngle: Double = 70
+    // MARK: R13 The Duo's hinge (design/ROUND-13.md, founder on build 7: "the iphone lid should be the chest lid. open
+    // means open and closed means closed"). Physical θ, 180° = flat. Until R12 the phone standing at 90° was a SHUT
+    // chest (openness 0 up to 100°). Now the chest follows the phone: shut when the phone is (nearly) shut, open the
+    // moment it opens. Core still speaks the lid's own scale above (`shutAngle`…`wideAngle`, 65° of travel): the
+    // hinge source maps the phone onto it (`Lid.hingeOpenness`), and its speed by `hingeSpeedScale`, so the noise
+    // rules, the lever, the pilot and the balance are unchanged.
+
+    /// Physical θ where openness = 0: the phone shut. Founder: "even 1 degree open lid means chest is opening".
+    static let hingeShutAngle: Double = 0
+    /// Physical θ where openness = 1 (wide open).
+    static let hingeWideAngle: Double = 150
+    /// The phone's travel from shut to wide (150°).
+    static let hingeTravel: Double = hingeWideAngle - hingeShutAngle
+    /// Physical θ ≤ this is the shut zone: the phone (all but) shut, and closing it here banks. 15° is the hinge's
+    /// ±5° three times over; iOS usually hands the app to the cover display before it, which banks too (R12b).
+    static let hingeShutZoneAngle: Double = 15
+    /// Physical θ > this shows "That's wide enough" (unchanged: keeps players off flat).
+    static let hingeTooWideAngle: Double = 172
+    /// Hinge °/s × this = the lid's °/s (65 / 150 ≈ 0.43): the same openness per second makes the same noise as before.
+    static let hingeSpeedScale: Double = lidTravel / hingeTravel
+
+    /// θ (physical) below this for `closingDwell` s pauses the game: the phone is shut, so is the chest. R2: 85 → 70.
+    /// R13: 70 → 12 (inside the shut zone, so a close banks first; a phone at 70° is an open chest now).
+    static let closingAngle: Double = 12
     /// How long θ must stay below `closingAngle` before the pause (s).
     static let closingDwell: Double = 0.4
     /// The slider's shut zone (openness ≤ this), the slider's version of θ ≤ `shutZoneAngle`.
@@ -253,9 +274,9 @@ enum Tuning {
 
     // MARK: Lesson (GAME-DESIGN §8)
 
-    /// Pose step: 90° ≤ θ ≤ 112° held for 0.5 s (R2, REVIEW-1-duo P1-6).
-    static let lessonPoseMinAngle: Double = 90
-    static let lessonPoseMaxAngle: Double = 112
+    /// Pose step: 45° ≤ θ ≤ 150° held for 0.5 s (R13: any open laptop pose; the chest opens with it. R2: 90…112°).
+    static let lessonPoseMinAngle: Double = 45
+    static let lessonPoseMaxAngle: Double = 150
     static let lessonPoseHold: Double = 0.5
     /// The scripted stir level (`nudgeNoise(to:)`) and how long to hold still.
     static let lessonStirNoise: Double = 0.55

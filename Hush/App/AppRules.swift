@@ -38,7 +38,8 @@ enum AppRules {
     /// R2: the closing card says "Hold still…" once the lid is back at or above this (Feel's `canResume` angle).
     /// R7: 95 → 92, the same as `HingeLidSource.resumeAngle` (Feel's enter line). The controller passes the live
     /// `hinge.effectiveResumeAngle` (92 / 88 hysteresis); this is only the default for the pure rules.
-    static let resumeAngle: Double = 92
+    /// R13 (the phone is the chest): 18, the same as `HingeLidSource.resumeAngle`.
+    static let resumeAngle: Double = 18
     /// R2 (P1-8): the pause menu never opens while the hinge is this shut (the cover display takes over).
     static let menuShutAngle: Double = 20
 

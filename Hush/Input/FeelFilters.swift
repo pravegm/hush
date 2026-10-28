@@ -490,6 +490,7 @@ struct FeelHingeTrace {
 /// R2 (REVIEW-1-duo P1-4): the line is **70°** (R1's 85° sat inside the natural upright 90° rest, within the Duo's ±5°
 /// accuracy) and it unlatches above **78°**. Unlatching is not resuming: the run resumes only on
 /// `HingeLidSource.canResume` (R7: ≥ 92° with hysteresis, held still).
+/// R13 (the phone is the chest): the line is **12°** (the phone shut) and it unlatches above **20°**; resume ≥ 18°.
 struct FeelClosingGate {
     /// θ under this for `dwell` s pauses the game (`Tuning.closingAngle`, 70° from R2).
     static var closingAngle: Double { Tuning.closingAngle }

@@ -353,8 +353,9 @@ struct ClosingCard: View {
     /// so the card never says "Hold still…" there.
     static func title(lifted: Bool, awaitingHinge: Bool = false, fresh: Bool = false) -> String {
         if awaitingHinge { return "Move the lid a little" }
-        if fresh { return "Lift the lid for the next chest" }
-        return lifted ? "Hold still…" : "Lift the lid a little to carry on"
+        // R13: the lid is shut, so is the chest; it opens with the lid, from the first degree.
+        if fresh { return "Open the lid slowly for the next chest" }
+        return lifted ? "Hold still…" : "Open the lid slowly to carry on"
     }
 
     /// R6: the escape hatch's words.

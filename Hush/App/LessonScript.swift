@@ -144,13 +144,14 @@ struct LessonScript: Equatable {
 
     // GAME-DESIGN §8 gates. R2 (REVIEW-1-duo P1-6): 90…112°, so the pose step never passes where the chest still says
     // "Ease the lid down first" (looting starts at θ ≤ 110°).
-    static let poseMin: Double = 90
-    static let poseMax: Double = 112
+    // R13 (the phone is the chest): any open laptop pose, 45…150° (the chest is open with it; no "close it first").
+    static let poseMin: Double = Tuning.lessonPoseMinAngle
+    static let poseMax: Double = Tuning.lessonPoseMaxAngle
     static let poseHold: Double = 0.5
     /// R7 (ROUND-7 App 3, DEVICE-RISKS-1 item 8): the pose step also passes after `looseHold` s anywhere in
-    /// `looseMin…looseMax` ("That'll do."), against the hinge's ±5° and a laptop rest of 105–125°.
-    static let looseMin: Double = 80
-    static let looseMax: Double = 125
+    /// `looseMin…looseMax` ("That'll do."), against the hinge's ±5°. R13: 30…165°.
+    static let looseMin: Double = 30
+    static let looseMax: Double = 165
     static let looseHold: Double = 4
     static let loosePraise = "That'll do."
     /// R7: Skip is offered from step 1 once the lesson has run this long (s); on a replay, from the start.
@@ -353,11 +354,11 @@ struct LessonScript: Equatable {
     enum LiftCue: Equatable {
         /// Flat (≥ 168°) or no angle yet: "↑ Lift this half".
         case lift
-        /// Open past the window (> 112°): "↓ Close the lid a little" (R12; was "Lower this half a little").
+        /// Open past the window (> 150°): "↓ Close the lid a little" (R12; was "Lower this half a little").
         case lower
-        /// Under the window (< 90°): "↑ Lift this half".
+        /// Under the window (< 45°): "↑ Lift this half".
         case liftMore
-        /// In the 90…112° window: "Hold it there…" (a tick).
+        /// In the 45…150° window: "Hold it there…" (a tick).
         case hold
 
         /// The marker's words on the lid. Pure; tested.
@@ -402,16 +403,12 @@ struct LessonScript: Equatable {
             if slider { return "Slide the lever up… slowly." }
             switch Self.liftCue(angle: angle) {
             case .lift: return "Stand your Duo like a little laptop."
-            // R12 rule 7: the lid is open at step 1, so the step asks to close it first.
-            case .lower: return Self.closeToStart
+            // R13: wider than the window: a little lower (the chest stays open).
+            case .lower: return "Close the lid a little"
             case .liftMore: return "Lift it a little more…"
             case .hold: return "Hold it there…"
             }
         case .open:
-            // R12: the lesson's chest still waits for a closed lid (Core keeps its gate there): chest words.
-            if hint == .easeLidDown {
-                return slider ? "Slide the lever all the way down first." : "Close the lid a little first."
-            }
             if slider { return "Slide the lever up… slowly. Watch the noise." }
             // R12 rule 7: "Now open it… slowly." while it is closed; once it is up, only "keep going".
             return lidOpen ? "Keep going… slowly. Watch the noise." : "Now open it… slowly. Watch the noise."

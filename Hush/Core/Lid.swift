@@ -22,6 +22,18 @@ enum Lid {
                         inShutZone: angle <= Tuning.shutZoneAngle, tooWide: angle > Tuning.tooWideAngle)
     }
 
+    /// R13: the Duo's physical hinge angle → openness 0…1 (clamped): 0° (the phone shut) … 150° (wide).
+    static func hingeOpenness(angle: Double) -> Double {
+        guard angle.isFinite else { return 0 }
+        return min(max((angle - Tuning.hingeShutAngle) / Tuning.hingeTravel, 0), 1)
+    }
+
+    /// R13: openness → the physical hinge angle (the input is clamped to 0…1).
+    static func hingeAngle(openness: Double) -> Double {
+        let o: Double = openness.isFinite ? min(max(openness, 0), 1) : 0
+        return Tuning.hingeShutAngle + o * Tuning.hingeTravel
+    }
+
     /// A LidInput for an openness (pilot, slider: the shut zone and "too wide" follow from the matching angle).
     static func input(openness: Double, speed: Double) -> LidInput {
         let o: Double = openness.isFinite ? min(max(openness, 0), 1) : 0

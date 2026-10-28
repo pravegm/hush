@@ -38,20 +38,22 @@ import QuartzCore
 final class HingeLidSource: LidSource {
     /// The angle range the speedometer sees (degrees): `Tuning.shutAngle − 3` … R7 `min(Tuning.wideAngle + 3, 162)`
     /// (97…162°; DEVICE-RISKS-1 item 10: the last degrees towards flat may snap, and relics need ≤ 161°).
+    /// R13: the phone's play range, `Tuning.hingeShutAngle`…`hingeWideAngle + 3` (0…153°): the whole close counts.
     nonisolated static var speedAngleRange: ClosedRange<Double> {
-        (Tuning.shutAngle - 3)...min(Tuning.wideAngle + 3, 162)
+        max(Tuning.hingeShutAngle - 3, 0)...min(Tuning.hingeWideAngle + 3, 162)
     }
-    /// Resume needs the lid at least this open (degrees; R7: 92, was 95) …
-    static let resumeAngle = 92.0
+    /// Resume needs the lid at least this open (degrees; R7: 92, was 95; R13: 18, just out of the shut zone, since
+    /// the chest opens with the phone from 0°) …
+    static let resumeAngle = 18.0
     /// … moving slower than this (°/s, the unclamped hinge motion; R7: 10°/s at or above `resumeWideAngle`) …
     static let resumeSpeed = 6.0
     /// … for this long (s).
     static let resumeHold = 0.3
     /// R3 (REVIEW-2-duo P1-3): the lowest angle the App may set `requiredResumeAngle` to, and the highest.
-    static let resumeAngleFloor = 90.0
+    static let resumeAngleFloor = 16.0
     static let resumeAngleCeiling = 150.0
-    /// R7 hysteresis: once lifted, the lid stays lifted until it is this far under the resume angle (92 → 88°).
-    private static let resumeLeaveMargin = 4.0
+    /// R7 hysteresis: once lifted, the lid stays lifted until it is this far under the resume angle (R13: 18 → 15°).
+    private static let resumeLeaveMargin = 3.0
     /// R7: at or above this angle the hand may rest on the lid: "still" is under `resumeWideSpeed`.
     private static let resumeWideAngle = 100.0
     private static let resumeWideSpeed = 10.0
@@ -65,7 +67,7 @@ final class HingeLidSource: LidSource {
     /// player isn't asked to open past the angle they can already see; set it back to `resumeAngle` when the run
     /// resumes (and for the inner closing card). Clamped to 90…150°; NaN reads as 92. `reset()` leaves it alone.
     /// Changing it restarts the hold and the hysteresis.
-    var requiredResumeAngle: Double = 92.0 { // = `resumeAngle` (a literal: a plain default value)
+    var requiredResumeAngle: Double = 18.0 { // = `resumeAngle` (a literal: a plain default value)
         didSet {
             resumeSince = nil
             resumeLifted = false
@@ -279,13 +281,15 @@ final class HingeLidSource: LidSource {
         return FeelMath.clamp(raw, range.lowerBound, range.upperBound)
     }
 
-    /// The game's view of a filtered angle and speed (GAME-DESIGN §3): openness over 100…165°, shut zone ≤ 110°,
-    /// too wide > 172°. Pure.
+    /// The game's view of a filtered angle and speed (GAME-DESIGN §3). R13 (the phone is the chest): openness over
+    /// 0…150° of the phone, shut zone ≤ 15°, too wide > 172°, and the hinge's °/s scaled onto the lid's 65° travel
+    /// (`Tuning.hingeSpeedScale`), so the noise rules are unchanged per unit of openness. Pure.
     nonisolated static func lidInput(angle: Double, speed: Double) -> LidInput {
-        guard angle.isFinite else { return LidInput(speed: FeelMath.positive(speed)) }
-        return LidInput(openness: FeelMath.clamp01(Lid.openness(angle: angle)),
-                        speed: FeelMath.positive(speed),
-                        inShutZone: angle <= Tuning.shutZoneAngle,
-                        tooWide: angle > Tuning.tooWideAngle)
+        let lidSpeed = FeelMath.positive(speed) * Tuning.hingeSpeedScale
+        guard angle.isFinite else { return LidInput(speed: lidSpeed) }
+        return LidInput(openness: FeelMath.clamp01(Lid.hingeOpenness(angle: angle)),
+                        speed: lidSpeed,
+                        inShutZone: angle <= Tuning.hingeShutZoneAngle,
+                        tooWide: angle > Tuning.hingeTooWideAngle)
     }
 }

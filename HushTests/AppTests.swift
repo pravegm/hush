@@ -819,16 +819,20 @@ struct LessonTests {
         #expect(s.step == .open)
     }
 
-    /// P1-6: the pose window is 90…112°, never where the chest still says "Ease the lid down first".
+    /// R13 (the phone is the chest): the pose window is any open laptop pose, 45…150° (the chest opens with it).
     @Test func poseWindowMatchesTheShutZone() {
-        #expect(LessonScript.poseMin == 90)
-        #expect(LessonScript.poseMax == 112)
+        #expect(LessonScript.poseMin == 45)
+        #expect(LessonScript.poseMax == 150)
         var s = LessonScript()
-        _ = s.update(LessonScript.Input(time: 0, angle: 118))
-        _ = s.update(LessonScript.Input(time: 1.0, angle: 118))
+        _ = s.update(LessonScript.Input(time: 0, angle: 160))
+        _ = s.update(LessonScript.Input(time: 1.0, angle: 160))
         #expect(!s.isPraising)
-        // R12 rule 7: an open lid at step 1 is asked to close.
-        #expect(s.line(slider: false, angle: 118, hint: nil) == LessonScript.closeToStart)
+        // Wider than the window: a little lower (never "close it to start").
+        #expect(s.line(slider: false, angle: 160, hint: nil) == "Close the lid a little")
+        var t = LessonScript()
+        _ = t.update(LessonScript.Input(time: 0, angle: 95))
+        _ = t.update(LessonScript.Input(time: 0.6, angle: 95))
+        #expect(t.isPraising)
     }
 
     /// R3 (UX P0-1): the lid marker's arrow and the card's line come from one angle branch and never disagree.
@@ -2421,7 +2425,7 @@ struct R7Tests {
         #expect(AppRules.freshResumeGrace == 0.8)
         // The card over a fresh chest never says "Hold still…".
         for lifted in [true, false] {
-            #expect(ClosingCard.title(lifted: lifted, fresh: true) == "Lift the lid for the next chest")
+            #expect(ClosingCard.title(lifted: lifted, fresh: true) == "Open the lid slowly for the next chest")
             #expect(!ClosingCard.title(lifted: lifted, fresh: true).contains("Hold still"))
         }
         #expect(ClosingCard.title(lifted: true) == "Hold still…")
@@ -3516,10 +3520,11 @@ struct R11Tests {
         for hint in HushCopy.allHints {
             #expect(!HushCopy.hint(hint, slider: false).hasPrefix("Ease the lid down"))
         }
+        // R13: the lesson has no "close it first" step (its chest opens with the lid).
         let open = LessonScript(start: .open).line(slider: false, angle: nil, hint: .easeLidDown)
-        #expect(open == "Close the lid a little first.")
-        let lower = LessonScript(start: .pose).line(slider: false, angle: 140, hint: nil)
-        #expect(lower == "Close the lid to start")
+        #expect(open == "Now open it… slowly. Watch the noise.")
+        let lower = LessonScript(start: .pose).line(slider: false, angle: 160, hint: nil)
+        #expect(lower == "Close the lid a little")
         let bank = LessonScript(start: .bank).line(slider: false, angle: nil, hint: nil)
         #expect(bank == "Close the lid to bank it.")
         #expect(bank.components(separatedBy: " to ").count == 2)   // one "to"
@@ -3789,25 +3794,26 @@ struct R12Tests {
     }
 
     @Test func homeSaysLiftOnlyWhileClosed() {
-        #expect(HomeView.caption(HomeLid(openness: 0, speed: 0), hinge: true) == "Lift the lid… slowly.")
-        #expect(HomeView.caption(HomeLid(openness: 0.15, speed: 0), hinge: true) == "Lift the lid… slowly.")
-        #expect(HomeView.caption(HomeLid(openness: 0.16, speed: 0), hinge: true) == "Shh… something's peeking.")
+        // R13: the Duo caption says how the chest opens; from 0.03 (≈ 4.5°) the chest is open.
+        #expect(HomeView.caption(HomeLid(openness: 0, speed: 0), hinge: true) == HomeView.duoCaption)
+        #expect(HomeView.caption(HomeLid(openness: 0.03, speed: 0), hinge: true) == HomeView.duoCaption)
+        #expect(HomeView.caption(HomeLid(openness: 0.04, speed: 0), hinge: true) == "Shh… something's peeking.")
         #expect(HomeView.caption(HomeLid(openness: 0.25, speed: 0), hinge: false) == "Shh… something's peeking.")
-        #expect(HomeView.caption(HomeLid(openness: 0.1, speed: 0), hinge: false) == HomeView.phoneCaption)
+        #expect(HomeView.caption(HomeLid(openness: 0.02, speed: 0), hinge: false) == HomeView.phoneCaption)
         #expect(HomeView.caption(HomeLid(openness: 0.9, speed: 0), hinge: true) == "It's watching you.")
     }
 
     /// Rule 7: close it, then open it slowly, in chest words; never "open" to an open lid.
     @Test func theLessonClosesThenOpens() {
         let pose = LessonScript()
-        #expect(pose.line(slider: false, angle: 150, hint: nil) == "Close the lid to start")
+        #expect(pose.line(slider: false, angle: 160, hint: nil) == "Close the lid a little")
         #expect(pose.line(slider: false, angle: 100, hint: nil) == "Hold it there…")
         #expect(LessonScript.LiftCue.lower.label == "Close the lid a little")
         let open = LessonScript(start: .open)
         #expect(open.line(slider: false, angle: 100, hint: nil, openness: 0) == "Now open it… slowly. Watch the noise.")
         #expect(open.line(slider: false, angle: 125, hint: nil, openness: 0.4) == "Keep going… slowly. Watch the noise.")
         #expect(open.display(slider: false, angle: 125, hint: nil, openness: 0.4).line.hasPrefix("Keep going"))
-        #expect(open.line(slider: false, angle: 125, hint: .easeLidDown, openness: 0.4) == "Close the lid a little first.")
+        #expect(open.line(slider: false, angle: 125, hint: .easeLidDown, openness: 0.4) == "Keep going… slowly. Watch the noise.")
         #expect(open.line(slider: true, angle: nil, hint: nil, openness: 0.4).hasSuffix("Watch the noise."))
         #expect(LessonScript(start: .bank).line(slider: false, angle: nil, hint: nil) == "Close the lid to bank it.")
     }
@@ -3815,16 +3821,16 @@ struct R12Tests {
     /// The sweep: no hint, banner, lesson line, lid marker or Home caption that says "open" can show while the lid's
     /// openness is past 0.15.
     @Test func nothingAsksToOpenAnOpenLid() {
-        #expect(!AppRules.lidReadsOpen(0.15))
-        #expect(AppRules.lidReadsOpen(0.151))
+        #expect(!AppRules.lidReadsOpen(0.03))
+        #expect(AppRules.lidReadsOpen(0.031))
         #expect(!AppRules.lidReadsOpen(.nan))
         #expect(AppRules.asksToOpen("Open the lid… slowly"))
         #expect(AppRules.asksToOpen("Now open it… slowly."))
-        let opens = stride(from: 0.16, through: 1.0, by: 0.02).map { $0 }
+        let opens = stride(from: 0.04, through: 1.0, by: 0.02).map { $0 }
         let modes: [RunMode] = [.run, .daily(day: 300, scored: true), .daily(day: 300, scored: false), .attract, .lesson]
         let lessonHints: [HeistHint?] = [nil, .easeLidDown, .openSlowly, .dragToBag, .shutToBank]
         var angles: [Double?] = [nil]
-        angles += stride(from: 113.0, through: 180.0, by: 1.0).map { Optional($0) }
+        angles += stride(from: 6.0, through: 180.0, by: 1.0).map { Optional($0) }
         var bad: [String] = []
         for o in opens {
             let open = AppRules.lidReadsOpen(o)
