@@ -133,7 +133,7 @@ struct RootView: View {
                           reduceMotion: controller.reduceMotion, escape: controller.coverEscape,
                           onCarryOn: { controller.coverCarryOn() }, onHome: { controller.coverHome() },
                           onPlay: { controller.coverPlay() }, lastRun: controller.coverLastRun,
-                          banked: controller.bankedSoFar,
+                          banked: controller.bankedSoFar, justBanked: controller.justBanked,
                           onEndRun: { controller.coverEndRun() })
                     .transition(.opacity)
             }

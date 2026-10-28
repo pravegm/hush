@@ -365,6 +365,9 @@ struct SettingsView: View {
     static let silentTitle = "Play sound on silent"
     /// The About card's version line (the hidden Diagnostics press is on it).
     static var versionText: String { "Version \(BuildChannel.versionLine)" }
+    /// R15: the App Store's privacy and support URLs (docs/appstore/asc-metadata.json).
+    static let privacyURL = URL(string: "https://pravegm.github.io/hush/privacy.html")!
+    static let supportURL = URL(string: "https://pravegm.github.io/hush/support.html")!
     /// R7: the Vibration and Lid sensitivity rows' options, in order.
     static let vibrationOptions: [(HapticStrength, String)] = HapticStrength.allCases.map { ($0, $0.title) }
     static let sensitivityOptions: [(LidSensitivity, String)] =
@@ -406,6 +409,14 @@ struct SettingsView: View {
                                 .foregroundStyle(HushTheme.mist)
                                 .multilineTextAlignment(.center)
                                 .fixedSize(horizontal: false, vertical: true)
+                            // R15 (App Review juror, 5.1.1(i)): the privacy policy and support pages, in the app.
+                            HStack(spacing: 18) {
+                                Link("Privacy", destination: Self.privacyURL)
+                                Link("Support", destination: Self.supportURL)
+                            }
+                            .font(HushType.body(c))
+                            .tint(HushTheme.goldLight)
+                            .padding(.vertical, 4)
                             // R3 (QA-2 P2-15) / R4 (ROUND-4 App 10): a hidden 2 s press on the VERSION LINE toggles
                             // Diagnostics in any build (a click confirms it). A sandbox receipt (TestFlight, and App
                             // Review installs too) never shows test UI by itself.

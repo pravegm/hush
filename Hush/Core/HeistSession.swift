@@ -449,7 +449,10 @@ final class HeistSession {
             }
         }
         // R12: a closed (`.ready`) chest doesn't hear the lid, except in the lesson (R1–R11: easing down is heard).
-        if lidHeard && lidCounts { raw = Noise.lidRate(speed: lid.speed, closing: closing) * lidShare }
+        // R15 (playtest P0, founder R12: "closing it all the way is fine: the bank fires on the way down"): closing
+        // the phone with loot in the bag is how you bank, so it is silent at any speed (a snap shut never bites).
+        let banking: Bool = closing && bagCount > 0
+        if lidHeard && lidCounts && !banking { raw = Noise.lidRate(speed: lid.speed, closing: closing) * lidShare }
         for t in touches { raw += Noise.dragRate(speed: t.speed) }
         let rate: Double = raw * noiseMultiplier
         noise += rate * h
@@ -888,7 +891,8 @@ final class HeistSession {
         if awaitingClose { return .closeForNext }
         if stage >= .waking { return .freeze }
         // During a resume grace the lid makes no noise, so it isn't "too fast" either; nor at a closed chest (R12).
-        if lidGrace <= 0 && lidCounts && lid.speed > Tuning.loudSpeed { return .slower }
+        // R15: a close with loot in the bag is the bank (silent), so it never says "Slower…".
+        if lidGrace <= 0 && lidCounts && !(closing && bagCount > 0) && lid.speed > Tuning.loudSpeed { return .slower }
         // R14 (UX audit E): a fast drag makes noise too, so it says "Slower…" (bites never feel random).
         if touches.contains(where: { $0.speed > Tuning.dragQuietSpeed }) { return .slower }
         if options.torch && isLooting && bagCount > 0 && torch <= Tuning.torchLowSeconds { return .candleLow }

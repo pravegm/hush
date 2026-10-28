@@ -458,7 +458,11 @@ final class GameController: ObservableObject, SceneDriver {
         // R11 (UX P2-5): VoiceOver's bank line names the Hush Chain the same bank raised.
         let chain = Self.chainMultiplier(in: events)
         for event in events {
-            if case let .banked(value, _, _) = event { bankedSum += value }
+            if case let .banked(value, _, _) = event {
+                bankedSum += value
+                justBanked = value
+            }
+            if case .lidCracked = event, justBanked != nil { justBanked = nil }
             if case .chestArrived = event, snapshot.chest?.golden == true { feedback.goldenArrived() }
             if case .torchOut = event { watchTheEnd() }
             if case .relicFound = event { noteRelicCard(at: snapshot.time) }
@@ -606,7 +610,10 @@ final class GameController: ObservableObject, SceneDriver {
         let now = CACurrentMediaTime()
         let chain = Self.chainMultiplier(in: events)
         for event in events {
-            if case let .banked(value, _, _) = event { bankedSum += value }
+            if case let .banked(value, _, _) = event {
+                bankedSum += value
+                justBanked = value
+            }
             if case .chestArrived = event, s.chest?.golden == true { feedback.goldenArrived() }
             if case .relicFound = event { noteRelicCard(at: s.time) }
             callouts(for: event, snapshot: s, now: now)
@@ -1112,6 +1119,10 @@ final class GameController: ObservableObject, SceneDriver {
 
     /// R15: the gold banked so far, for the mid-run cover card.
     var bankedSoFar: Int { session?.snapshot.banked ?? 0 }
+
+    /// R15 (playtest P0: "where's my ka-ching?"): the last bank's value until the next chest is opened, so the
+    /// outer screen, the only one lit after a close, says "Banked +N gold!".
+    @Published private(set) var justBanked: Int?
 
     /// R15 (walkthrough P2-4): on Results, the cover intro says how the run went (it may have ended with the phone
     /// shut, so the inner Results were never seen).
@@ -1956,6 +1967,7 @@ final class GameController: ObservableObject, SceneDriver {
         recorded = false
         playTime = 0
         bankedSum = 0
+        justBanked = nil
         goldMismatchLogged = false
         hintGate = HintGate()
         setGlimmer(false)

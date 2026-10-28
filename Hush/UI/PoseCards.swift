@@ -272,12 +272,14 @@ struct DuoChestHalf: View {
 /// three lines, word for word the same on the cover intro and on Home. Pure; tested.
 enum HowToPlay {
     static func lines(slider: Bool) -> [String] {
-        slider ? ["Slide the lever up slowly. The chest opens with it.",
+        // R15 (playtest): rule 1 holds whether the phone is shut (the cover intro) or open (Home); rule 3 teaches the
+        // candle (the run's clock).
+        slider ? ["The chest opens with the lever. Slide it up slowly.",
                   "Drag the loot into your bag.",
-                  "Slide it back down to bank it. Don't wake the mimic."]
-            : ["Open the phone slowly. The chest opens with it.",
+                  "Slide the lever down to bank it before your candle runs out."]
+            : ["The chest opens with the phone. Move it slowly.",
                "Drag the loot into your bag.",
-               "Close the phone to bank it. Don't wake the mimic."]
+               "Close the phone to bank it before your candle runs out."]
     }
 }
 
@@ -326,6 +328,8 @@ struct CoverCard: View {
     var lastRun: String? = nil
     /// R15 (walkthrough P1-3): mid-run, the gold banked so far and a way to end the run from the outer screen.
     var banked: Int = 0
+    /// R15 (playtest P0): the bank the close just made (until the next chest opens): the card's headline.
+    var justBanked: Int? = nil
     var onEndRun: () -> Void = {}
     /// R11 (QA-6 P2-10, UX P2-1): VoiceOver moves to the escape's first button when the plate appears.
     @AccessibilityFocusState private var escapeFocused: Bool
@@ -334,7 +338,9 @@ struct CoverCard: View {
     /// R13 (founder: "for the next chest to open, open lid slowly, even 1 degree open lid means chest is opening"):
     /// the lid is shut, so is the chest; the card says how the next one opens.
     /// R15: outside a run the card is the intro (the rules and Play); its line under Play says what comes next.
-    static func title(midRun: Bool) -> String { midRun ? "Open the phone slowly" : "Don't wake the mimic" }
+    static func title(midRun: Bool) -> String {
+        midRun ? "Open the phone slowly" : "Steal the mimic's gold while it sleeps"
+    }
     static func detail(midRun: Bool) -> String {
         midRun ? "The chest opens with the phone. Your candle waits." : "Press Play, then open the phone slowly."
     }
@@ -343,6 +349,9 @@ struct CoverCard: View {
     static let endRunLabel = "End run"
     static func bankedLine(_ gold: Int) -> String { "Banked so far: \(gold.formatted()) gold" }
     static func lastRunLine(gold: Int) -> String { "Run over · \(gold.formatted()) gold" }
+    /// R15 (playtest P0): the bank a close just made.
+    static func justBankedLine(_ gold: Int) -> String { "Banked +\(gold.formatted()) gold!" }
+    static let nextChestTitle = "Open the phone slowly for the next chest"
     /// R8: the escape plate's line and buttons. Pure; tested.
     static let escapeLine = "Already open?"
     static let carryOnLabel = "Carry on"
@@ -359,9 +368,17 @@ struct CoverCard: View {
                     VStack(spacing: 16) {
                         if midRun {
                             VStack(spacing: 16) {
+                                // R15 (playtest P0): after a bank the outer screen is the only one lit, so the
+                                // bank is its headline, in gold.
+                                if let justBanked {
+                                    Text(Self.justBankedLine(justBanked))
+                                        .font(HushType.title(true))
+                                        .foregroundStyle(HushTheme.goldLight)
+                                        .multilineTextAlignment(.center)
+                                }
                                 MimicPortraitView(scene: portrait, fps: 30)
-                                    .frame(width: min(geo.size.width * 0.82, 380))
-                                Text(Self.title(midRun: midRun))
+                                    .frame(width: min(geo.size.width * (justBanked == nil ? 0.82 : 0.6), 380))
+                                Text(justBanked == nil ? Self.title(midRun: midRun) : Self.nextChestTitle)
                                     .font(HushType.title(true))
                                     .foregroundStyle(HushTheme.parchment)
                                     .multilineTextAlignment(.center)
@@ -426,8 +443,9 @@ struct CoverCard: View {
                     .font(HushType.headline(true))
                     .foregroundStyle(HushTheme.goldLight)
             }
+            // R15 (playtest P1-6): small enough that Play always fits on the cover display.
             MimicPortraitView(scene: portrait, fps: 30)
-                .frame(width: min(width * 0.46, 220))
+                .frame(width: min(width * 0.32, 150))
             Text(Self.title(midRun: false))
                 .font(HushType.headline(true))
                 .foregroundStyle(HushTheme.goldLight)

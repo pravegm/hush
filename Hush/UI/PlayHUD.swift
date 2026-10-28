@@ -62,7 +62,8 @@ enum HushCopy {
     /// R11 (ROUND-11 App 2, UX P2-5): the stakes card's fourth row, how to pause: closing the lid on a fold (the
     /// closing pause), the coin on a phone. ≤ 6 words; tested.
     static func pauseStake(slider: Bool) -> StakeRow {
-        StakeRow(icon: .pause, text: slider ? "Tap the coin to pause" : "Close the phone to pause")
+        // R15 (playtest P2): closing the phone banks (or ends) the chest now, so the Duo pauses with the coin too.
+        StakeRow(icon: .pause, text: slider ? "Tap the coin to pause" : "Hold the coin to pause")
     }
 
     /// R3 (UX P1-9): what VoiceOver hears as it happens (nil: nothing to say). Pure; tested.
