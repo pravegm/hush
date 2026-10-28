@@ -7,7 +7,8 @@
 #
 # phone: ci/screenshots.sh with SCENARIOS=<scenarios>, WAIT_FREEZE=1 → <out>/<name>.png, <out>/logs/<name>*.txt
 # duo:   ci/duo.sh store pass (PASSES=store, STORE_LIST=<scenarios>) → <out>/store-<name>.png, <out>/logs/store-<name>*.txt
-#        (each launch is tabletop: ci/duo.sh appends orient=portrait, so the inner capture is 2007 x 2853).
+#        (each launch is tabletop: ci/duo.sh appends orient=portrait, so a MENU's inner capture is 2007 x 2853; a run
+#        stays landscape, k=1, and ci/store-upright.sh turns its 2853 x 2007 capture upright after every pass, R11).
 # After the first pass, every frame that is missing or not one of <expected sizes> (e.g. the Duo's cover display, or a
 # book-pose landscape capture, was taken instead of the portrait inner one) is captured again, up to two more passes,
 # each one only for those frames. Every pass has a timeout. Never fails: exits 0, and writes <out>/capture-report.txt
@@ -66,6 +67,10 @@ pass() {   # pass <name regex> <label>
       ;;
     *) echo "unknown kind $KIND"; return 1 ;;
   esac
+  # R11: a run screen can't turn portrait on the book-pose sim (the live run holds landscape; the app draws the
+  # canvas with odd k), so its 2853 x 2007 capture is turned upright from the logged k (ci/store-upright.sh).
+  [[ "$KIND" == duo ]] && bash "$HERE/store-upright.sh" "$OUT" store-
+  return 0
 }
 
 if [[ ! -f "$SCEN" ]]; then echo "::warning::no scenario file $SCEN"; exit 0; fi

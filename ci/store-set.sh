@@ -80,6 +80,15 @@ printf 'file\tsize\tstatus\tframe\tcaption\tnotes\n' > "$TSV"
 TABLETOP_DIR_ABS=""
 if [[ -n "$TABLETOP_DIR" && -d "$TABLETOP_DIR" ]]; then TABLETOP_DIR_ABS="$(cd "$TABLETOP_DIR" && pwd)"; fi
 
+# R11: the Duo's run captures come sideways (the live run holds the book-pose landscape interface and the app draws
+# the canvas with odd k); turn them upright from the logged k (idempotent: ci/store-capture.sh already did it unless
+# this raw-duo is reused from an earlier run). Each turn is a line in <dir>/rotated.tsv.
+bash "$HERE/store-upright.sh" "$DIR" "$PREFIX"
+[[ -n "$TABLETOP_DIR_ABS" ]] && bash "$HERE/store-upright.sh" "$TABLETOP_DIR_ABS" "$TABLETOP_PREFIX"
+# rot_k <dir> <base>: the k a capture was turned upright from (rotated.tsv), or "".
+rot_k() { [[ -f "$1/rotated.tsv" ]] && awk -F'\t' -v b="$2" '$1 == b { k = $2 } END { print k }' "$1/rotated.tsv"; }
+ROTK=""
+
 to() {
   local s="$1"; shift
   if command -v gtimeout >/dev/null 2>&1; then gtimeout -k 5 "$s" "$@"
@@ -154,6 +163,19 @@ check_log() {
   fi
   if [[ -n "$e" ]] && ! grep -qE -- "$e" "$f"; then problems+=("log has no line matching '$e'"); fi
   c=$(last_canvas "$f")
+  # R11: a capture turned upright from k (store-upright.sh) is checked as the upright canvas it now shows: the
+  # logged window swapped, k=0, so '951x669 fold=1 turned=0 k=1' reads '669x951 fold=1 turned=0 k=0 (upright …)'.
+  if [[ -n "$ROTK" ]]; then
+    local ck re='^([0-9]+)x([0-9]+) (.*)$' rest
+    ck=$(grep -oE '(^| )k=[0-3]' <<< "$c" | head -1 | grep -oE '[0-3]$')
+    if [[ "$ck" == "$ROTK" && "$c" =~ $re ]]; then
+      rest="${BASH_REMATCH[3]}"; rest="${rest/k=$ROTK/k=0}"
+      c="${BASH_REMATCH[2]}x${BASH_REMATCH[1]} $rest (upright: drawn k=$ROTK in a ${BASH_REMATCH[1]}x${BASH_REMATCH[2]} window)"
+      notes+=("capture turned upright from k=$ROTK (the run held the book-pose landscape interface)")
+    else
+      problems+=("capture was turned upright for k=$ROTK but the last canvas is '${c:-none}'")
+    fi
+  fi
   for r in "$@"; do
     if [[ -n "$r" ]] && ! grep -qE -- "$r" <<< "$c"; then problems+=("last canvas '${c:-none}' does not match '$r'"); fi
   done
@@ -238,6 +260,9 @@ while IFS= read -r -u 3 line || [[ -n "$line" ]]; do
     continue
   fi
 
+  ROTK=""
+  if [[ "$mode" == tabletop && "$frame" == tabletop:* ]]; then ROTK=$(rot_k "$TABLETOP_DIR_ABS" "$TABLETOP_PREFIX$tname")
+  else ROTK=$(rot_k "$DIR" "$PREFIX$name"); fi
   # Content checks against the log of the picture actually shown. A tabletop:<name> source is another set's Duo
   # capture: this set's REQUIRE_CANVAS (the iPhone's unfolded canvas) doesn't apply to it, only TABLETOP_REQUIRE.
   if [[ "$mode" == tabletop && "$frame" == tabletop:* ]]; then check_log "$srclog" "$srcargs" "$srcexpect" "$TABLETOP_REQUIRE"

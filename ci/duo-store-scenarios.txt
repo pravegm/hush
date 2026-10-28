@@ -21,6 +21,16 @@
 # expert only opens past the deepest item it wants, which may stay under the reveal's 0.75); DR1 waits for chest #3
 # (golden=1 makes chest #3 golden; the doc's args froze on chest #1, as R2's frame 36 did).
 
+# R11 (store run 40668557600, design/notes/ci-store-R11.md): D1–D5 came out 2853 x 2007 and were never framed. The
+#   `orient=portrait` ask only works on menus now: a live run holds the interface it went live in (OrientationLock,
+#   R6/R8), and the book-pose sim is landscapeLeft, so iOS refuses ("Supported: landscapeLeft") and the app draws the
+#   tabletop canvas turned once clockwise (`HUSH-T canvas 951x669 fold=1 turned=0 k=1`). The pixels are the right
+#   frame, sideways; ci/store-upright.sh turns such a capture back from the logged k (k=1: 270° cw) to 2007 x 2853,
+#   lid half on top, and store-set.sh checks its canvas as the upright one. D6 (a menu) still turns portrait (k=0).
+#   The lines below are unchanged: the store3 captures show the right moments (D1 chest #2 open, asleep, meter low;
+#   D2 "Freeze!" + WAKING; D3 "Hushed! BANKED +197 / Hush Chain ×1.1"; D4 "+429 / Hush Chain ×1.3", CHAIN ×1.3;
+#   D5 "CHOMP! Too loud! −179", "−10s").
+
 # ---- iPhone Duo inner display (2007 x 2853): six frames ----------------------------------------------------------
 # R4 (store1 frames, design/notes/ci-R4.md): P3/D3 and P4/D4 froze 1.25 s after the bank + 0.4 s scene hold, past the
 #   whole bank group (0.15–1.15 s), so the frame was a black interior and nothing else. freezeDelay=0.25 (bank: the

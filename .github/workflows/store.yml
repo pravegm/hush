@@ -8,6 +8,8 @@ name: App Store screenshots
 #    must log an unfolded canvas (fold=0: the lever, the phone's words).
 #  • duo: the iPhone Duo (iOS 27.1 runtime, same setup as duo.yml), ci/duo-store-scenarios.txt (D1–D6) on the inner
 #    display in the tabletop canvas (2007 × 2853; ci/duo.sh asks for portrait, Brim's proven route), upright (turn=0).
+#    R11: only menus turn portrait; a run holds the sim's landscape and is drawn with k=1, so ci/store-upright.sh
+#    turns those captures upright from the logged k (in the capture job and again in assemble, for duo_from_run).
 #    Artifact raw-duo. Skipped when duo_from_run names an earlier run whose raw-duo to reuse.
 #  • assemble: captions every set with ci/store-set.sh + ci/store-frame.swift. D1 (a real Duo inner capture) becomes the
 #    tabletop composite that is frame 1 of EVERY set, so this job waits for both capture jobs. Artifacts, laid out as
