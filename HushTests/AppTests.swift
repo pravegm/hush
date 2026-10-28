@@ -827,7 +827,7 @@ struct LessonTests {
         _ = s.update(LessonScript.Input(time: 0, angle: 118))
         _ = s.update(LessonScript.Input(time: 1.0, angle: 118))
         #expect(!s.isPraising)
-        #expect(s.line(slider: false, angle: 118, hint: nil).hasPrefix("Close the lid"))
+        #expect(s.line(slider: false, angle: 118, hint: nil).hasPrefix("Lower the lid"))
     }
 
     /// R3 (UX P0-1): the lid marker's arrow and the card's line come from one angle branch and never disagree.
@@ -846,7 +846,7 @@ struct LessonTests {
             case .lower:
                 #expect(cue.pointsUp == false)
                 #expect(cue.label == "Lower this half a little")
-                #expect(d.line.hasPrefix("Close the lid"))
+                #expect(d.line.hasPrefix("Lower the lid"))
             case .hold:
                 #expect(cue.pointsUp == nil)
                 #expect(cue.label == "Hold it there…")
@@ -3351,7 +3351,9 @@ struct R11Tests {
         let rest = HomeView.caption(HomeLid(openness: 0, speed: 0), hinge: false)
         #expect(rest == HomeView.phoneCaption)
         #expect(rest.lowercased().contains("lever"))
-        #expect(!rest.lowercased().contains("lid"))
+        // ("slide" contains "lid", CI 40662837159: check the phrases, not the letters.)
+        let lower = rest.lowercased()
+        #expect(!lower.contains("the lid") && !lower.contains("its lid"))
         #expect(rest == LessonScript(start: .pose).line(slider: true, angle: nil, hint: nil))
         #expect(rest.hasPrefix(HushCopy.hint(.openSlowly, slider: true)))
         // The Duo keeps the lid's words.
