@@ -156,6 +156,16 @@ final class SceneMoments {
     /// The highest a callout's top may reach (canvas y), set by the scene before every frame
     /// (`ChestLayout.calloutCeiling(viewScale:plate:)`).
     var calloutCeiling: CGFloat = ChestLayout.calloutCeiling(viewScale: 1)
+
+    // MARK: R12 (founder: "chest closed means lid closed, chest open means lid open")
+
+    /// Set by the scene before every frame: the robbed chest (after a bite, the lid still open, the next chest only
+    /// once it closes). It stays OPEN and EMPTY: the bite's end doesn't dim its interior or say "Next chest…" (the
+    /// App's "Close the lid for the next chest" is the one prompt).
+    var robbed = false
+    /// Set by the scene before every frame: how much of the closed chest's cover is drawn (0…1). The bite's throat and
+    /// lower fangs (at the back wall, drawn over the cover's layer) give way to a shut lid.
+    var lidCover: CGFloat = 0
     /// How far "CREAK!" and the bank stack (with "Next chest…") are moved down this frame (0 in the lesson: its card
     /// is at the bottom and nothing of the App's sits at the top).
     private(set) var creakDrop: CGFloat = 0
@@ -573,6 +583,8 @@ final class SceneMoments {
         nextLabel.node.position = CGPoint(x: ChestLayout.nextChestPoint.x, y: ChestLayout.nextChestPoint.y - stackDrop)
 
         // The interior's shutter: down while the chest is "between chests"; the moments below move it.
+        // R12: the robbed chest isn't between chests yet: it stays open and lit until the lid closes.
+        if robbed { exited = false }
         var cover: CGFloat = exited ? 1 : 0
         var coverAlpha: CGFloat = SceneMoments.shutAlpha
         var offset: CGFloat = 0
@@ -629,8 +641,8 @@ final class SceneMoments {
             if a >= 1.1 && a < 1.45 {
                 offset = 8 * CGFloat(abs(sin((a - 1.1) / 0.35 * 2 * Double.pi)))
             } else if a >= 1.45 && a < 1.8 {
-                cover = CGFloat(SceneMoments.smooth((a - 1.45) / 0.35))
-            } else if a >= 1.8 {
+                cover = robbed ? 0 : CGFloat(SceneMoments.smooth((a - 1.45) / 0.35))
+            } else if a >= 1.8 && !robbed {
                 exited = true
                 cover = 1
             }
@@ -644,9 +656,11 @@ final class SceneMoments {
             }
         }
         f.jawDrop = -96 * jawK
-        lowerTeeth.isHidden = jawK < 0.01
+        let uncovered = 1 - min(max(lidCover, 0), 1)
+        lowerTeeth.isHidden = jawK < 0.01 || uncovered < 0.01
         lowerTeeth.yScale = max(jawK, 0.01)
-        throat.alpha = 0.85 * jawK
+        lowerTeeth.alpha = uncovered
+        throat.alpha = 0.85 * jawK * uncovered
 
         // A creak: "CREAK!" jolts in and wobbles.
         creakAge += dt
@@ -785,7 +799,7 @@ final class SceneMoments {
 
         // R4 (UX P2-4): "Next chest…" between chests (not in the lesson, not over the relic card, not at the end).
         var between = exited || (bankAge >= SceneMoments.nextChestFrom && bankAge < 2)
-        if s.mode == .lesson || torchAge != nil || bannerAge < SceneMoments.bannerTime || !relicQueue.isEmpty {
+        if s.mode == .lesson || torchAge != nil || bannerAge < SceneMoments.bannerTime || !relicQueue.isEmpty || robbed {
             between = false
         }
         switch s.phase {

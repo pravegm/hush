@@ -23,6 +23,11 @@ import Testing
 // within ±10 % of R6. The casual band moved (gold 3,500–7,000, banked 6–12, Hushed ≥ 0.5): faster real hands bank
 // more chests in the same candle but Hush fewer of them (the 40 windows of 8 seeds span gold 4,276–6,560, banked
 // 8.5–10.5, Hushed 0.5–2.5).
+// R12 ("the lid IS the chest", design/notes/core-R12.md): after a bite the robbed chest waits for the lid to come down
+// (the pilot closes it), a `.ready` chest is silent, no shut-first gate. Only the novice (the only skill bitten) moves;
+// casual, expert and perfect are identical to the gold. The sim predicts:
+//   8 seeds:  novice 1,347 / 5.5 / 4 bites (R7: 1,347 / 4.5 / 3.5); 40 seeds: novice 1,566 / 6 / 4 (R7: 1,589 / 5.5 / 4).
+// No band moved.
 // Each skill is simulated once (memoised per skill), so the tests share the runs.
 
 struct HushBalanceRun {

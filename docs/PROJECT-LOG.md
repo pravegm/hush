@@ -115,3 +115,19 @@
   - CI: **396 tests green**. Duo sim on R11: **13 / 13**.
 - **TestFlight 1.0 (5)** (R11) and **1.0 (6)** (R11b) are VALID; build 6 is the release candidate.
 - The store set re-shoot is in progress (run 40668557600 framed only D6; P1 was flagged).
+
+### 28 Oct, midday: the founder tests build 6 on the Duo
+- **Founder:** "lid shut i launch the game it asks me to open the lid, once open i click play while lid is open, then
+  it again asks me to open the lid - this makes no sense … moving from one chest to another, the lid is still open but
+  it asks me to again open … it should feel real please. the chest closed means lid closed, chest open means lid
+  open".
+- **Diagnosis:** every new chest waited in `.ready` for the lid to be seen in the 100–110° "shut zone" before it
+  could be opened. At run start, or after a bite, with the lid open, that meant "lower it first", then "open it"
+  again.
+- **R12 (`design/ROUND-12.md`), "the lid IS the chest":**
+  - no gate;
+  - Play with the lid open starts with the first chest open;
+  - close the lid to bank (fully closing is fine);
+  - after a bite the robbed chest stays open and empty with "Close the lid for the next chest";
+  - the next chest arrives only under a closed lid;
+  - the floor draws the closed chest's lid when the lid is shut, lifting away as it opens.

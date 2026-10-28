@@ -519,6 +519,172 @@ extension SceneTextures {
         }
     }
 
+    // MARK: R12: the closed chest's cover (the outside of the lid seen from above)
+
+    /// The closed chest seen from above (`ChestLayout.coverTextureRect`): the lid's planks between a raised border,
+    /// the tier's bands and studs, corner brackets, the brass lock at the front edge, the royal jewels, gilt trim or
+    /// gold leaf, and a soft shadow round its sides and front. Built once per dress (warmed with the scene) at 1.5×.
+    static func closedCover(_ dress: ChestDress) -> SKTexture {
+        let tr = ChestLayout.coverTextureRect
+        return make("cover-\(dress.key)-r12", width: tr.width, height: tr.height, scale: 1.5) { ctx, _ in
+            ctx.translateBy(x: -tr.minX, y: -tr.minY)
+            drawClosedCover(ctx, TierStyle.of(dress))
+        }
+    }
+
+    private static func drawClosedCover(_ ctx: CGContext, _ st: TierStyle) {
+        let r = ChestLayout.coverRect
+        let pad = ChestLayout.coverShadowPad
+        let body = Painter.roundRect(r, 10)
+        let metal = st.gilt ? st.band : RGBA(hex: 0x5E6873)
+
+        // The shadow it casts on the rims (sides and front; the hinge edge is flush).
+        for i in 0..<6 {
+            let g = CGFloat(i) * pad / 6
+            let s = CGRect(x: r.minX - g, y: r.minY - g - 3, width: r.width + 2 * g, height: r.height + g)
+            Painter.fill(ctx, Painter.roundRect(s, 10 + g), RGBA(0, 0, 0), 0.11)
+        }
+
+        // The lid's boards between the raised border.
+        let border: CGFloat = 24
+        let inner = r.insetBy(dx: border, dy: border)
+        ctx.saveGState()
+        ctx.addPath(body)
+        ctx.clip()
+        Painter.fill(ctx, rect: r, st.woodDark)
+        planks(ctx, inner, firstBottom: inner.minY, firstIndex: 1, height: 57, st, darkness: 0.04, seedBase: 700)
+        if st.leaf { goldLeaf(ctx, inner, seed: 71) }
+        // The raised border: front, back, left, right.
+        let front = CGRect(x: r.minX, y: r.minY, width: r.width, height: border)
+        let back = CGRect(x: r.minX, y: r.maxY - border, width: r.width, height: border)
+        let left = CGRect(x: r.minX, y: r.minY, width: border, height: r.height)
+        let right = CGRect(x: r.maxX - border, y: r.minY, width: border, height: r.height)
+        for (i, b) in [front, back].enumerated() {
+            Painter.gradient(ctx, Painter.rect(b), [ScenePaint.lighter(st.wood, 0.14), ScenePaint.darker(st.wood, 0.12)],
+                             [0, 1], from: CGPoint(x: b.midX, y: b.maxY), to: CGPoint(x: b.midX, y: b.minY))
+            Painter.grain(ctx, b, alongX: true, st.woodDark, seed: UInt64(731 + i), count: 2)
+        }
+        for b in [left, right] {
+            sideBorder(ctx, b.insetBy(dx: 0, dy: border), st)
+        }
+        if st.leaf {
+            for b in [front, back, left, right] { goldLeaf(ctx, b, seed: UInt64(b.minX + b.minY + 13)) }
+        }
+        // The border's inner edge (the boards sit a step lower).
+        Painter.stroke(ctx, Painter.rect(inner), ScenePaint.outline, width: 4, 0.85)
+        Painter.stroke(ctx, Painter.rect(inner.insetBy(dx: -2.5, dy: -2.5)), ScenePaint.lighter(st.wood, 0.3),
+                       width: 1.2, 0.45)
+        if st.gilt {
+            Painter.stroke(ctx, Painter.rect(inner.insetBy(dx: 6, dy: 6)), st.band, width: 3, 0.95)
+            Painter.stroke(ctx, Painter.rect(inner.insetBy(dx: 6, dy: 6)), ScenePaint.outline, width: 0.8, 0.5)
+        }
+
+        // The bands run front to back (the frame's front straps carry on up over the lid).
+        if st.bands {
+            for x in ChestLayout.coverBandXs {
+                strap(ctx, CGRect(x: x - 14, y: r.minY, width: 28, height: r.height), st)
+            }
+        }
+        // The candle's light from the front-left, falling off towards the hinge.
+        Painter.radial(ctx, [RGBA(1, 0.86, 0.6, 0.16), RGBA(1, 0.86, 0.6, 0)], [0, 1],
+                       center: CGPoint(x: r.minX + r.width * 0.3, y: r.minY + r.height * 0.32), radius: r.width * 0.62)
+        Painter.linear(ctx, [RGBA(0, 0, 0, 0), RGBA(0, 0, 0, 0.28)], [0, 1],
+                       from: CGPoint(x: 0, y: r.minY + r.height * 0.45), to: CGPoint(x: 0, y: r.maxY))
+        ctx.restoreGState()
+
+        // Corner brackets (none in the back-right corner: the pause coin's seat is there, as on the frame).
+        let arm: CGFloat = 70
+        let corners: [(CGPoint, CGFloat, CGFloat)] = [(CGPoint(x: r.minX, y: r.minY), 1, 1),
+                                                       (CGPoint(x: r.maxX, y: r.minY), -1, 1),
+                                                       (CGPoint(x: r.minX, y: r.maxY), 1, -1)]
+        for (c, sx, sy) in corners {
+            let a = CGRect(x: sx > 0 ? c.x : c.x - arm, y: sy > 0 ? c.y : c.y - border, width: arm, height: border)
+            let b = CGRect(x: sx > 0 ? c.x : c.x - border, y: sy > 0 ? c.y : c.y - arm, width: border, height: arm)
+            for q in [a, b] { Painter.stroke(ctx, Painter.roundRect(q, 4), ScenePaint.outline, width: 3.2, 0.9) }
+            for q in [a, b] { bracket(ctx, q, metal) }
+            Painter.rivet(ctx, CGPoint(x: c.x + sx * border * 0.5, y: c.y + sy * border * 0.5), 4.2, st.stud)
+            Painter.rivet(ctx, CGPoint(x: c.x + sx * (arm - 11), y: c.y + sy * border * 0.5), 3.4, st.stud)
+            Painter.rivet(ctx, CGPoint(x: c.x + sx * border * 0.5, y: c.y + sy * (arm - 11)), 3.4, st.stud)
+        }
+        if st.gilt {
+            for c in [CGPoint(x: inner.minX + 8, y: inner.minY + 8), CGPoint(x: inner.maxX - 8, y: inner.minY + 8),
+                      CGPoint(x: inner.minX + 8, y: inner.maxY - 8)] {
+                filigree(ctx, c, toward: CGPoint(x: inner.midX, y: inner.midY), st.band)
+            }
+        }
+
+        // Studs round the border (not under the bands, the brackets or the lock).
+        let lockR = CGRect(x: ChestLayout.coverLockCenter.x - ChestLayout.coverLockSize.width / 2 - 10,
+                           y: r.minY - 2, width: ChestLayout.coverLockSize.width + 20, height: border + 4)
+        func clear(_ p: CGPoint) -> Bool {
+            if st.bands && ChestLayout.coverBandXs.contains(where: { abs($0 - p.x) < 22 }) { return false }
+            if lockR.contains(p) { return false }
+            let nearFrontCorner = p.y < r.minY + arm && (p.x < r.minX + arm || p.x > r.maxX - arm)
+            let nearBackLeft = p.y > r.maxY - arm && p.x < r.minX + arm
+            let nearBackRight = p.y > r.maxY - 90 && p.x > r.maxX - 90
+            return !(nearFrontCorner || nearBackLeft || nearBackRight)
+        }
+        var x = r.minX + 40
+        while x < r.maxX - 30 {
+            for p in [CGPoint(x: x, y: r.minY + border / 2), CGPoint(x: x, y: r.maxY - border / 2)] where clear(p) {
+                Painter.rivet(ctx, p, 3.6, st.stud)
+            }
+            x += 46
+        }
+        var y = r.minY + 46
+        while y < r.maxY - 30 {
+            for p in [CGPoint(x: r.minX + border / 2, y: y), CGPoint(x: r.maxX - border / 2, y: y)] where clear(p) {
+                Painter.rivet(ctx, p, 3.6, st.stud)
+            }
+            y += 46
+        }
+
+        // The lock: a hasp over the front edge and a shield plate with its keyhole.
+        let lc = ChestLayout.coverLockCenter
+        let ls = ChestLayout.coverLockSize
+        let hasp = Painter.roundRect(CGRect(x: lc.x - 17, y: r.minY - 4, width: 34, height: 30), 8)
+        Painter.chunky(ctx, hasp, ScenePaint.brassDark, outline: 2, light: 0.5, shade: 0.3,
+                       from: CGPoint(x: 0, y: r.minY + 26), to: CGPoint(x: 0, y: r.minY - 4))
+        let shield = CGMutablePath()
+        let top = lc.y + ls.height / 2, bottom = lc.y - ls.height / 2
+        shield.move(to: CGPoint(x: lc.x - ls.width / 2, y: top))
+        shield.addLine(to: CGPoint(x: lc.x + ls.width / 2, y: top))
+        shield.addCurve(to: CGPoint(x: lc.x, y: bottom), control1: CGPoint(x: lc.x + ls.width / 2 + 4, y: lc.y - 10),
+                        control2: CGPoint(x: lc.x + ls.width * 0.22, y: bottom + 6))
+        shield.addCurve(to: CGPoint(x: lc.x - ls.width / 2, y: top), control1: CGPoint(x: lc.x - ls.width * 0.22, y: bottom + 6),
+                        control2: CGPoint(x: lc.x - ls.width / 2 - 4, y: lc.y - 10))
+        shield.closeSubpath()
+        var drop = CGAffineTransform(translationX: 3, y: -4)
+        if let s = shield.copy(using: &drop) { Painter.fill(ctx, s, RGBA(0, 0, 0), 0.35) }
+        Painter.chunky(ctx, shield, st.gilt ? st.band : ScenePaint.brass, outline: 2.6, light: 0.5, shade: 0.45,
+                       from: CGPoint(x: lc.x - ls.width / 2, y: top), to: CGPoint(x: lc.x + ls.width / 2, y: bottom))
+        let kc = CGPoint(x: lc.x, y: lc.y + 8)
+        let esc = Painter.oval(CGRect(x: kc.x - 15, y: kc.y - 32, width: 30, height: 50))
+        Painter.chunky(ctx, esc, ScenePaint.brassDark, outline: 1.6, light: 0.55, shade: 0.3,
+                       from: CGPoint(x: kc.x - 15, y: kc.y + 18), to: CGPoint(x: kc.x + 15, y: kc.y - 32))
+        let hole = SceneTextures.keyholePath(center: kc, radius: 7.5)
+        Painter.fill(ctx, hole, RGBA(hex: 0x140804))
+        Painter.stroke(ctx, hole, ScenePaint.outline, width: 1.8, 0.9)
+        for c in [CGPoint(x: lc.x - ls.width / 2 + 11, y: top - 10), CGPoint(x: lc.x + ls.width / 2 - 11, y: top - 10)] {
+            Painter.rivet(ctx, c, 4, ScenePaint.brassLight)
+        }
+        Painter.fill(ctx, Painter.oval(CGRect(x: lc.x - ls.width / 2 + 8, y: lc.y - 6, width: 9, height: 22)),
+                     RGBA(1, 1, 1), 0.35)
+
+        // The royal jewels.
+        if st.gems {
+            let colors = [RGBA(hex: 0xEC3352), RGBA(hex: 0x3C7CEE), RGBA(hex: 0xA95CE4)]
+            for (i, c) in ChestLayout.coverJewels.enumerated() {
+                gemStud(ctx, c, colors[i % colors.count], size: ChestLayout.coverJewelRadius)
+            }
+        }
+
+        // The lid's chunky outline and the dark seam where it meets the chest at the hinge.
+        Painter.stroke(ctx, body, ScenePaint.outline, width: 5, 0.95)
+        Painter.stroke(ctx, Painter.rect(CGRect(x: r.minX + 8, y: r.maxY - 1.5, width: r.width - 16, height: 0.01)),
+                       ScenePaint.outline, width: 3, 0.9)
+    }
+
     // MARK: Below the floor: the chest's front wall, the big lock, the tabletop
 
     /// The chest's front face (670 × 314: its top 104 pt sit behind the satchel), planks, corner posts, bands.

@@ -181,6 +181,12 @@ final class GameController: ObservableObject, SceneDriver {
     private var lastCanvasLine = ""
     private var bannerText: String?
     private var bannerUntil: Double = 0
+    /// R12 (CI ask): the hint last logged as `HUSH-T hint <name>` (nil = none).
+    private var tracedHint: HeistHint?
+    /// R12 (demo `bag=<n>`, DEBUG): the first chest's demo bag, until it is filled.
+    private var demoBag: DemoBagPlan?
+    /// R12: the run's first step has been logged (`HUSH-T first chest …`).
+    private var firstStepLogged = false
     /// R3: the in-run callout (a one-time tip, the golden banner) and until when it shows (wall clock).
     private var callout: String?
     private var calloutUntil: TimeInterval = 0
@@ -408,7 +414,19 @@ final class GameController: ObservableObject, SceneDriver {
         if let level = demo?.noise, !noiseReleased { session.nudgeNoise(to: level) }
         events += session.step(dt: step, lid: lid)
         playTime += step
+        // R12 (CI ask, demo `noiseUntil=bite`): the held noise lets go at the first bite.
+        if demo?.noiseUntilBite == true, !noiseReleased, events.contains(where: Self.isBite) {
+            noiseReleased = true
+            AppTrace.t("HUSH-T noise released \(AppTrace.fixed(session.snapshot.noise, 2))")
+        }
+        if demoBag != nil { events += fillDemoBag(session, now: now) }
         var snapshot = session.snapshot
+        if !firstStepLogged {
+            // R12 (CI START-OPEN): how the run's first chest began: open at once (rule 2) or closed.
+            firstStepLogged = true
+            AppTrace.t("HUSH-T first chest phase=\(snapshot.phase == .looting ? "looting" : "ready") "
+                       + "openness=\(AppTrace.fixed(snapshot.openness, 2))")
+        }
 
         if var script = lessonScript {
             let lessonIn = lessonInput(snapshot, events: pendingLessonEvents + events, dragSpeed: session.dragSpeed)
@@ -427,7 +445,10 @@ final class GameController: ObservableObject, SceneDriver {
 
         let live = AppRules.isLive(snapshot.phase)
         let dragSpeed = session.dragSpeed
-        feedback.handle(events, telemetry: AppRules.telemetry(snapshot, dragSpeed: dragSpeed, playing: live))
+        // R12 (Core R12 hook 2): the robbed chest reads angry, so Feedback never plays the sleeping mimic's snore bed
+        // over it (Core sets its mimic asleep, noise 0, while `awaitingClose`).
+        let audible = AppRules.feedbackPlays(snapshot.phase, awaitingClose: session.awaitingClose)
+        feedback.handle(events, telemetry: AppRules.telemetry(snapshot, dragSpeed: dragSpeed, playing: audible))
         // R11 (UX P2-5): VoiceOver's bank line names the Hush Chain the same bank raised.
         let chain = Self.chainMultiplier(in: events)
         for event in events {
@@ -868,6 +889,8 @@ final class GameController: ObservableObject, SceneDriver {
             }
         }
         if AppRules.handoverHolds(from: old, to: new, liveHingeRun: isLiveRun && input == .hinge) {
+            // R12 rule 4: the cover display took over, so the lid is shut: a robbed chest gets its next chest.
+            if new == .small { noteLidShutIfRobbed("cover") }
             closingPause.hold()
             setClosing(true)
             AppTrace.t("HUSH-T handover hold \(old?.rawValue ?? "-")->\(new.rawValue) angle=\(a)")
@@ -948,6 +971,8 @@ final class GameController: ObservableObject, SceneDriver {
         AppTrace.t("HUSH-T pose \(newPose.rawValue) reason=" + reason)
         note("pose \(newPose.rawValue) \(reason)")
         if old == .cover && newPose != .cover && isLiveRun { autoAskPortrait(reason: "cover") }
+        // R12 rule 4: the cover display means a shut lid.
+        if newPose == .cover && isLiveRun { noteLidShutIfRobbed("cover") }
         if newPose == .play && old != .play && isLiveRun && input == .hinge {
             // Back from the cover display mid-run: wait for an open, still lid (P0-2).
             closingPause.hold()
@@ -1236,6 +1261,8 @@ final class GameController: ObservableObject, SceneDriver {
             isShut = true
             // R8 (QA-5 P1-B): shut for real: the cover card's override ends.
             if coverOverridden { coverOverridden = false }
+            // R12 rule 4: shut is shut; a robbed chest waiting for the close gets its next chest.
+            if isLiveRun { noteLidShutIfRobbed("shut") }
         }
         // R8 (QA-5 P2-4): the menu hold follows the hinge (cheap: it only touches the mask when it flips).
         refreshMenuHold()
@@ -1300,6 +1327,9 @@ final class GameController: ObservableObject, SceneDriver {
             }
         }
         if closingPause.paused && !isClosingPaused { setClosing(true) }
+        // R12 rule 4: under any closing card (a menu Resume's hold included), a lid seen in the shut zone is a closed
+        // lid: a robbed chest still waiting gets its next chest (the session doesn't step while paused).
+        if isClosingPaused, let a = angle, a.isFinite, a <= Tuning.shutZoneAngle { noteLidShutIfRobbed("closing") }
         // R7 (ROUND-7 App 1, DEVICE-RISKS-1 item 3): over a fresh chest (banked, then folded on down), lifting the lid
         // to Feel's line is enough: no "Hold still…". A chest in play keeps the full rule.
         let fresh = session?.isFreshChest ?? false
@@ -1316,6 +1346,9 @@ final class GameController: ObservableObject, SceneDriver {
             AppTrace.t("HUSH-T fresh chest resume angle=\(angle.map { AppTrace.fixed($0, 1) } ?? "-")")
             note("fresh chest resume")
         case .paused?:
+            // R12 rule 4: a robbed chest folded shut too fast for a step in the shut zone still gets its next chest
+            // (Core deals it now; `chestArrived` comes with the first step back), so the reopen is a fresh chest.
+            noteLidShutIfRobbed("closing")
             setClosing(true)
             #if DEBUG
             // A literal of its own, DEBUG only: CI's TestFlight guard greps the Release binary for it.
@@ -1329,6 +1362,19 @@ final class GameController: ObservableObject, SceneDriver {
         case nil:
             break
         }
+    }
+
+    /// R12 rule 4 (Core's `noteLidShut`): the lid was seen shut (the closing pause began, the cover display took over,
+    /// the Duo folded flat) while the robbed chest waited, perhaps with no step in the shut zone: Core deals the next
+    /// chest now (`chestArrived` with the first step back), so the reopen opens a fresh chest. Never from a hold that
+    /// isn't the lid closing (the menu's Resume, the first hinge report, an input switch): the lid may be open then.
+    private func noteLidShutIfRobbed(_ reason: String) {
+        guard let session, session.awaitingClose else { return }
+        session.noteLidShut()
+        let fresh = session.isFreshChest
+        if fresh != closingFresh { closingFresh = fresh }
+        AppTrace.t("HUSH-T next chest dealt under the pause reason=\(reason)")
+        note("next chest dealt (\(reason))")
     }
 
     private func setClosing(_ on: Bool) {
@@ -1749,7 +1795,9 @@ final class GameController: ObservableObject, SceneDriver {
     private func publishLesson(_ script: LessonScript, hint: HeistHint?, now: TimeInterval, force: Bool) {
         guard force || now - lastLesson >= Self.hudInterval else { return }
         lastLesson = now
-        let display = script.display(slider: sliderWording, angle: input == .hinge ? hinge.angle : nil, hint: hint)
+        // R12 rule 7: the session's openness, so the open step never says "open" to an open lid.
+        let display = script.display(slider: sliderWording, angle: input == .hinge ? hinge.angle : nil, hint: hint,
+                                     openness: session?.snapshot.openness)
         if display != lessonDisplay {
             if display.step != lessonDisplay?.step || display.praise != lessonDisplay?.praise
                 || display.line != lessonDisplay?.line {
@@ -1824,6 +1872,9 @@ final class GameController: ObservableObject, SceneDriver {
         debugTrace = DebugTouchTrace()
         bannerText = Self.startBanner(m)
         bannerUntil = bannerText == nil ? 0 : Self.bannerSeconds
+        tracedHint = nil
+        firstStepLogged = false
+        demoBag = m == .lesson ? nil : demo?.bagItems.map { DemoBagPlan($0) }
         scene?.reset()
         // R3 (decision 3): "not safe yet" under IN BAG while the teaching runs last.
         scene?.showsBagSublabel = store.data.runs < AppRules.teachingRuns
@@ -1832,8 +1883,11 @@ final class GameController: ObservableObject, SceneDriver {
             hinge.reset()
             hinge.requiredResumeAngle = HingeLidSource.resumeAngle
         }
-        hud.update(hint: nil, banner: bannerText, stage: .asleep, bagCount: 0, debugLoot: nil, spoken: SpokenHUD(),
-                   biting: false)
+        // R12 rule 2: Play pressed with the lid up goes straight into an open first chest, so the first frame's
+        // banner already follows the lid (the HUD follows it every frame after).
+        let startOpen = input == .hinge && hinge.hasHinge && AppRules.lidReadsOpen(hinge.lastLid.openness)
+        hud.update(hint: nil, banner: Self.startBanner(m, lidOpen: startOpen) ?? bannerText, stage: .asleep,
+                   bagCount: 0, debugLoot: nil, spoken: SpokenHUD(), biting: false, lidOpen: startOpen)
         setRoute(m == .lesson ? .lesson : .playing)
         // R3 (P1-4): a Duo run with no hinge report yet waits, shut and paused, for the lid to move.
         if input == .hinge && !hinge.hasHinge {
@@ -1845,10 +1899,11 @@ final class GameController: ObservableObject, SceneDriver {
         refreshIdleTimer()
     }
 
-    /// The run-start line (≤ 6 words), shown while no hint is up.
-    nonisolated static func startBanner(_ mode: RunMode) -> String? {
+    /// The run-start line (≤ 6 words), shown while no hint is up. R12: with the lid already open (the run started with
+    /// it up, rule 2) it never says "open": "Candle lit. Gently does it."
+    nonisolated static func startBanner(_ mode: RunMode, lidOpen: Bool = false) -> String? {
         switch mode {
-        case .run: return "Candle lit. Open it gently."
+        case .run: return lidOpen ? "Candle lit. Gently does it." : "Candle lit. Open it gently."
         case let .daily(day, scored):
             return scored ? "Daily Dungeon · " + AppRules.dailyDate(day: day) : "Practice: no score today"
         case .attract, .lesson: return nil
@@ -1994,7 +2049,11 @@ final class GameController: ObservableObject, SceneDriver {
     private func publishHUD(_ s: HeistSnapshot, now: TimeInterval) {
         // R9: demo runs keep `debug.state` current (phase, pauses, input), 4 times a second.
         refreshDebugState(now: now)
+        // R12: the lid as the chest sees it now (the words never ask to open an open lid).
+        let lidOpen = AppRules.lidReadsOpen(s.openness)
         var wanted = s.hint
+        // R12 (founder via CI): "Close the lid for the next chest" belongs to the robbed chest alone, never after a bank.
+        if !AppRules.allowsCloseForNext(wanted, awaitingClose: session?.awaitingClose ?? false) { wanted = nil }
         if let h = wanted, !AppRules.showsHint(h, runs: store.data.runs) { wanted = nil }
         if route == .lesson || isPaused { wanted = nil }
         if AppRules.silencesHints(s.phase) {
@@ -2024,7 +2083,19 @@ final class GameController: ObservableObject, SceneDriver {
             showCallout(waiting, now: now)
         }
         var shown = hintGate.update(wanted, now: now)
+        // R12: the gate's minimum show never keeps the robbed chest's prompt up over the next (closed) chest.
+        let awaiting = session?.awaitingClose ?? false
+        if !AppRules.allowsCloseForNext(shown, awaitingClose: awaiting) {
+            hintGate.clear()
+            shown = hintGate.update(wanted, now: now)
+        }
         if isPaused { shown = nil }
+        // R12 (CI ask): `HUSH-T hint <name>` whenever the chosen hint changes (`none` when it clears), before a scene
+        // callout hides it, so CI sees every hint the player would have been given.
+        if shown != tracedHint {
+            tracedHint = shown
+            AppTrace.t(AppRules.hintTraceLine(shown))
+        }
         setGlimmer(shown == .relicDeeper)
         // R11 (juror P2-1, tester 11: "CREAK!" on "Freeze!", "Hushed!" on the plate): one prompt at a time. While the
         // scene has a callout up (`ChestScene.calloutActive`: CREAK!, the bank stack, the bite, the relic card, "Next
@@ -2039,8 +2110,9 @@ final class GameController: ObservableObject, SceneDriver {
            !(shown.map({ AppRules.calloutYields(to: $0, held: held) }) ?? false), route != .lesson {
             banner = text
             shown = nil
-        } else if shown == nil && s.time < bannerUntil && !isPaused {
-            banner = bannerText
+        } else if shown == nil && s.time < bannerUntil && !isPaused && bannerText != nil {
+            // R12: the run-start line follows the lid ("Open it gently." only while it is closed).
+            banner = Self.startBanner(mode, lidOpen: lidOpen) ?? bannerText
         }
         var bagged = 0
         for item in s.loot where item.place == .inBag { bagged += 1 }
@@ -2049,13 +2121,13 @@ final class GameController: ObservableObject, SceneDriver {
         // R7 (ROUND-7 App 2): a Duo's live chest needs the press-and-hold coin.
         let hold = AppRules.pauseNeedsHold(duo: isDuo, phase: s.phase)
         if hold != pauseNeedsHold { pauseNeedsHold = hold }
-        // R6 (CI FLAT-OPEN): "That's wide enough" is a hint, never a pause.
-        if shown == .tooWide && hud.hint != .tooWide { AppTrace.t("HUSH-T hint tooWide") }
+        // R6 (CI FLAT-OPEN): "That's wide enough" is a hint, never a pause (R12: logged with every hint, above).
         let urgent = shown != hud.hint || banner != hud.banner || bagged != hud.bagCount || biting != hud.biting
+            || lidOpen != hud.lidOpen
         guard urgent || now - lastHUD >= Self.hudInterval else { return }
         lastHUD = now
         hud.update(hint: shown, banner: banner, stage: s.stage, bagCount: bagged,
-                   debugLoot: isDemo ? Self.mostLit(s) : nil, spoken: SpokenHUD(s), biting: biting)
+                   debugLoot: isDemo ? Self.mostLit(s) : nil, spoken: SpokenHUD(s), biting: biting, lidOpen: lidOpen)
     }
 
     /// The most-lit item that can be grabbed now (CI's turned-drag UI test aims at it). Pure.
@@ -2152,6 +2224,9 @@ final class GameController: ObservableObject, SceneDriver {
         store.replace(DemoPresets.progress(d.progress, today: day))
         if !d.sound { settings.muted = true }
         fixedSource.openness = d.lid ?? 0
+        // R12 (demo `startOpen=1`): the held lid is up from the first frame (Play pressed with the lid open).
+        fixedSource.startsOpen = d.opensAtStart
+        if d.opensAtStart { AppTrace.t("HUSH-T demo start open lid=\(AppTrace.fixed(d.lid ?? 0, 2))") }
         switch d.effectiveScreen {
         case .home:
             goHome()
@@ -2215,6 +2290,51 @@ final class GameController: ObservableObject, SceneDriver {
         }
         if let orient = d.orient { DemoOrientation.request(orient) }
         if d.holdHint { AppTrace.t("HUSH-T hold hint forced") }
+    }
+
+    /// R12 (tests): sets the live session's noise, as the demo `noise=` key does (a bite while looting). Internal.
+    func nudgeSessionNoise(to level: Double) {
+        session?.nudgeNoise(to: level)
+    }
+
+    /// R12 (tests and Diagnostics): the robbed chest is waiting for the lid to close.
+    var awaitingClose: Bool { session?.awaitingClose ?? false }
+
+    /// R12: a `bitten` event. Pure.
+    nonisolated static func isBite(_ e: HeistEvent) -> Bool {
+        if case .bitten = e { return true }
+        return false
+    }
+
+    /// R12 (CI ask, demo `bag=<n>`, DEBUG): on the first chest's first looting steps, n lit items go straight into the
+    /// bag, picked and dropped in the bag strip at walking pace (`DemoBagPlan`): the pick and bag clinks only, never
+    /// drag noise. Logs `HUSH-T demo bag <n> value <v>` once the bag is full (or the first chest is over).
+    private func fillDemoBag(_ session: HeistSession, now: TimeInterval) -> [HeistEvent] {
+        guard var plan = demoBag else { return [] }
+        var out: [HeistEvent] = []
+        let s = session.snapshot
+        for (i, k) in plan.picks(s).enumerated() where k < s.loot.count {
+            let id = DemoBagPlan.touchBase - plan.bagged - i
+            let from = s.loot[k].position
+            out += session.touchBegan(id: id, at: from, time: now)
+            // 3 s for the trip: well under the drag's quiet speed (350 pt/s), and ended in the same frame.
+            out += session.touchMoved(id: id, to: DemoBagPlan.bagPoint, time: now + 3)
+            out += session.touchEnded(id: id, at: DemoBagPlan.bagPoint, time: now + 3)
+        }
+        let bagged = out.filter { e in
+            if case .itemBagged = e { return true }
+            return false
+        }.count
+        plan.noteBagged(bagged)
+        let after = session.snapshot
+        plan.finishIfNeeded(after)
+        if plan.done {
+            demoBag = nil
+            AppTrace.t("HUSH-T demo bag \(plan.bagged) value \(after.bagValue)")
+        } else {
+            demoBag = plan
+        }
+        return out
     }
 
     /// R11 (ROUND-11 App 3, demo `hint=holdToPause`): the pause coin shows "Hold to pause" and a half-full ring.

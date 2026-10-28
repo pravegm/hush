@@ -49,7 +49,7 @@
 #    `ready` is never seen): lid=0 holds chest #1 shut in `ready` for good, so the frame is the shut chest with its hint.
 #  - R4 11 (R3 frame: the first stirring frame, one amber pip, eyes shut): the novice is Stirring from ~1.4 s to ~5.8 s
 #    (logs/13b-creak.txt: noise 0.44–0.64 from 2.2 s), so freezeAfter=4 freezes mid-stir with the meter well into amber.
-09-run-ready|screen=run;mode=run;seed=7;lid=0|6|Chest #1 has slid in and sits shut: "Slide the lever up… slowly" (phone words for HeistHint.openSlowly), IN BAG 0, BANKED 0, no tip over the hint|HUSH-T input fixed
+09-run-ready|screen=run;mode=run;seed=7;lid=0|6|Chest #1 has slid in and sits shut: "Slide the lever up… slowly" (phone words for HeistHint.openSlowly), IN BAG 0, BANKED 0, no tip over the hint; R12 Scene: the floor shows the closed chest (the lid's planks, bands and lock from above), no interior|HUSH-T input fixed
 10-run-reveal|screen=run;mode=run;seed=7;pilot=casual;freezeOn=reveal|25|Lid three-quarters open, warm light from the back, 3+ items lit with glints, mimic asleep|HUSH-T freeze reveal
 11-stirring|screen=run;mode=run;seed=7;pilot=novice;freezeAfter=4;freezeOn=stirring|45|Stirring, well in: meter amber (about 0.5), the eye cracked open, tongue twitching, IN BAG > 0; R4 Scene: the label reads STIRRING|HUSH-T freeze stirring
 12-waking|screen=run;mode=run;seed=7;pilot=novice;freezeOn=waking|60|Waking: meter into the red, "Freeze!", the eye wide open, teeth showing, the floor's red glow|HUSH-T freeze waking
@@ -119,7 +119,7 @@
 36b-golden-reveal|screen=run;mode=run;seed=7;pilot=casual;golden=1;freezeAfter=22;freezeOn=reveal|70|Golden mimic opened: the gilded chest with its loot lit; R4 Scene: the loot pops the SAME "×N" as the seal and no other number shows (R3 frame: seal ×3, gem ×2)|event chestArrived .*golden=1
 37-chain-badge|screen=run;mode=run;seed=7;pilot=perfect;freezeAfter=24;freezeOn=bank;freezeDelay=0.6|90|Hush Chain: a Hushed bank, "Hushed! BANKED +N" over "Hush Chain ×1.3"; R5 Scene: the tab by BANKED reads "CHAIN ×1.3" on one line, the same multiplier as the toast, fully on screen|HUSH-T event chainUp
 38-results-chest-strip|screen=results;seed=7;progress=mid;pilot=perfect|8|Results after a clean run: every chest 💤 (Hushed), 0 bites, "New best!" or "N short of your best", the strip's "+N more"|HUSH-T canvas
-39-lesson-final-fold|screen=lesson;lessonStep=6;fold=1|6|Duo lesson final card (turned round): the 3 icon rows ("Ease the lid down to bank", R7 copy; R11: the 4th row "Close the lid to pause" is for the Duo's full floor, not this tight one) and "Got it", clear of the fold; R10: no empty pause seat by the card (it fades out with the coin)|fold=1
+39-lesson-final-fold|screen=lesson;lessonStep=6;fold=1|6|Duo lesson final card (turned round): the 3 icon rows ("Close the lid to bank it", R12 copy; R11: the 4th row "Close the lid to pause" is for the Duo's full floor, not this tight one) and "Got it", clear of the fold; R10: no empty pause seat by the card (it fades out with the coin)|fold=1
 # Game Center badges (asc.yml collects ci-screens/badges/*.png and greps logs/*badges*.txt for "HUSH-T badges").
 40-badges|screen=badges|10|A real badge grid screen (R2): "0 of 12 earned", the 12 achievement badges (R4 Scene: a real Relic Hunter glyph), also rendered to Documents/badges (copied to badges/)|HUSH-T badges
 # Large Dynamic Type (R3, REVIEW-2-ux "no frame proves no clipping"): the same pages launched with the text size forced
@@ -144,3 +144,14 @@
 50-cover-already-open|screen=cover;midRun=1;escape=1;progress=mid|6|R11: the cover card over a run, "Open to carry on", with the "Already open?" plate: Carry on (gold) over Home (leather)|HUSH-T cover escape shown forced midRun=1
 51-closing-carry-on-axxxl|screen=run;mode=run;seed=7;lid=0.6;fold=1;turn=0;hold=closing|7|R11: the closing card at Accessibility XXXL on the Duo layout's floor with Carry on up (after 3 s): it fits (the diagram and detail line go first) or scrolls with Carry on and Home whole, nothing under the fold|HUSH-T demo hold closing|-UIPreferredContentSizeCategoryName UICTContentSizeCategoryAccessibilityXXXL
 52-results-forgiving|screen=results;seed=7;progress=fresh;pilot=novice;fold=1|8|R11: Results on the Duo layout after a first run with 5 bites: under the cause line, the parchment plate "Keeps waking? Try a forgiving lid." with a leather "Make it forgiving" (once ever; never at Forgiving or Strict, never on the scored Daily)|HUSH-T forgiving nudge shown
+# R12 (design/ROUND-12.md, founder: "chest closed means lid closed, chest open means lid open"). Duo layout (fold=1,
+# upright), the lid's words.
+#  - 53: `startOpen=1` holds lid=0.8 from the very first frame (no 0.25 s shut beat): Play pressed with the lid up, so
+#    the first chest loots at once (rule 2). The expect is the App's first-step line.
+#  - 54: lid=0 holds chest #1 under a closed lid: the closed-chest cover on the floor (rule 5).
+#  - 55: noise=1 bites chest #1 the moment it loots (lid=0.7 from the first frame), `noiseUntil=bite` lets the noise
+#    go, and the lid stays open: 1.8 s of bite moment, then the robbed chest waits open and empty for the close.
+#    freezeDelay=3.4 lands ~1.2 s into the wait (past the hint gate's settle and the scene's bite callout).
+53-run-start-open|screen=run;mode=run;seed=7;lid=0.8;startOpen=1;fold=1;turn=0|6|R12 rule 2: the first chest already open, its loot lit at 0.8, no "Open the lid" anywhere: the hint "Drag the loot into your bag" (or the banner "Candle lit. Gently does it."), never "Close the lid a little first"|HUSH-T first chest phase=looting
+54-run-closed-cover-fold|screen=run;mode=run;seed=7;lid=0;fold=1;turn=0|6|R12 rule 5: chest #1 under a closed lid: the floor shows the closed chest's lid from above (wooden planks, iron bands, the lock), covering the interior; the hint "Open the lid… slowly" (the lid IS shut, so asking to open it is right)|HUSH-T first chest phase=ready
+55-robbed-close-next|screen=run;mode=run;seed=7;lid=0.7;startOpen=1;noise=1;noiseUntil=bite;fold=1;turn=0;freezeOn=bite;freezeDelay=3.4|20|R12 rule 4: after the bite, with the lid still open, the robbed chest stays open and EMPTY (no loot, the tongue curled, the eye angry on the lid), the candle 10 s shorter, and the only prompt is "Close the lid for the next chest"; no new chest has slid in|HUSH-T hint closeForNext

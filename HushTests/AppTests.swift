@@ -827,7 +827,8 @@ struct LessonTests {
         _ = s.update(LessonScript.Input(time: 0, angle: 118))
         _ = s.update(LessonScript.Input(time: 1.0, angle: 118))
         #expect(!s.isPraising)
-        #expect(s.line(slider: false, angle: 118, hint: nil).hasPrefix("Lower the lid"))
+        // R12 rule 7: an open lid at step 1 is asked to close.
+        #expect(s.line(slider: false, angle: 118, hint: nil) == LessonScript.closeToStart)
     }
 
     /// R3 (UX P0-1): the lid marker's arrow and the card's line come from one angle branch and never disagree.
@@ -845,8 +846,8 @@ struct LessonTests {
             switch cue {
             case .lower:
                 #expect(cue.pointsUp == false)
-                #expect(cue.label == "Lower this half a little")
-                #expect(d.line.hasPrefix("Lower the lid"))
+                #expect(cue.label == "Close the lid a little")
+                #expect(d.line.hasPrefix("Close the lid"))
             case .hold:
                 #expect(cue.pointsUp == nil)
                 #expect(cue.label == "Hold it there…")
@@ -870,8 +871,8 @@ struct LessonTests {
     @Test func theBankStepSaysBank() {
         let s = LessonScript(start: .bank)
         #expect(s.line(slider: true, angle: nil, hint: nil) == "Slide the lever down to bank it.")
-        // R11 (UX P2-2): one "to".
-        #expect(s.line(slider: false, angle: nil, hint: nil) == "Ease the lid back upright to bank it.")
+        // R11 (UX P2-2): one "to". R12 rule 3: bank = close the lid.
+        #expect(s.line(slider: false, angle: nil, hint: nil) == "Close the lid to bank it.")
     }
 
     @Test func sliderPoseAndWords() {
@@ -885,7 +886,8 @@ struct LessonTests {
 
     @Test func openStepPointsAtTheNoise() {
         let s = LessonScript(start: .open)
-        #expect(s.line(slider: false, angle: nil, hint: nil) == "Open the lid… slowly. Watch the noise.")
+        // R12 rule 7: "Now open it… slowly." (closed lid).
+        #expect(s.line(slider: false, angle: nil, hint: nil) == "Now open it… slowly. Watch the noise.")
         #expect(s.line(slider: true, angle: nil, hint: nil).hasSuffix("Watch the noise."))
         #expect(s.display(slider: false, angle: nil, hint: nil).pointsAtMeter)
     }
@@ -988,8 +990,10 @@ struct LessonTests {
 struct CopyTests {
     @Test func hintsAreShort() {
         for hint in HushCopy.allHints {
-            #expect(HushCopy.wordCount(HushCopy.hint(hint, slider: false)) <= 6)
-            #expect(HushCopy.wordCount(HushCopy.hint(hint, slider: true)) <= 6)
+            // R12: the founder's `.closeForNext` line is 7 words; every other hint keeps ≤ 6.
+            #expect(HushCopy.wordCount(HushCopy.hint(hint, slider: false)) <= HushCopy.wordLimit(hint))
+            #expect(HushCopy.wordCount(HushCopy.hint(hint, slider: true)) <= HushCopy.wordLimit(hint))
+            #expect(HushCopy.wordCount(HushCopy.hint(hint, slider: false, lidOpen: true)) <= HushCopy.wordLimit(hint))
         }
         #expect(HushCopy.hint(.candleLow, slider: false) == "Candle's low. Bank it!")
         #expect(HushCopy.hint(.relicDeeper, slider: false) == "Something glints deeper…")
@@ -1001,7 +1005,7 @@ struct CopyTests {
             for row in HushCopy.stakes(slider: slider) { #expect(HushCopy.wordCount(row.text) <= 6) }
         }
         #expect(HushCopy.stakes(slider: false).map(\.text) == ["Candle out = run over", "Too loud? It bites your bag",
-                                                              "Ease the lid down to bank"])
+                                                              "Close the lid to bank it"])
         #expect(HushCopy.stakes(slider: true).last?.text == "Slide the lever down to bank")
         for tip in RunTip.allCases { #expect(HushCopy.wordCount(tip.text) <= 6) }
         #expect(HushCopy.wordCount(RunTip.golden) <= 6)
@@ -1012,7 +1016,7 @@ struct CopyTests {
 
     /// R3 (decision 3): one verb, "bank", in the lid's words on a fold and the lever's without.
     @Test func oneVerbBank() {
-        #expect(HushCopy.hint(.shutToBank, slider: false) == "Ease the lid down to bank")
+        #expect(HushCopy.hint(.shutToBank, slider: false) == "Close the lid to bank")
         #expect(HushCopy.hint(.shutToBank, slider: true) == "Slide the lever down to bank")
         var lines = HushCopy.allHints.flatMap { [HushCopy.hint($0, slider: false), HushCopy.hint($0, slider: true)] }
         lines += HushCopy.stakes(slider: true).map(\.text) + HushCopy.stakes(slider: false).map(\.text)
@@ -2385,13 +2389,13 @@ struct R7Tests {
     // MARK: Item 1: "down", never "shut"; a fresh chest skips "Hold still…"
 
     @Test func bankingSaysDownNeverShut() {
-        #expect(HushCopy.hint(.shutToBank, slider: false) == "Ease the lid down to bank")
-        #expect(HushCopy.bankLid == "Ease the lid down to bank")
+        // R12 rule 3 (founder): bank = close the lid (closing it all the way is fine now).
+        #expect(HushCopy.hint(.shutToBank, slider: false) == "Close the lid to bank")
+        #expect(HushCopy.bankLid == "Close the lid to bank")
         #expect(HushCopy.wordCount(HushCopy.bankLid) <= 6)
-        #expect(HushCopy.stakes(slider: false).last?.text == "Ease the lid down to bank")
+        #expect(HushCopy.stakes(slider: false).last?.text == "Close the lid to bank it")
         let bank = LessonScript(start: .bank).line(slider: false, angle: nil, hint: nil)
-        // R11: "back upright" (one "to"; it read "down to upright to bank it").
-        #expect(bank.contains("upright"))
+        #expect(bank == "Close the lid to bank it.")
         // No fold copy says "shut" (a hand told "shut" folds the Duo all the way, onto the cover display).
         var lines = HushCopy.allHints.map { HushCopy.hint($0, slider: false) }
         lines += HushCopy.stakes(slider: false).map(\.text)
@@ -3505,18 +3509,19 @@ struct R11Tests {
     // MARK: Item 4: copy
 
     @Test func theCopyFixes() {
-        #expect(HushCopy.hint(.easeLidDown, slider: false) == "Lower the lid a little first")
+        // R12 rule 7: the lesson's chest words ("Close the lid…").
+        #expect(HushCopy.hint(.easeLidDown, slider: false) == "Close the lid a little first")
         #expect(HushCopy.wordCount(HushCopy.hint(.easeLidDown, slider: false)) <= 6)
-        // "Ease the lid down" now only ever means bank.
-        for hint in HushCopy.allHints where hint != .shutToBank {
+        // "Ease the lid down" is gone.
+        for hint in HushCopy.allHints {
             #expect(!HushCopy.hint(hint, slider: false).hasPrefix("Ease the lid down"))
         }
         let open = LessonScript(start: .open).line(slider: false, angle: nil, hint: .easeLidDown)
-        #expect(open == "Lower the lid a little first.")
+        #expect(open == "Close the lid a little first.")
         let lower = LessonScript(start: .pose).line(slider: false, angle: 140, hint: nil)
-        #expect(lower == "Lower the lid a little, nearly upright…")
+        #expect(lower == "Close the lid to start")
         let bank = LessonScript(start: .bank).line(slider: false, angle: nil, hint: nil)
-        #expect(bank == "Ease the lid back upright to bank it.")
+        #expect(bank == "Close the lid to bank it.")
         #expect(bank.components(separatedBy: " to ").count == 2)   // one "to"
         let five = RunResult(mode: .run, seed: 1, gold: 900, seconds: 100, chestsOpened: 8, chestsBanked: 3,
                              hushed: 0, bites: 5, relics: [], bestChestValue: 300, itemsBagged: 12,
@@ -3662,5 +3667,446 @@ struct R11Tests {
         let none = FadingScroll<EmptyView>.fadeStops(fade: 0)
         #expect(none.allSatisfy { $0.opacity == 1 })
         #expect(FadingScroll<EmptyView>.fadeMaxFraction <= 0.4)
+    }
+}
+
+// MARK: - R12: the lid IS the chest (design/ROUND-12.md, founder's real-Duo test of build 6)
+
+/// Drives a controller's hinge like a hand: a report every other frame, a 60 Hz frame clock (simulated time).
+@MainActor
+private final class DuoHand {
+    let c: GameController
+    var t: Double = CACurrentMediaTime()
+    private(set) var angle: Double
+    private(set) var last = HeistSnapshot()
+    private(set) var events: [HeistEvent] = []
+
+    init(_ c: GameController, at angle: Double) {
+        self.c = c
+        self.angle = angle
+    }
+
+    /// One report now (Home, before a run starts).
+    func report() { c.hingeSample(angle: angle, time: t) }
+
+    /// Moves the lid linearly to `to` over `seconds` (a hold when `to` is the current angle). `watch` sees every frame.
+    @discardableResult
+    func move(to target: Double, seconds: Double,
+              watch: (GameController, HeistSnapshot, [HeistEvent], Double) -> Void = { _, _, _, _ in }) -> [HeistEvent] {
+        let start = angle
+        let frames = max(Int((seconds * 60).rounded()), 1)
+        var out: [HeistEvent] = []
+        for i in 1...frames {
+            t += 1.0 / 60.0
+            if i % 2 == 0 || i == frames {
+                angle = start + (target - start) * Double(i) / Double(frames)
+                c.hingeSample(angle: angle, time: t)
+            }
+            let (s, e) = c.advance(dt: 1.0 / 60.0, now: t)
+            last = s
+            out += e
+            events += e
+            watch(c, s, e, angle)
+        }
+        return out
+    }
+
+    @discardableResult
+    func hold(_ seconds: Double,
+              watch: (GameController, HeistSnapshot, [HeistEvent], Double) -> Void = { _, _, _, _ in }) -> [HeistEvent] {
+        move(to: angle, seconds: seconds, watch: watch)
+    }
+}
+
+private func has(_ events: [HeistEvent], _ match: (HeistEvent) -> Bool) -> Bool { events.contains(where: match) }
+private func isArrival(_ e: HeistEvent) -> Bool {
+    if case .chestArrived = e { return true }
+    return false
+}
+private func isCrack(_ e: HeistEvent) -> Bool { e == .lidCracked }
+private func isBank(_ e: HeistEvent) -> Bool {
+    if case .banked = e { return true }
+    return false
+}
+
+@MainActor
+struct R12Tests {
+    private func makeDuo(at angle: Double = 150) -> (GameController, DuoHand) {
+        var data = ProgressData()
+        data.lessonDone = true
+        data.runs = 10
+        let c = GameController(store: ProgressStore(inMemory: data), settings: SettingsStore(defaults: nil))
+        c.settings.lidSensitivity = .forgiving
+        c.updateCanvas(CGSize(width: 669, height: 951), hasFold: true, quarterTurns: 2)
+        let hand = DuoHand(c, at: angle)
+        hand.report()   // at Home: the hinge is known before Play
+        return (c, hand)
+    }
+
+    private func done(_ c: GameController) {
+        c.goHome()
+        OrientationLock.setMenuHold(false)
+    }
+
+    /// The words on the plate right now (the hint, else the banner), as the player reads them.
+    private func plateText(_ c: GameController) -> String? {
+        if let h = c.hud.hint { return HushCopy.hint(h, slider: c.sliderWording, lidOpen: c.hud.lidOpen) }
+        return c.hud.banner
+    }
+
+    // MARK: Copy
+
+    @Test func theRobbedChestAndTheBankSayClose() {
+        #expect(HushCopy.hint(.closeForNext, slider: false) == "Close the lid for the next chest")
+        #expect(HushCopy.hint(.closeForNext, slider: true) == HushCopy.closeForNextLever)
+        #expect(HushCopy.closeForNextLever.hasPrefix("Slide"))
+        #expect(HushCopy.allHints.contains(.closeForNext))
+        for slider in [true, false] {
+            let line = HushCopy.hint(.closeForNext, slider: slider)
+            #expect(HushCopy.wordCount(line) <= HushCopy.wordLimit(.closeForNext))
+            #expect(!AppRules.asksToOpen(line))
+            #expect(!line.lowercased().contains("shut"))
+        }
+        // It never retires and is no warning (it doesn't break through the bank beat).
+        #expect(AppRules.showsHint(.closeForNext, runs: 500))
+        #expect(!AppRules.isWarning(.closeForNext))
+        #expect(!AppRules.isTeaching(.closeForNext))
+        // Bank = close the lid (Duo); the lever keeps its words.
+        #expect(HushCopy.hint(.shutToBank, slider: false) == "Close the lid to bank")
+        #expect(HushCopy.hint(.shutToBank, slider: true) == "Slide the lever down to bank")
+        #expect(HushCopy.stakes(slider: false)[2].text == "Close the lid to bank it")
+        #expect(HushCopy.stakes(slider: true)[2].text == "Slide the lever down to bank")
+        #expect(HushCopy.wordLimit(.shutToBank) == 6)
+    }
+
+    @Test func theRunStartBannerFollowsTheLid() {
+        #expect(GameController.startBanner(.run) == "Candle lit. Open it gently.")
+        #expect(GameController.startBanner(.run, lidOpen: false) == "Candle lit. Open it gently.")
+        #expect(GameController.startBanner(.run, lidOpen: true) == "Candle lit. Gently does it.")
+        #expect(HushCopy.wordCount(GameController.startBanner(.run, lidOpen: true) ?? "") <= 6)
+        #expect(GameController.startBanner(.attract, lidOpen: true) == nil)
+        #expect(GameController.startBanner(.lesson, lidOpen: true) == nil)
+    }
+
+    @Test func homeSaysLiftOnlyWhileClosed() {
+        #expect(HomeView.caption(HomeLid(openness: 0, speed: 0), hinge: true) == "Lift the lid… slowly.")
+        #expect(HomeView.caption(HomeLid(openness: 0.15, speed: 0), hinge: true) == "Lift the lid… slowly.")
+        #expect(HomeView.caption(HomeLid(openness: 0.16, speed: 0), hinge: true) == "Shh… something's peeking.")
+        #expect(HomeView.caption(HomeLid(openness: 0.25, speed: 0), hinge: false) == "Shh… something's peeking.")
+        #expect(HomeView.caption(HomeLid(openness: 0.1, speed: 0), hinge: false) == HomeView.phoneCaption)
+        #expect(HomeView.caption(HomeLid(openness: 0.9, speed: 0), hinge: true) == "It's watching you.")
+    }
+
+    /// Rule 7: close it, then open it slowly, in chest words; never "open" to an open lid.
+    @Test func theLessonClosesThenOpens() {
+        let pose = LessonScript()
+        #expect(pose.line(slider: false, angle: 150, hint: nil) == "Close the lid to start")
+        #expect(pose.line(slider: false, angle: 100, hint: nil) == "Hold it there…")
+        #expect(LessonScript.LiftCue.lower.label == "Close the lid a little")
+        let open = LessonScript(start: .open)
+        #expect(open.line(slider: false, angle: 100, hint: nil, openness: 0) == "Now open it… slowly. Watch the noise.")
+        #expect(open.line(slider: false, angle: 125, hint: nil, openness: 0.4) == "Keep going… slowly. Watch the noise.")
+        #expect(open.display(slider: false, angle: 125, hint: nil, openness: 0.4).line.hasPrefix("Keep going"))
+        #expect(open.line(slider: false, angle: 125, hint: .easeLidDown, openness: 0.4) == "Close the lid a little first.")
+        #expect(open.line(slider: true, angle: nil, hint: nil, openness: 0.4).hasSuffix("Watch the noise."))
+        #expect(LessonScript(start: .bank).line(slider: false, angle: nil, hint: nil) == "Close the lid to bank it.")
+    }
+
+    /// The sweep: no hint, banner, lesson line, lid marker or Home caption that says "open" can show while the lid's
+    /// openness is past 0.15.
+    @Test func nothingAsksToOpenAnOpenLid() {
+        #expect(!AppRules.lidReadsOpen(0.15))
+        #expect(AppRules.lidReadsOpen(0.151))
+        #expect(!AppRules.lidReadsOpen(.nan))
+        #expect(AppRules.asksToOpen("Open the lid… slowly"))
+        #expect(AppRules.asksToOpen("Now open it… slowly."))
+        let opens = stride(from: 0.16, through: 1.0, by: 0.02).map { $0 }
+        let modes: [RunMode] = [.run, .daily(day: 300, scored: true), .daily(day: 300, scored: false), .attract, .lesson]
+        let lessonHints: [HeistHint?] = [nil, .easeLidDown, .openSlowly, .dragToBag, .shutToBank]
+        var angles: [Double?] = [nil]
+        angles += stride(from: 113.0, through: 180.0, by: 1.0).map { Optional($0) }
+        var bad: [String] = []
+        for o in opens {
+            let open = AppRules.lidReadsOpen(o)
+            #expect(open)
+            for slider in [true, false] {
+                for h in HushCopy.allHints {
+                    let line = HushCopy.hint(h, slider: slider, lidOpen: open)
+                    if AppRules.asksToOpen(line) { bad.append("hint \(h.rawValue): \(line)") }
+                }
+                for step in LessonScript.Step.allCases {
+                    let s = LessonScript(start: step)
+                    for angle in angles {
+                        for h in lessonHints {
+                            let line = s.display(slider: slider, angle: angle, hint: h, openness: o).line
+                            if AppRules.asksToOpen(line) { bad.append("lesson \(step): \(line)") }
+                        }
+                    }
+                }
+                let home = HomeView.caption(HomeLid(openness: o, speed: 0), hinge: !slider)
+                if AppRules.asksToOpen(home) || home.hasPrefix("Lift the lid") { bad.append("home: \(home)") }
+            }
+            for m in modes {
+                let banner = GameController.startBanner(m, lidOpen: open) ?? ""
+                if AppRules.asksToOpen(banner) { bad.append("banner: \(banner)") }
+            }
+        }
+        for angle in angles {
+            let label = LessonScript.liftCue(angle: angle).label
+            if AppRules.asksToOpen(label) { bad.append("marker: \(label)") }
+        }
+        #expect(bad.isEmpty, "\(Array(Set(bad)).sorted())")
+        // Closed, the run still asks to open (the lid IS shut).
+        #expect(HushCopy.hint(.openSlowly, slider: false, lidOpen: false) == "Open the lid… slowly")
+        #expect(HushCopy.hint(.openSlowly, slider: false, lidOpen: true) == "A little wider… slowly")
+    }
+
+    /// The robbed chest's line is longer than the old 6-word rule: it must still fit its plate at the 0.7 shrink (the
+    /// Duo's words on the Duo, the lever's on 393 and 402 pt phones).
+    @Test func theRobbedChestLineFitsItsPlate() {
+        let screens: [(CGSize, Bool)] = [(CGSize(width: 669, height: 951), true), (CGSize(width: 402, height: 874), false),
+                                         (CGSize(width: 393, height: 852), false)]
+        for (size, fold) in screens {
+            let info = AppCanvas(size: size, insets: EdgeInsets(), hasFold: fold, turned: false)
+            let fit = info.fit
+            let band = fit.viewRect(canvas: HUDLayout.hintPlateRect(seat: info.pauseSeatCanvasRect()))
+            let margins = PlateFit.margins(CGSize(width: band.width, height: 44), style: .parchment).width
+            for line in [HushCopy.hint(.closeForNext, slider: !fold), HushCopy.hint(.openSlowly, slider: !fold, lidOpen: true)] {
+                let text = Text(line).font(HushType.hint(scale: fit.textScale)).fixedSize()
+                let natural = UIHostingController(rootView: text).sizeThatFits(in: CGSize(width: 10_000, height: 1_000)).width
+                let room = band.width - margins
+                #expect(natural * HintLine.minScale <= room, "\(line) at \(size): \(natural) × 0.7 > \(room)")
+            }
+        }
+    }
+
+    // MARK: Rules and demo keys
+
+    @Test func theR12RulesAndTraceLines() {
+        #expect(AppRules.hintTraceLine(.closeForNext) == "HUSH-T hint closeForNext")
+        #expect(AppRules.hintTraceLine(.tooWide) == "HUSH-T hint tooWide")
+        #expect(AppRules.hintTraceLine(nil) == "HUSH-T hint none")
+        // `.closeForNext` belongs to the robbed chest alone (never after a bank).
+        #expect(AppRules.allowsCloseForNext(.closeForNext, awaitingClose: true))
+        #expect(!AppRules.allowsCloseForNext(.closeForNext, awaitingClose: false))
+        #expect(AppRules.allowsCloseForNext(.openSlowly, awaitingClose: false))
+        #expect(AppRules.allowsCloseForNext(nil, awaitingClose: false))
+        // Feedback never plays the sleeping mimic's bed over the robbed chest.
+        #expect(AppRules.feedbackPlays(.looting, awaitingClose: false))
+        #expect(AppRules.feedbackPlays(.ready, awaitingClose: false))
+        #expect(!AppRules.feedbackPlays(.ready, awaitingClose: true))
+        #expect(!AppRules.feedbackPlays(.bitten(elapsed: 0.2), awaitingClose: false))
+    }
+
+    @Test func theR12DemoKeysParse() {
+        let bite = DemoMode.parse("screen=run;mode=run;seed=7;noise=1;noiseUntil=bite")
+        #expect(bite.noiseUntilBite && !bite.noiseUntilPause)
+        let pause = DemoMode.parse("noise=0.9;noiseUntil=pause")
+        #expect(pause.noiseUntilPause && !pause.noiseUntilBite)
+        let bag = DemoMode.parse("screen=run;mode=attract;seed=7;bag=1")
+        #expect(bag.bagItems == 1)
+        #expect(DemoMode.parse("bag=0").bagItems == nil)
+        #expect(DemoMode.parse("bag=99").bagItems == 12)
+        #expect(DemoMode.parse("screen=run").bagItems == nil)
+        let open = DemoMode.parse("screen=run;lid=0.8;startOpen=1")
+        #expect(open.opensAtStart && open.lid == 0.8)
+        #expect(!DemoMode.parse("screen=run;lid=0.8").opensAtStart)
+
+        // `startOpen=1`: the held lid is up from the very first frame; without it, the 0.25 s shut beat.
+        let up = FixedLidSource()
+        up.openness = 0.8
+        up.startsOpen = true
+        let first = up.lid(at: 10)
+        #expect(first.openness == 0.8)
+        #expect(!first.inShutZone)
+        let beat = FixedLidSource()
+        beat.openness = 0.8
+        let shut = beat.lid(at: 10)
+        let later = beat.lid(at: 10.3)
+        #expect(shut.openness == 0)
+        #expect(later.openness == 0.8)
+    }
+
+    @Test func theDemoBagPicksLitItemsOfTheFirstChest() {
+        func item(_ id: Int, lit: Bool) -> LootState {
+            let p = CGPoint(x: 150 + 60 * id, y: 150)
+            return LootState(item: LootItem(id: id, kind: .copper, value: 5, depth: 0.1, position: p, radius: 22,
+                                            rotation: 0),
+                             position: p, place: .inChest, light: lit ? 1 : 0, grabbable: lit)
+        }
+        let first = ChestSpec(index: 0, tier: .wooden, mimic: .snorer, mimicName: "Sam", multiplier: 1, decay: 0.1,
+                              items: [])
+        var s = HeistSnapshot(phase: .looting, chest: first,
+                              loot: [item(1, lit: true), item(2, lit: false), item(3, lit: true), item(4, lit: true)])
+        let plan = DemoBagPlan(2)
+        #expect(plan.picks(s) == [0, 2])
+        #expect(DemoBagPlan(5).picks(s) == [0, 2, 3])
+        #expect(DemoBagPlan(0).done)
+        s.phase = .ready
+        #expect(plan.picks(s).isEmpty)
+        s.phase = .looting
+        var second = first
+        second.index = 1
+        s.chest = second
+        #expect(plan.picks(s).isEmpty)
+        var p = DemoBagPlan(2)
+        p.noteBagged(1)
+        s.chest = first
+        p.finishIfNeeded(s)
+        #expect(!p.done)
+        p.noteBagged(1)
+        p.finishIfNeeded(s)
+        #expect(p.done)
+        #expect(DemoBagPlan.bagPoint.y >= FloorSpace.bagMinY)
+    }
+
+    // MARK: Every run-start path with the lid open goes straight into an open first chest (rule 2)
+
+    @Test func everyRunStartWithTheLidOpenOpensTheFirstChest() {
+        let paths: [(String, @MainActor (GameController, DuoHand) -> Void)] = [
+            ("play", { c, _ in c.play() }),
+            ("daily", { c, _ in c.playDaily() }),
+            ("again", { c, _ in c.again() }),
+            ("restart", { c, hand in
+                c.play()
+                hand.hold(0.3)
+                c.restart()
+            }),
+            ("restart from the menu", { c, hand in
+                c.play()
+                hand.hold(0.3)
+                c.openMenu()
+                c.restart()
+            }),
+        ]
+        for (name, begin) in paths {
+            let (c, hand) = makeDuo(at: 150)
+            begin(c, hand)
+            #expect(c.route == .playing, "\(name)")
+            var asked: [String] = []
+            var lowered = false
+            let events = hand.hold(0.5) { c, s, _, _ in
+                if s.hint == .easeLidDown { lowered = true }
+                if c.hud.lidOpen, let text = self.plateText(c), AppRules.asksToOpen(text) { asked.append(text) }
+            }
+            #expect(!c.isPaused, "\(name)")
+            #expect(hand.last.phase == .looting, "\(name): \(hand.last.phase)")
+            #expect(has(events, isCrack), "\(name)")
+            #expect(!lowered, "\(name)")
+            #expect(asked.isEmpty, "\(name): \(asked)")
+            #expect(c.hud.lidOpen, "\(name)")
+            if c.mode == .run {
+                #expect(c.hud.banner == nil || c.hud.banner == "Candle lit. Gently does it.", "\(name)")
+            }
+            done(c)
+        }
+    }
+
+    /// With the lid closed, the first chest arrives closed and opens with the lid ("Open the lid… slowly" is right).
+    @Test func aClosedLidStartsAClosedChest() {
+        let (c, hand) = makeDuo(at: 100)
+        c.play()
+        hand.hold(0.4)
+        #expect(hand.last.phase == .ready)
+        #expect(!c.hud.lidOpen)
+        #expect(c.hud.banner == nil || c.hud.banner == "Candle lit. Open it gently.")
+        let events = hand.move(to: 125, seconds: 2.5)
+        #expect(has(events, isCrack))
+        #expect(hand.last.phase == .looting)
+        done(c)
+    }
+
+    // MARK: Rule 4 after a bite; the R7 fresh-chest resume (no "Hold still…")
+
+    @Test func aBiteWaitsForTheCloseThenTheReopenIsFresh() throws {
+        let (c, hand) = makeDuo(at: 150)
+        c.play()
+        hand.hold(0.4)
+        #expect(hand.last.phase == .looting)
+        c.nudgeSessionNoise(to: 1)
+        let bit = hand.hold(0.1)
+        let didBite = bit.contains(where: GameController.isBite)
+        #expect(didBite)
+        // Held open: the robbed chest waits, open and empty; no new chest while the lid is up.
+        let waiting = hand.hold(3.0)
+        #expect(!has(waiting, isArrival))
+        #expect(c.awaitingClose)
+        #expect(hand.last.hint == .closeForNext)
+        let shown = try #require(c.hud.hint)
+        #expect(shown == .closeForNext)
+        #expect(plateText(c) == "Close the lid for the next chest")
+        // Close to the shut zone: the next chest is dealt, and the robbed chest's line goes with it.
+        var staleLine = false
+        let closing = hand.move(to: 100, seconds: 1.4) { c, _, _, _ in
+            if !c.awaitingClose && c.hud.hint == .closeForNext { staleLine = true }
+        }
+        #expect(has(closing, isArrival))
+        #expect(!c.awaitingClose)
+        #expect(!staleLine)
+        // On down to the closing pause: a fresh chest.
+        hand.move(to: 30, seconds: 1.8)
+        hand.hold(0.8)
+        #expect(c.isClosingPaused)
+        #expect(c.closingFresh)
+        // Reopen at 40°/s: it resumes on the lift, never "Hold still…", and the new chest opens.
+        var holdStill = false
+        var resumedAt: Double?
+        let reopen = hand.move(to: 140, seconds: 2.75) { c, _, _, a in
+            if c.isClosingPaused,
+               ClosingCard.title(lifted: c.closingLifted, awaitingHinge: c.closingAwaitsHinge,
+                                 fresh: c.closingFresh) == "Hold still…" { holdStill = true }
+            if resumedAt == nil && !c.isClosingPaused { resumedAt = a }
+        }
+        let opened = hand.hold(0.5)
+        #expect(!holdStill)
+        #expect((resumedAt ?? 999) < 139)
+        #expect(hand.last.phase == .looting)
+        #expect(has(reopen + opened, isCrack))
+        #expect(!has(reopen + opened, isArrival))
+        done(c)
+    }
+
+    /// Bank = close the lid, all the way: the bank fires on the way down, the next chest is dealt under the closed
+    /// lid, and the reopen resumes on the lift into it (no "Hold still…", never "Close the lid for the next chest").
+    @Test func aFullCloseAfterABankReopensIntoTheNextChest() throws {
+        let (c, hand) = makeDuo(at: 150)
+        c.play()
+        hand.hold(0.4)
+        let item = try #require(hand.last.loot.first { $0.place == .inChest && $0.grabbable })
+        c.floorTouchBegan(1, at: item.position, time: hand.t)
+        c.floorTouchMoved(1, to: CGPoint(x: 335, y: 400), time: hand.t + 1.5)
+        c.floorTouchEnded(1, at: CGPoint(x: 335, y: 400), time: hand.t + 1.5)
+        hand.hold(0.2)
+        #expect(hand.last.bagValue > 0)
+        var closeLine = false
+        var arrivalAngles: [Double] = []
+        let watch: (GameController, HeistSnapshot, [HeistEvent], Double) -> Void = { c, _, e, a in
+            if c.hud.hint == .closeForNext { closeLine = true }
+            if has(e, isArrival) { arrivalAngles.append(a) }
+        }
+        // 20°/s, under the closing creak's quiet line, through the shut zone and on down to the cover.
+        let down = hand.move(to: 100, seconds: 2.5, watch: watch) + hand.move(to: 30, seconds: 3.5, watch: watch)
+        hand.hold(0.8, watch: watch)
+        #expect(has(down, isBank))
+        #expect(c.isClosingPaused)
+        #expect(c.closingFresh)
+        var holdStill = false
+        var resumedAt: Double?
+        hand.move(to: 140, seconds: 2.75) { c, s, e, a in
+            watch(c, s, e, a)
+            if c.isClosingPaused,
+               ClosingCard.title(lifted: c.closingLifted, awaitingHinge: c.closingAwaitsHinge,
+                                 fresh: c.closingFresh) == "Hold still…" { holdStill = true }
+            if resumedAt == nil && !c.isClosingPaused { resumedAt = a }
+        }
+        hand.hold(0.5, watch: watch)
+        #expect(!holdStill)
+        #expect((resumedAt ?? 999) < 139)
+        #expect(hand.last.phase == .looting)
+        #expect(!closeLine)
+        // The next chest came while the lid was closed (CI's BANK-CLOSE-FULL: never above 113°).
+        #expect(arrivalAngles.count == 1)
+        #expect(arrivalAngles.allSatisfy { $0 <= 113 }, "\(arrivalAngles)")
+        done(c)
     }
 }

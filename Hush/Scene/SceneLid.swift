@@ -603,10 +603,16 @@ final class SceneLid {
         }
     }
 
+    /// R12: the robbed chest's glare (after a bite, until the lid closes): the eye narrowed and fixed, the brow in
+    /// the bite's angry "V", the fangs bared. No blinks, no Zzz.
+    static let angryWake: Double = 0.72
+    static let angryTeeth: CGFloat = 0.9
+
     /// One frame. `wakeOverride` / `teethOverride` come from the moments (the bite); `lookAt` is a canvas point the
-    /// eye watches (a finger or a held item) when awake.
+    /// eye watches (a finger or a held item) when awake. R12: `angry` is the robbed chest's glare (the moments'
+    /// overrides still win while the bite plays).
     func update(dt: Double, snapshot s: HeistSnapshot, light: CGFloat, wakeOverride: Double?, teethOverride: CGFloat?,
-                lookAt: CGPoint?, usesSlider: Bool, reduceMotion: Bool) {
+                lookAt: CGPoint?, usesSlider: Bool, reduceMotion: Bool, angry: Bool = false) {
         time += dt
         let o = CGFloat(min(max(s.openness.isFinite ? s.openness : 0, 0), 1))
         dim.alpha = 0.32 * (1 - o)
@@ -645,8 +651,8 @@ final class SceneLid {
         seal.alpha = plate.alpha
 
         // The eye.
-        var target = wakeOverride ?? SceneLid.wakeTarget(stage: s.stage, noise: s.noise)
-        if wakeOverride == nil {
+        var target = wakeOverride ?? (angry ? SceneLid.angryWake : SceneLid.wakeTarget(stage: s.stage, noise: s.noise))
+        if wakeOverride == nil && !angry {
             if s.stage == .stirring {
                 nextBlink -= dt
                 if nextBlink <= 0 {
@@ -685,8 +691,8 @@ final class SceneLid {
         lashes.alpha = max(0, 1 - wk * 5)
 
         // The brow tilts angry as it wakes (the bite pins it).
-        let bt = wakeOverride != nil && (wakeOverride ?? 0) > 0.9 ? SceneLid.browTarget(stage: .biting)
-            : SceneLid.browTarget(stage: s.stage)
+        let pinned = (wakeOverride != nil && (wakeOverride ?? 0) > 0.9) || angry
+        let bt = pinned ? SceneLid.browTarget(stage: .biting) : SceneLid.browTarget(stage: s.stage)
         browTilt += (bt - browTilt) * CGFloat(min(dt * 9, 1))
         browLeft.zRotation = -browTilt
         browRight.zRotation = browTilt
@@ -696,7 +702,7 @@ final class SceneLid {
         browKnob.position.y = browLeft.position.y + 2
 
         // The fangs slide down from behind the lip as it wakes.
-        var tt = teethOverride ?? SceneLid.teethTarget(stage: s.stage, noise: s.noise)
+        var tt = teethOverride ?? (angry ? SceneLid.angryTeeth : SceneLid.teethTarget(stage: s.stage, noise: s.noise))
         if teethOverride == nil && twitchAge < 0.35 { tt = max(tt, 0.35) }
         teethShown += (tt - teethShown) * CGFloat(min(dt * 10, 1))
         teeth.position.y = SceneLid.teethTop(shown: teethShown)
@@ -704,7 +710,7 @@ final class SceneLid {
         let jawBreath = s.stage == .asleep && !reduceMotion ? CGFloat(sin(time * 2 * Double.pi / 2.4)) : 0
         jaw.yScale = 1 + 0.014 * jawBreath
         // A drool glint at a canine while it sleeps.
-        let sleepy: CGFloat = s.stage == .asleep && wake < 0.08 ? 1 : 0
+        let sleepy: CGFloat = s.stage == .asleep && wake < 0.08 && !angry ? 1 : 0
         let dr = (time / 2.6).truncatingRemainder(dividingBy: 1)
         drool.alpha = sleepy * CGFloat(0.55 * min(dr * 5, 1) * (1 - SceneLid.smooth((dr - 0.8) / 0.2)))
         drool.yScale = reduceMotion ? 1 : CGFloat(1 + 0.7 * dr)

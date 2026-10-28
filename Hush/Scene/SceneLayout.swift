@@ -266,6 +266,68 @@ enum ChestLayout {
         return CGRect(x: relicBannerPoint.x - w / 2, y: relicBannerPoint.y - h / 2, width: w, height: h)
     }
 
+    // MARK: R12: the closed chest's cover (founder: "chest closed means lid closed, chest open means lid open")
+
+    /// The outside of the lid seen from above, lying over the chest when the lid is shut (canvas). It overhangs the
+    /// rims' inner half on every side, its back (hinge) edge 2 pt short of the fold strip and its front edge on the
+    /// front rim, so it never reaches the bag strip's plates (IN BAG, the pouch, BANKED). The HUD (candle, meter,
+    /// chain tab, the pause seat) is drawn over it.
+    static let coverRect = CGRect(x: 38, y: 122, width: 594, height: 332)
+    /// The soft drop shadow baked round the cover's sides and front (the texture is this much bigger; flush at the
+    /// hinge edge).
+    static let coverShadowPad: CGFloat = 12
+    static var coverTextureRect: CGRect {
+        let r = coverRect, p = coverShadowPad
+        return CGRect(x: r.minX - p, y: r.minY - p, width: r.width + 2 * p, height: r.height + p)
+    }
+    /// The cover is drawn whole up to this openness (the shut zone's bottom: θ ≤ ≈ 101°) …
+    static let coverShutOpenness: Double = 0.02
+    /// … and is gone (lifted back towards the hinge) by this one (≈ the shut zone's top, θ ≈ 110°).
+    static let coverGoneOpenness: Double = 0.15
+    /// How short the lid's top view gets at the end of the lift (it swings up about the hinge, so seen from above it
+    /// foreshortens towards the fold), and the darkening as it tilts away from the candle.
+    static let coverLiftMinScale: CGFloat = 0.42
+    static let coverLiftShade: CGFloat = 0.3
+    /// R12: the new chest's cover settles into place from the front over this long (not under Reduce Motion).
+    static let coverArrivalTime: Double = 0.4
+    static let coverArrivalDrop: CGFloat = 14
+    /// The brass lock plate at the cover's front edge (above the meter) and its keyhole.
+    static let coverLockCenter = CGPoint(x: 335, y: 180)
+    static let coverLockSize = CGSize(width: 78, height: 86)
+    /// The royal chest's set jewels on the cover (canvas centres): either side of the lock and a boss in the middle.
+    /// Clear of the candle, the countdown, the meter, the chain tab, the pause seat and the hint plate (tested).
+    static let coverJewelRadius: CGFloat = 12
+    static let coverJewels: [CGPoint] = [CGPoint(x: 268, y: 180), CGPoint(x: 402, y: 180), CGPoint(x: 335, y: 296)]
+    /// The bands' centre lines on the cover (the frame's front straps run on into them).
+    static let coverBandXs: [CGFloat] = [172, 498]
+
+    /// The cover's pose for an openness (pure; tested). Up to `coverShutOpenness` it lies whole (alpha 1, no slide);
+    /// between that and `coverGoneOpenness` it lifts: eased (smoothstep), its front edge slides back towards the hinge
+    /// (`yScale` about the hinge edge; `slide` is the front edge's travel in canvas pt) and it darkens a little, fading
+    /// out over the second half; from `coverGoneOpenness` it is gone. Reduce Motion: no slide, a plain crossfade.
+    static func coverPose(openness o: Double, reduceMotion: Bool = false) -> CoverPose {
+        let v = o.isFinite ? o : 0
+        let span = max(coverGoneOpenness - coverShutOpenness, 0.001)
+        let x = min(max((v - coverShutOpenness) / span, 0), 1)
+        let p = CGFloat(x * x * (3 - 2 * x))
+        if p <= 0 { return CoverPose(alpha: 1, slide: 0, yScale: 1, shade: 0, lift: 0) }
+        if p >= 1 { return CoverPose(alpha: 0, slide: 0, yScale: 1, shade: 0, lift: 1) }
+        if reduceMotion { return CoverPose(alpha: 1 - p, slide: 0, yScale: 1, shade: 0, lift: p) }
+        let ys = 1 - (1 - coverLiftMinScale) * p
+        let f = min(max((p - 0.5) / 0.5, 0), 1)
+        let a = 1 - f * f * (3 - 2 * f)
+        return CoverPose(alpha: a, slide: coverTextureRect.height * (1 - ys), yScale: ys, shade: coverLiftShade * p,
+                         lift: p)
+    }
+
+    /// The new chest's cover's settle (canvas pt below its place) `age` s after it arrived under a shut lid.
+    static func coverArrivalOffset(age: Double, reduceMotion: Bool = false) -> CGFloat {
+        guard !reduceMotion, age.isFinite, age >= 0, age < coverArrivalTime else { return 0 }
+        let t = CGFloat(age / coverArrivalTime)
+        let u = 1 - t
+        return coverArrivalDrop * u * u * u
+    }
+
     // MARK: Lid (local to the lid half: origin at the fold edge's left end, y up)
 
     /// Teeth roots (the gum's lower edge) and full tooth length.
@@ -385,4 +447,22 @@ enum ChestLayout {
     static func viewRect(_ r: CGRect) -> CGRect {
         CGRect(x: r.minX, y: canvas.height - r.maxY, width: r.width, height: r.height)
     }
+}
+
+/// R12: how the closed chest's cover is drawn this frame (`ChestLayout.coverPose(openness:reduceMotion:)`).
+struct CoverPose: Equatable {
+    /// 1 = the whole lid lies over the chest … 0 = gone.
+    var alpha: CGFloat
+    /// How far its front edge has slid back towards the hinge (canvas pt).
+    var slide: CGFloat
+    /// Its height as drawn (1 lying flat; less as it swings up about the hinge edge).
+    var yScale: CGFloat
+    /// Darkening as it tilts away from the candle (0…`coverLiftShade`).
+    var shade: CGFloat
+    /// The eased lift progress (0 shut … 1 gone).
+    var lift: CGFloat
+
+    /// The lid is shut: the cover lies whole over the interior (nothing inside can show).
+    var isShut: Bool { alpha >= 0.999 && slide <= 0.01 && lift <= 0.0001 }
+    var isVisible: Bool { alpha > 0.01 }
 }

@@ -496,11 +496,12 @@ struct CoreTests {
 
     // MARK: Session: the chest loop
 
-    @Test func chestArrivesAndLootingStartsFromTheShutZone() {
-        let s: HeistSession = newSession()
+    /// R12: only the lesson keeps the shut-first gate (a run's chest opens with the lid: see the R12 tests below).
+    @Test func theLessonChestWaitsForTheShutZone() {
+        let s: HeistSession = newSession(mode: .lesson)
         #expect(s.snapshot.phase == .ready)
         #expect(s.snapshot.chest?.index == 0)
-        // Lid open at the start: the chest waits.
+        // Lid open at the start: the lesson's chest waits.
         let ev: [HeistEvent] = s.step(dt: 1.0 / 60.0, lid: lidAt(0.5))
         #expect(count(ev, isArrived) == 1)
         #expect(s.snapshot.phase == .ready)
@@ -784,12 +785,16 @@ struct CoreTests {
         let expectedTorch: Double = torch0 - t - Tuning.biteTorchPenalty
         #expect(abs(snap.torchRemaining - expectedTorch) < 0.05, "torch \(snap.torchRemaining) vs \(expectedTorch)")
         if case .bitten = snap.phase {} else { Issue.record("phase \(snap.phase)") }
-        // After the bite moment, the next chest, asleep again.
-        let next: [HeistEvent] = run(s, seconds: 2.0, lid: lidAt(0.5))
-        #expect(count(next, isArrived) == 1)
-        #expect(next.contains(HeistEvent.stageChanged(from: .biting, to: .asleep)))
+        // After the bite moment (R12): the lid is open, so the robbed chest waits, asleep again; closing deals the next.
+        let after: [HeistEvent] = run(s, seconds: 2.0, lid: lidAt(0.5))
+        #expect(count(after, isArrived) == 0)
+        #expect(after.contains(HeistEvent.stageChanged(from: .biting, to: .asleep)))
         #expect(s.snapshot.noise == 0)
         #expect(s.snapshot.stage == .asleep)
+        #expect(s.awaitingClose)
+        let next: [HeistEvent] = s.step(dt: 1.0 / 60.0, lid: lidAt(0.06))
+        #expect(count(next, isArrived) == 1)
+        #expect(!s.awaitingClose)
     }
 
     @Test func attractNeverBitesAndTheTorchNeverBurns() {
@@ -958,7 +963,7 @@ struct CoreTests {
     }
 
     @Test func hintPriority() {
-        // tooWide beats easeLidDown; slower beats tooWide; freeze beats slower.
+        // R12: the run's first chest is looting at once with the lid up. Slower beats tooWide; freeze beats slower.
         let s: HeistSession = newSession(seed: 111)
         _ = s.step(dt: 1.0 / 120.0, lid: LidInput(openness: 1, speed: 0, inShutZone: false, tooWide: true))
         #expect(s.snapshot.hint == HeistHint.tooWide)
@@ -1721,15 +1726,25 @@ struct CoreTests {
         nextChestLooting(c)
         #expect(c.snapshot.phase == .looting)
         #expect(!c.isFreshChest)
-        // One arriving with the lid up waits in .ready, but it has been open: not fresh, even once eased down.
+        // R12 (founder): reopened during the bank moment, the next chest is dealt "seen shut" and simply opens:
+        // looting, so not fresh, and not again once shut.
         let (d, _) = lootingSession(seed: 231)
         _ = bankOne(d)
         run(d, seconds: 2.0, lid: lidAt(0.5))
-        #expect(d.snapshot.phase == .ready)
+        #expect(d.snapshot.phase == .looting)
         #expect(!d.isFreshChest)
         _ = d.step(dt: 1.0 / 60.0, lid: lidAt(0))
-        #expect(d.snapshot.phase == .ready)
+        #expect(d.snapshot.phase == .looting)
         #expect(!d.isFreshChest)
+        // The lesson keeps R7's rule: its chest arriving with the lid up waits in .ready, and has been open: not fresh.
+        let (e, _) = lootingSession(mode: .lesson)
+        _ = bankOne(e)
+        run(e, seconds: 2.0, lid: lidAt(0.5))
+        #expect(e.snapshot.phase == .ready)
+        #expect(!e.isFreshChest)
+        _ = e.step(dt: 1.0 / 60.0, lid: lidAt(0))
+        #expect(e.snapshot.phase == .ready)
+        #expect(!e.isFreshChest)
     }
 
     /// R7 (ROUND-7 Core item 3): Lid sensitivity scales every noise source (forgiving 0.75, normal 1, careful 1.2), in
@@ -1820,5 +1835,264 @@ struct CoreTests {
         let ra: RunResult = a.partialResult()
         let rb: RunResult = b.partialResult()
         #expect(ra == rb)
+    }
+
+    // MARK: R12 "the lid IS the chest" (design/ROUND-12.md rules 1–4)
+
+    /// Bags the shallowest item, then flings the lid at 150 °/s at openness 0.5 until the mimic bites (≤ 1 s).
+    private func biteWithTheLidOpen(_ s: HeistSession) -> [HeistEvent] {
+        guard let k = shallowest(s.snapshot) else { return [] }
+        var ev: [HeistEvent] = bagItem(s, k)
+        var t: Double = 0
+        while t < 1.0 && count(ev, isBitten) == 0 {
+            ev.append(contentsOf: s.step(dt: 1.0 / 60.0, lid: lidAt(0.5, speed: 150)))
+            t += 1.0 / 60.0
+        }
+        return ev
+    }
+
+    private func isCloseForNext(_ s: HeistSession) -> Bool { return s.snapshot.hint == HeistHint.closeForNext }
+
+    /// Rules 1–2: a run started with the lid up is simply open: looting on the first step, cracked, the loot lit at the
+    /// current openness, and never "lower the lid". With the lid shut it arrives closed and opens with the lid.
+    @Test func r12FirstChestOpensAtOnceWithTheLidUp() {
+        for mode in [RunMode.run, RunMode.daily(day: 300, scored: true), RunMode.attract] {
+            let s: HeistSession = newSession(seed: 7, mode: mode)
+            #expect(s.snapshot.phase == .ready)
+            let ev: [HeistEvent] = s.step(dt: 1.0 / 60.0, lid: lidAt(0.8))
+            #expect(count(ev, isArrived) == 1)
+            #expect(count(ev, isCracked) == 1)
+            #expect(s.snapshot.phase == .looting)
+            #expect(s.snapshot.hint != HeistHint.easeLidDown)
+            #expect(s.snapshot.hint != HeistHint.closeForNext)
+            #expect(!s.awaitingClose)
+            // Every item at depth ≤ 0.7 is fully lit at 0.8.
+            let lit: Bool = s.snapshot.loot.allSatisfy { (l: LootState) -> Bool in
+                l.item.depth > 0.7 || l.light == 1
+            }
+            #expect(lit)
+            #expect(s.snapshot.loot.contains { (l: LootState) -> Bool in l.grabbable })
+        }
+        // Lid shut at the start: the chest arrives closed (dark, "Open the lid… slowly"), then opens with the lid.
+        let c: HeistSession = newSession(seed: 7)
+        _ = c.step(dt: 1.0 / 60.0, lid: lidAt(0))
+        #expect(c.snapshot.phase == .ready)
+        #expect(c.snapshot.hint == HeistHint.openSlowly)
+        #expect(c.snapshot.loot.allSatisfy { (l: LootState) -> Bool in l.light == 0 && !l.grabbable })
+        let ev2: [HeistEvent] = c.step(dt: 1.0 / 60.0, lid: lidAt(0.1))
+        #expect(c.snapshot.phase == .looting)
+        #expect(count(ev2, isCracked) == 1)
+        // The lesson keeps its gate (the App drives its copy): lid up → .ready with "easeLidDown".
+        let l: HeistSession = newSession(mode: .lesson)
+        _ = l.step(dt: 1.0 / 60.0, lid: lidAt(0.8))
+        #expect(l.snapshot.phase == .ready)
+        #expect(l.snapshot.hint == HeistHint.easeLidDown)
+    }
+
+    /// Rule 4, after a bite: the robbed chest stays open and empty with only "Close the lid for the next chest" (the
+    /// candle burning on), however long the lid stays up; the next chest is dealt the step the lid enters the shut zone.
+    @Test func r12AfterABiteTheRobbedChestWaitsForTheClose() {
+        let (s, _) = lootingSession(seed: 71)
+        let bite: [HeistEvent] = biteWithTheLidOpen(s)
+        #expect(count(bite, isBitten) == 1)
+        #expect(!s.awaitingClose)
+        let torch0: Double = s.snapshot.torchRemaining
+        let wait: [HeistEvent] = run(s, seconds: 5.0, lid: lidAt(0.5))
+        #expect(count(wait, isArrived) == 0)
+        #expect(s.awaitingClose)
+        let snap: HeistSnapshot = s.snapshot
+        #expect(snap.phase == .ready)
+        #expect(snap.loot.isEmpty)
+        #expect(snap.hint == HeistHint.closeForNext)
+        #expect(snap.chest?.index == 0)
+        #expect(snap.stage == .asleep)
+        #expect(snap.noise == 0)
+        #expect(snap.bagValue == 0)
+        #expect(snap.bites == 1)
+        // The candle burns while you close (5 s minus what was left of the 1.8 s bite moment).
+        #expect(snap.torchRemaining < torch0 - 3)
+        #expect(!s.isFreshChest)
+        // Nothing to touch, and no other prompt (not even "Slower…" or "That's wide enough").
+        let poke: [HeistEvent] = s.touchBegan(id: 9, at: CGPoint(x: 300, y: 200), time: 50)
+        #expect(poke.isEmpty)
+        _ = s.step(dt: 1.0 / 60.0, lid: LidInput(openness: 1, speed: 60, inShutZone: false, tooWide: true))
+        #expect(isCloseForNext(s))
+        #expect(s.snapshot.noise == 0)
+        // The partial result counts the robbed chest once (as bitten), not as a chest being looted.
+        let p: RunResult = s.partialResult()
+        #expect(p.chestLog.count == 1)
+        #expect(p.chestLog.first?.bitten == true)
+        // The lid enters the shut zone (0.12 = 107.8°) on its way down: the next chest arrives, closed.
+        let deal: [HeistEvent] = s.step(dt: 1.0 / 60.0, lid: lidAt(0.12, speed: 150))
+        let c1: ChestSpec = ChestFactory.chest(seed: 71, index: 1, found: [])
+        #expect(deal.contains(HeistEvent.chestArrived(index: 1, tier: c1.tier, mimic: c1.mimic, name: c1.mimicName)))
+        #expect(!s.awaitingClose)
+        #expect(s.snapshot.chest?.index == 1)
+        #expect(s.snapshot.loot.count == c1.items.count)
+        #expect(s.snapshot.phase == .ready)
+        #expect(!isCloseForNext(s))
+        // The rest of the slam is the lid closing it: still .ready, silent, the new mimic asleep, and fresh.
+        _ = s.step(dt: 1.0 / 60.0, lid: lidAt(0.05, speed: 150))
+        let tail: [HeistEvent] = run(s, seconds: 0.5, lid: lidAt(0, speed: 150))
+        #expect(s.snapshot.phase == .ready)
+        #expect(s.snapshot.noise == 0)
+        #expect(s.snapshot.stage == .asleep)
+        #expect(s.snapshot.hint != HeistHint.slower)
+        let stirred: Int = count(tail) { (e: HeistEvent) -> Bool in
+            if case .stageChanged = e { return true }
+            return false
+        }
+        #expect(stirred == 0)
+        #expect(s.isFreshChest)
+        // Open it to play.
+        let open: [HeistEvent] = s.step(dt: 1.0 / 60.0, lid: lidAt(0.1))
+        #expect(s.snapshot.phase == .looting)
+        #expect(count(open, isCracked) == 1)
+        #expect(s.partialResult().chestsOpened == 2)
+    }
+
+    /// Rule 4: a chest dealt with the lid resting in the shut zone is looted at once (as after a bank at 0.06); a bite
+    /// whose moment ends with the lid already shut deals at once; `noteLidShut()` deals one awaiting the close.
+    @Test func r12TheNextChestArrivesOnlyUnderAClosedLid() {
+        let (r, _) = lootingSession(seed: 71)
+        _ = biteWithTheLidOpen(r)
+        run(r, seconds: 2.0, lid: lidAt(0.5))
+        #expect(r.awaitingClose)
+        let dealt: [HeistEvent] = r.step(dt: 1.0 / 60.0, lid: lidAt(0.12))
+        #expect(count(dealt, isArrived) == 1)
+        #expect(r.snapshot.phase == .ready)
+        _ = r.step(dt: 1.0 / 60.0, lid: lidAt(0.12))
+        #expect(r.snapshot.phase == .looting)
+        // Shut during the bite moment: dealt when it ends, never awaiting.
+        let (q, _) = lootingSession(seed: 71)
+        _ = biteWithTheLidOpen(q)
+        let moment: [HeistEvent] = run(q, seconds: 2.0, lid: lidAt(0.06))
+        #expect(count(moment, isArrived) == 1)
+        #expect(!q.awaitingClose)
+        #expect(q.snapshot.phase == .looting)
+        // The App saw the lid shut (a fast fold into the closing pause): dealt now, the event with the next step (the
+        // lid lifted again on the resume).
+        let (n, _) = lootingSession(seed: 71)
+        _ = biteWithTheLidOpen(n)
+        run(n, seconds: 2.0, lid: lidAt(0.5))
+        #expect(n.awaitingClose)
+        n.noteLidShut()
+        #expect(!n.awaitingClose)
+        #expect(n.snapshot.chest?.index == 1)
+        #expect(n.isFreshChest)
+        let resumed: [HeistEvent] = n.step(dt: 1.0 / 60.0, lid: lidAt(0.6))
+        #expect(count(resumed, isArrived) == 1)
+        #expect(n.snapshot.phase == .looting)
+        // Without a chest awaiting, noteLidShut does nothing.
+        let idx: Int? = n.snapshot.chest?.index
+        n.noteLidShut()
+        #expect(n.snapshot.chest?.index == idx)
+        #expect(n.snapshot.phase == .looting)
+        // The candle can go out while the robbed chest waits: the run ends as usual, and nothing is awaiting.
+        let (o, _) = lootingSession(seed: 71)
+        _ = biteWithTheLidOpen(o)
+        let end: [HeistEvent] = run(o, seconds: 110, dt: 1.0 / 30.0, lid: lidAt(0.5))
+        #expect(count(end, isTorchOut) == 1)
+        #expect(count(end, isArrived) == 0)
+        #expect(o.isFinished)
+        #expect(!o.awaitingClose)
+        #expect(o.result?.chestLog.count == o.result?.chestsOpened)
+    }
+
+    /// Founder refinement: the chest dealt after a BANK always counts as "seen shut". Bank in the shut zone, reopen to
+    /// 150° before the 1.4 s bank moment ends: the next chest loots at once, never `.closeForNext`.
+    @Test func r12ABankAlwaysDealsTheNextChestSeenShut() {
+        let (s, _) = lootingSession(seed: 231)
+        guard let k = shallowest(s.snapshot) else {
+            Issue.record("empty chest")
+            return
+        }
+        _ = bagItem(s, k)
+        let banked: [HeistEvent] = run(s, seconds: 0.5, dt: 1.0 / 120.0, lid: lidAt(0.06))
+        #expect(count(banked, isBanked) == 1)
+        if case .banked = s.snapshot.phase {} else { Issue.record("not in the bank moment: \(s.snapshot.phase)") }
+        let wide: LidInput = Lid.input(angle: 150, speed: 0)
+        #expect(!wide.inShutZone)
+        var ev: [HeistEvent] = []
+        var waited: Bool = false
+        var hinted: Bool = false
+        var t: Double = 0
+        while t < 1.5 {
+            ev.append(contentsOf: s.step(dt: 1.0 / 60.0, lid: wide))
+            if s.awaitingClose { waited = true }
+            if isCloseForNext(s) { hinted = true }
+            t += 1.0 / 60.0
+        }
+        #expect(count(ev, isArrived) == 1)
+        #expect(count(ev, isCracked) == 1)
+        #expect(!waited)
+        #expect(!hinted)
+        #expect(s.snapshot.phase == .looting)
+        #expect(s.snapshot.chest?.index == 1)
+        #expect(s.snapshot.loot.contains { (l: LootState) -> Bool in l.grabbable })
+    }
+
+    /// Rules 1–4 under pilots on three Dailies: `.easeLidDown` never shows in a run, `.closeForNext` shows exactly while
+    /// awaiting the close (then the floor is empty), every chest after the first arrives with the lid in the shut zone,
+    /// and the deal order is the Daily's (index by index, as ChestFactory deals it).
+    @Test func r12PilotsPlayTheLidAsTheChest() {
+        var awaited: Int = 0
+        for day in 300...302 {
+            let seed: UInt64 = DailySeed.seed(day: day)
+            let mode: RunMode = .daily(day: day, scored: true)
+            for skill in [PilotSkill.novice, PilotSkill.casual] {
+                let s = HeistSession(mode: mode, seed: seed, bestRun: 0, foundRelics: [],
+                                     options: SessionOptions.for(mode))
+                var pilot = ThiefPilot(skill: skill, seed: 5)
+                var found: Set<RelicID> = []
+                var arrivals: Int = 0
+                var openDeals: Int = 0
+                var outOfOrder: Int = 0
+                var easeHints: Int = 0
+                var badAwait: Int = 0
+                var t: Double = 0
+                var frames: Int = 0
+                while !s.isFinished && frames < 60 * 600 {
+                    let out: PilotOutput = pilot.step(dt: 1.0 / 60.0, snapshot: s.snapshot)
+                    for touch in out.touches {
+                        switch touch.phase {
+                        case .began: _ = s.touchBegan(id: touch.id, at: touch.point, time: t)
+                        case .moved: _ = s.touchMoved(id: touch.id, to: touch.point, time: t)
+                        case .ended: _ = s.touchEnded(id: touch.id, at: touch.point, time: t)
+                        }
+                    }
+                    let ev: [HeistEvent] = s.step(dt: 1.0 / 60.0, lid: out.lid)
+                    for e in ev {
+                        if case .relicFound(let rid) = e { found.insert(rid) }
+                        if case .chestArrived(let index, let tier, let mimic, let name) = e {
+                            let want: ChestSpec = ChestFactory.chest(seed: seed, index: index, found: found)
+                            if index != arrivals || tier != want.tier || mimic != want.mimic || name != want.mimicName {
+                                outOfOrder += 1
+                            }
+                            if index > 0 && !out.lid.inShutZone { openDeals += 1 }
+                            arrivals += 1
+                        }
+                    }
+                    let snap: HeistSnapshot = s.snapshot
+                    if snap.hint == HeistHint.easeLidDown { easeHints += 1 }
+                    if (snap.hint == HeistHint.closeForNext) != s.awaitingClose { badAwait += 1 }
+                    if s.awaitingClose {
+                        awaited += 1
+                        if !snap.loot.isEmpty || snap.phase != .ready { badAwait += 1 }
+                    }
+                    t += 1.0 / 60.0
+                    frames += 1
+                }
+                let tag: String = "day \(day) \(skill.rawValue)"
+                #expect(s.isFinished, "\(tag)")
+                #expect(arrivals >= 5, "\(tag) arrivals \(arrivals)")
+                #expect(outOfOrder == 0, "\(tag)")
+                #expect(openDeals == 0, "\(tag)")
+                #expect(easeHints == 0, "\(tag)")
+                #expect(badAwait == 0, "\(tag)")
+            }
+        }
+        // The novices are bitten with the lid up and wait for the close (the JS port: 45 + 7 + 70 frames).
+        #expect(awaited > 0)
     }
 }

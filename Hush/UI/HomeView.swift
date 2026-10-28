@@ -101,7 +101,8 @@ struct HomeView: View {
     static func caption(_ lid: HomeLid, hinge: Bool) -> String {
         if lid.speed > Tuning.loudSpeed { return "Easy! It's a mimic…" }
         if lid.openness > 0.85 { return "It's watching you." }
-        if lid.openness > 0.3 { return "Shh… something's peeking." }
+        // R12 (founder): "Lift the lid… slowly" only while the lid is closed (the shut zone); open, it's peeking.
+        if AppRules.lidReadsOpen(lid.openness) { return "Shh… something's peeking." }
         // R4 (tester 8): the phone's words are the lever's ("slide"), the same verb the run and the lesson use.
         // R11 (tester 11, the third round running: "Slide its lid up" vs the game's "Slide the lever up"): the lever's
         // own words, exactly the lesson's and the run's line (`phoneCaption`; a drag up on the chest still lifts it).
@@ -180,7 +181,7 @@ struct HomeCaption: View {
 
     private func color(_ lid: HomeLid) -> Color {
         if lid.speed > Tuning.loudSpeed { return HushTheme.amber }
-        return lid.openness > 0.3 ? HushTheme.goldLight : HushTheme.mist
+        return AppRules.lidReadsOpen(lid.openness) ? HushTheme.goldLight : HushTheme.mist
     }
 }
 

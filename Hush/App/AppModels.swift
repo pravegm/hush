@@ -7,7 +7,8 @@ import SwiftUI
 @MainActor
 final class HUDState: ObservableObject {
     @Published private(set) var hint: HeistHint?
-    /// The run-start line ("Candle lit. Open it gently."), shown for a beat when no hint is up.
+    /// The run-start line ("Candle lit. Open it gently.", R12: "Candle lit. Gently does it." while the lid is open),
+    /// shown for a beat when no hint is up.
     @Published private(set) var banner: String?
     @Published private(set) var stage: MimicStage = .asleep
     /// Items in the bag (`hud.bag`'s accessibility value: VoiceOver and CI's turned-drag UI test).
@@ -19,10 +20,13 @@ final class HUDState: ObservableObject {
     @Published private(set) var spoken = SpokenHUD()
     /// R5 (juror P2-3, frame 13): the bite moment is on (the pause coin steps aside for the teeth).
     @Published private(set) var biting = false
+    /// R12: the lid is open past the shut zone now (`AppRules.lidReadsOpen`): the hint's words never ask to open it.
+    @Published private(set) var lidOpen = false
 
     func update(hint: HeistHint?, banner: String?, stage: MimicStage, bagCount: Int, debugLoot: DebugLoot?,
-                spoken: SpokenHUD? = nil, biting: Bool? = nil) {
+                spoken: SpokenHUD? = nil, biting: Bool? = nil, lidOpen: Bool? = nil) {
         if let biting, self.biting != biting { self.biting = biting }
+        if let lidOpen, self.lidOpen != lidOpen { self.lidOpen = lidOpen }
         if self.hint != hint { self.hint = hint }
         if self.banner != banner { self.banner = banner }
         if self.stage != stage { self.stage = stage }
@@ -157,11 +161,14 @@ struct ResultSummary: Equatable {
 }
 
 /// Demo `lid=`: the lid held at one openness, shut for the first 0.25 s so the chest opens (static frames).
+/// R12 (demo `startOpen=1`): no shut beat, the lid is open from the very first frame (Play pressed with the lid up).
 @MainActor
 final class FixedLidSource: LidSource {
     static let shutFor: Double = 0.25
 
     var openness: Double = 0
+    /// R12: skip the shut beat.
+    var startsOpen = false
     private var start: TimeInterval?
 
     func reset() { start = nil }
@@ -169,7 +176,8 @@ final class FixedLidSource: LidSource {
     func lid(at time: TimeInterval) -> LidInput {
         let s = start ?? time
         start = s
-        let o = time - s < Self.shutFor ? 0 : min(max(openness, 0), 1)
+        let held = min(max(openness.isFinite ? openness : 0, 0), 1)
+        let o = !startsOpen && time - s < Self.shutFor ? 0 : held
         return LidInput(openness: o, speed: 0, inShutZone: o <= 0.15, tooWide: false)
     }
 }

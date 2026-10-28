@@ -30,6 +30,16 @@ final class SceneFloor {
     private let lock: SKSpriteNode
     private let table: SKSpriteNode
     private let washHeight: CGFloat = 300
+    /// R12: the closed chest's cover (the outside of the lid from above) and the outgoing dress's cover fading out over
+    /// it when the next chest arrives. In `root` (not `chestRoot`) so it lies over the loot and the moments' shutter and
+    /// under the HUD; it follows the chest's hop by hand.
+    private let cover: SKSpriteNode
+    private let coverOld: SKSpriteNode
+    private var coverAge: Double = 10
+    /// R12: the cover's z in the floor root: over the loot (25…28 with an in-chest item's glints, which the cover
+    /// hides when shut) and the shutter (27), under the HUD (30; its lowest piece, the pause seat, is at 28) and the
+    /// meter (90). The outgoing cover sits just over it.
+    static let coverZ: CGFloat = 27.8
 
     private(set) var dress: ChestDress = .tier(.wooden)
     private(set) var tier: ChestTier = .wooden
@@ -148,6 +158,21 @@ final class SceneFloor {
         tableNode.zPosition = 5
         tableNode.isHidden = true
 
+        let ct = ChestLayout.coverTextureRect
+        let coverNode = SKSpriteNode(texture: SceneTextures.closedCover(.tier(.wooden)), size: ct.size)
+        coverNode.anchorPoint = CGPoint(x: 0.5, y: 1)
+        coverNode.position = CGPoint(x: ct.midX, y: ct.maxY)
+        coverNode.zPosition = SceneFloor.coverZ
+        coverNode.color = .black
+        coverNode.colorBlendFactor = 0
+        let coverOldNode = SKSpriteNode(texture: SceneTextures.closedCover(.tier(.wooden)), size: ct.size)
+        coverOldNode.anchorPoint = CGPoint(x: 0.5, y: 1)
+        coverOldNode.position = coverNode.position
+        coverOldNode.zPosition = SceneFloor.coverZ + 0.05
+        coverOldNode.color = .black
+        coverOldNode.colorBlendFactor = 0
+        coverOldNode.isHidden = true
+
         let rootNode = SKNode()
         let chest = SKNode()
         chest.zPosition = 2
@@ -159,6 +184,10 @@ final class SceneFloor {
         for s in sp { chest.addChild(s) }
         rootNode.addChild(satchelNode)
         rootNode.addChild(tableNode)
+        rootNode.addChild(coverNode)
+        rootNode.addChild(coverOldNode)
+        cover = coverNode
+        coverOld = coverOldNode
 
         root = rootNode
         chestRoot = chest
@@ -208,9 +237,17 @@ final class SceneFloor {
         dress = d
         frame.texture = SceneTextures.chestFrame(d)
         wall.texture = SceneTextures.frontWall(d)
+        cover.texture = SceneTextures.closedCover(d)
     }
 
     func setTier(_ t: ChestTier, animated: Bool = false) { setDress(.tier(t), tier: t, animated: animated) }
+
+    /// R12: a chest arrives (call BEFORE dressing it): under a shut lid the new chest comes in already covered; its
+    /// cover settles into place over the outgoing one, which fades out (the interior never shows).
+    func arrive() {
+        coverOld.texture = cover.texture
+        coverAge = 0
+    }
 
     func reset() {
         chestRoot.position = .zero
@@ -218,8 +255,49 @@ final class SceneFloor {
         curlLevel = 0
         redness = 0
         fadeAge = 10
+        coverAge = 10
         frameOld.isHidden = true
         wallOld.isHidden = true
+        coverOld.isHidden = true
+    }
+
+    // MARK: R12 read-outs
+
+    /// The cover as drawn this frame: its pose, the arrival settle (pt below its place) and whether it shows.
+    private(set) var coverPose = ChestLayout.coverPose(openness: 0)
+    private(set) var coverArrivalOffset: CGFloat = 0
+    var coverShowing: Bool { !cover.isHidden && cover.alpha > 0.01 }
+    var coverAlpha: CGFloat { cover.isHidden ? 0 : cover.alpha }
+    /// The dress drawn on the cover (the chest's own: it is re-dressed with the frame).
+    var coverDress: ChestDress { dress }
+    /// The cover's sprite (the scene converts its frame into canvas points and checks where it sits in the tree).
+    var coverNode: SKNode { cover }
+    /// The outgoing cover is fading out over the new one (an arrival).
+    var coverOldShowing: Bool { !coverOld.isHidden && coverOld.alpha > 0.01 }
+
+    /// R12: pose the cover for this frame (`pose` from `ChestLayout.coverPose`), following the chest's hop.
+    private func placeCover(dt: Double, pose: CoverPose, reduceMotion: Bool) {
+        coverPose = pose
+        coverAge += dt
+        let arrival = pose.isVisible ? ChestLayout.coverArrivalOffset(age: coverAge, reduceMotion: reduceMotion) : 0
+        coverArrivalOffset = arrival
+        let ct = ChestLayout.coverTextureRect
+        let base = CGPoint(x: ct.midX, y: ct.maxY + chestRoot.position.y)
+        cover.isHidden = !pose.isVisible
+        coverOld.isHidden = true
+        guard pose.isVisible else { return }
+        cover.position = CGPoint(x: base.x, y: base.y - arrival)
+        cover.yScale = pose.yScale
+        cover.alpha = pose.alpha
+        cover.colorBlendFactor = pose.shade
+        // The outgoing dress fades out over the new one (Reduce Motion too: it is a crossfade), never leaving a gap.
+        if coverAge < 0.45 {
+            coverOld.isHidden = false
+            coverOld.position = base
+            coverOld.yScale = pose.yScale
+            coverOld.colorBlendFactor = pose.shade
+            coverOld.alpha = pose.alpha * CGFloat(1 - coverAge / 0.45)
+        }
     }
 
     /// R3: the chest's frame, front wall and lock are drawn at full alpha and in place (tests: every tier, every
@@ -252,8 +330,13 @@ final class SceneFloor {
 
     /// One frame. `light` is the candle flicker (≈ 1; lower = dimmer). `cover` (R4) is how far the between-chests
     /// shadow is down: the lid-shut darkness lifts under it, so the shadow alone dims the interior (to about 40 %).
-    func update(dt: Double, snapshot s: HeistSnapshot, light: CGFloat, reduceMotion: Bool, cover: CGFloat = 0) {
+    /// R12: `closedCover` is the lid's cover pose (nil: worked out from the openness); `robbed` (after a bite, the
+    /// robbed chest waiting for the lid to close) curls the tongue tight.
+    func update(dt: Double, snapshot s: HeistSnapshot, light: CGFloat, reduceMotion: Bool, cover: CGFloat = 0,
+                closedCover: CoverPose? = nil, robbed: Bool = false) {
         let o = s.openness
+        placeCover(dt: dt, pose: closedCover ?? ChestLayout.coverPose(openness: o, reduceMotion: reduceMotion),
+                   reduceMotion: reduceMotion)
         let d = SceneFloor.darknessLevels(openness: o)
         let flick = 1 + (1 - light) * 0.6
         let keep = 1 - min(max(cover.isFinite ? cover : 0, 0), 1)
@@ -308,6 +391,12 @@ final class SceneFloor {
             ys = 0.86
             xs = 0.94
         }
+        // R12: the robbed chest (open and empty after a bite): the tongue stays curled tight while it glares.
+        if robbed {
+            curlTarget = 1
+            ys = min(ys, 0.9)
+            xs = min(xs, 0.95)
+        }
         twitchAge += dt
         if twitchAge < 0.6 {
             let a = CGFloat(twitchAge)
@@ -323,7 +412,7 @@ final class SceneFloor {
         tongue.yScale = ys
         tongue.zRotation = rot
         tongue.position.x = ChestLayout.interior.midX + dx
-        let redTarget = max(0, (noise - 0.3) / 0.7) * 0.5
+        let redTarget = max(robbed ? 0.35 : 0, max(0, (noise - 0.3) / 0.7) * 0.5)
         redness += (redTarget - redness) * k
         tongue.colorBlendFactor = redness
         // R3: the groove only shows when the tongue is lit (it read as a seam on a dome in the dark) and relaxed.

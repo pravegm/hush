@@ -69,6 +69,16 @@ import UIKit
 // - `midRun=1`                    (R11) `screen=cover`: over a run ("Open to carry on"), like `mode=run`.
 // - `escape=1`                    (R11) `screen=cover`: the "Already open?" plate at once (Carry on / Home), which a
 //                                 forced cover never offers by itself (`HUSH-T cover escape shown forced …`).
+// - `noiseUntil=bite`             (R12) with `noise=`: hold it only until the first bite, then `HUSH-T noise released
+//                                 <n>` and let the session own it (the robbed chest's frame, duo.sh BITE-CLOSE-NEXT).
+// - `bag=<n>`                     (R12) put n lit items of the first chest straight into the bag on its first looting
+//                                 steps (picked and dropped at walking pace: no drag noise). `HUSH-T demo bag <n> value
+//                                 <v>` (duo.sh BANK-CLOSE-FULL). Not in the lesson.
+// - `startOpen=1`                 (R12) with `lid=`: no shut beat, the lid is open from the first frame (Play pressed
+//                                 with the lid up, rule 2): the first chest loots at once. `HUSH-T demo start open lid=<o>`.
+// R12 log lines: `HUSH-T hint <HeistHint rawValue|none>` whenever the HUD's chosen hint changes (replaces R6's lone
+// `HUSH-T hint tooWide`), `HUSH-T first chest phase=<looting|ready> openness=<o>` (the run's first step), `HUSH-T next
+// chest dealt under the pause reason=<closing|cover|shut>` (a robbed chest folded shut in one go).
 //
 // Log lines: `HUSH-T demo '<args>' starts`, `HUSH-T canvas <w>x<h> fold=<0|1> turned=<0|1> k=<0…3>` (R6: the real
 // window; turned = k == 2), `HUSH-T iface <o>`, `HUSH-T carry on …`, `HUSH-T watchdog resume …`, `HUSH-T hint tooWide`,
@@ -170,6 +180,12 @@ struct DemoMode: Equatable {
     var midRun = false
     /// `escape=1` (R11): `screen=cover` shows its "Already open?" plate at once.
     var coverEscape = false
+    /// `noiseUntil=bite` (R12): hold `noise=` only until the first bite, then let it go.
+    var noiseUntilBite = false
+    /// `bag=<n>` (R12, CI ask; named apart from the key): n of the first chest's items go straight into the bag.
+    var bagItems: Int?
+    /// `startOpen=1` (R12; named apart from the key): `lid=` is held open from the very first frame.
+    var opensAtStart = false
 
     init(raw: String) { self.raw = raw }
 
@@ -232,7 +248,12 @@ struct DemoMode: Equatable {
             case "skipTo":
                 if let s = number(value) { config.skipTo = max(s, 0) }
             case "orient": config.orient = Orient(rawValue: value.lowercased())
-            case "noiseUntil": config.noiseUntilPause = value.lowercased() == "pause"
+            case "noiseUntil":
+                config.noiseUntilPause = value.lowercased() == "pause"
+                config.noiseUntilBite = value.lowercased() == "bite"
+            case "bag":
+                if let n = Int(value), n > 0 { config.bagItems = min(n, 12) }
+            case "startOpen": config.opensAtStart = flag(value)
             case "golden": config.golden = flag(value)
             case "pose": config.poseBook = value.lowercased() == "book"
             case "quarter":

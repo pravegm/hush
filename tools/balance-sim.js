@@ -4,6 +4,10 @@
 // R2 = REVIEW-1-feel's tools/balance-sim-r2.js proposal (kept as the reference, with its r1=1 baseline) plus the Duo
 // relic depth 0.80-0.88 and the Swift rule that the Hush Chain breaks the moment the mimic stirs (same gold: that chest
 // can no longer be Hushed either way).
+// R12 ("the lid IS the chest", design/notes/core-R12.md): no shut-first gate outside the lesson (a run started with the
+// lid up loots at once), a .ready chest is closed and silent, and after a bite moment that ends with the lid
+// open the played chest waits empty (awaitingClose) until the lid enters the shut zone; the pilot then closes the lid.
+// T.r12=0 brings back the R11 rules for a before/after comparison.
 // R7 ("real hands", design/notes/core-R7.md): quietSpeed 14, closeQuietSpeed 28, the 0.08 s loud onset, the fresh chest,
 // LidSensitivity, and novice/casual pilots with real hand speeds and stick-slip (expert/perfect keep the 12/18 lines).
 //
@@ -67,6 +71,9 @@ const T = {
   freshChestOpenness: 0.05,             // HeistSession.isFreshChest: .ready, openness never above this, empty bag
   masterQuiet: 12, masterCloseQuiet: 18, // expert/perfect adapt to these lines (0 = to the live Tuning lines)
   hands: 1,                             // novice/casual pilots move like real hands (R7 speeds + stick-slip); 0 = R6 pilots
+  // --- R12 rules (design/ROUND-12.md, "the lid IS the chest") ---
+  r12: 1,                               // 1: no shut-first gate, a .ready chest is silent, the next chest only under a closed
+                                        // lid (awaitingClose after a bite moment that ends with the lid open); 0 = R11
 };
 const R1_QUIET = 8, R1_DRAG_QUIET = 250;
 const FLOOR = { width: 670, height: 456, bagMinY: 346, ix: 78, iy: 36, iw: 514, ih: 286 };
@@ -207,7 +214,7 @@ class HeistSession {
   constructor(seed, options) {
     this.seed = seed; this.opt = Object.assign({ torch: true, bites: true, noiseScale: 1, sensitivity: 'normal' }, options || {});
     this.opt.noiseScale *= SENSITIVITY[this.opt.sensitivity];
-    this.loudFor = 0; this.peakOpenness = 0;
+    this.loudFor = 0; this.peakOpenness = 0; this.awaitingClose = false;
     this.time = 0; this.phase = 'ready'; this.elapsed = 0;
     this.index = 0; this.found = new Set();
     this.noise = 0; this.stage = ASLEEP; this.quietFor = 0; this.chestTime = 0;
@@ -225,12 +232,14 @@ class HeistSession {
   setupChest(spec) {
     this.chest = spec;
     this.loot = spec.items.map((it) => ({ item: it, x: it.x, y: it.y, place: 'inChest', touch: -1, light: 0, grabbable: false }));
-    this.phase = 'ready'; this.sawShut = false; this.cracked = false; this.chestTime = 0; this.shutHold = 0;
+    this.phase = 'ready'; this.sawShut = !this.gate(); this.cracked = false; this.chestTime = 0; this.shutHold = 0;
     this.bagCount = 0; this.bagValue = 0; this.leftAsleep = false; this.revealed = new Set();
     this.noise = 0; this.quietFor = 0; this.loudFor = 0; this.peakOpenness = this.lid ? this.lid.openness : 0;
     this.twitchRng = new SeededRandom(chestSeed(this.seed, spec.index) ^ 0x7417C4n);
     this.twitchIn = this.twitchRng.range(T.dreamTwitchMin, T.dreamTwitchMax);
   }
+  // R12: only the lesson keeps the shut-first gate (the sim never plays it; T.r12=0 gives every chest the gate).
+  gate() { return !T.r12 || !!this.opt.lesson; }
   jingleFloor() { return Math.min(T.jingleMax, T.jinglePerItem * this.bagCount * this.mult()); }
   mult() { return mimicMult(this.chest.mimic) * (this.chest.golden ? T.goldenNoiseMult : 1) * this.opt.noiseScale; }
   scaled(v) { return Math.round(v * this.chest.multiplier); }
@@ -248,20 +257,30 @@ class HeistSession {
   }
   tick(h, ev) {
     this.time += h;
-    if (this.phase === 'banked') { this.elapsed += h; if (this.elapsed >= T.bankMomentSeconds) this.nextChest(ev); return; }
-    if (this.phase === 'bitten') { this.elapsed += h; if (this.elapsed >= T.biteMomentSeconds) { if (this.opt.torch && this.torch <= 0) this.startTorchOut(ev); else this.nextChest(ev); } return; }
+    if (this.phase === 'banked') { this.elapsed += h; if (this.elapsed >= T.bankMomentSeconds) this.nextChest(ev); return; }  // R12: a bank always deals "seen shut"
+    if (this.phase === 'bitten') { this.elapsed += h; if (this.elapsed >= T.biteMomentSeconds) { if (this.opt.torch && this.torch <= 0) this.startTorchOut(ev); else this.dealOrAwaitClose(ev); } return; }
     if (this.phase === 'torchOut') { this.elapsed += h; if (this.elapsed >= T.torchOutSeconds) this.finish(ev); return; }
     if (this.phase === 'finished') return;
     this.play(h, ev);
   }
   // R7: an untouched .ready chest (the App skips the stillness wait for it).
-  isFreshChest() { return this.phase === 'ready' && this.bagCount === 0 && this.peakOpenness <= T.freshChestOpenness; }
+  // R12: outside the gate any .ready chest is fresh except the one awaiting the close.
+  isFreshChest() { return this.phase === 'ready' && !this.awaitingClose && this.bagCount === 0 && (!this.gate() || this.peakOpenness <= T.freshChestOpenness); }
+  burnTorch(h, ev) {
+    if (!this.opt.torch) return false;
+    this.torch -= h;
+    if (!this.torchLowSent && this.torch <= T.torchLowSeconds) { this.torchLowSent = true; ev.push({ e: 'torchLow' }); }
+    if (this.torch <= 0) { this.torch = 0; this.startTorchOut(ev); return true; }
+    return false;
+  }
   play(h, ev) {
+    // R12 rule 4: the played chest waits, open and empty, until the lid comes down; the candle burns on.
+    if (this.awaitingClose) { if (this.lid.inShutZone) this.nextChest(ev); else this.burnTorch(h, ev); return; }
     const o = this.lid.openness;
     this.peakOpenness = Math.max(this.peakOpenness, o);
     if (this.phase === 'ready') {
       if (this.lid.inShutZone) this.sawShut = true;
-      if (this.sawShut && o > T.lootingStartOpenness) { this.phase = 'looting'; this.chestsOpened += 1; this.chestTime = 0; }
+      if (this.sawShut && o > T.lootingStartOpenness && (this.gate() || !this.closing)) { this.phase = 'looting'; this.chestsOpened += 1; this.chestTime = 0; }
     }
     if (this.phase === 'looting') {
       this.chestTime += h;
@@ -274,7 +293,8 @@ class HeistSession {
     // R7 loud onset: the lid only counts once it has been above its quiet line for loudOnsetSeconds.
     const loudBefore = this.loudFor;
     if (this.lid.speed > quietLine(this.closing)) this.loudFor += h; else this.loudFor = 0;
-    let raw = lidRate(this.lid.speed, this.closing) * onsetShare(loudBefore, this.loudFor, h);
+    // R12: a closed (.ready) chest doesn't hear the lid (the gated lesson does).
+    let raw = (this.gate() || this.phase === 'looting') ? lidRate(this.lid.speed, this.closing) * onsetShare(loudBefore, this.loudFor, h) : 0;
     for (const t of this.touches.values()) raw += dragRate(t.speed);
     const rate = raw * this.mult();
     this.noise += rate * h;
@@ -294,11 +314,7 @@ class HeistSession {
       if (this.shutHold >= 1) { this.bank(ev); return; }
     } else this.shutHold = 0;
     // torch
-    if (this.opt.torch) {
-      this.torch -= h;
-      if (!this.torchLowSent && this.torch <= T.torchLowSeconds) { this.torchLowSent = true; ev.push({ e: 'torchLow' }); }
-      if (this.torch <= 0) { this.torch = 0; this.startTorchOut(ev); return; }
-    }
+    if (this.burnTorch(h, ev)) return;
     if (this.chest.mimic === DREAMER) {
       this.twitchIn -= h;
       if (this.twitchIn <= 0) { ev.push({ e: 'dreamTwitch' }); this.twitchIn = this.twitchRng.range(T.dreamTwitchMin, T.dreamTwitchMax); }
@@ -365,7 +381,16 @@ class HeistSession {
     ev.push({ e: 'banked', value, items: this.bagCount, hushed: hushedNow });
     this.bagValue = 0; this.phase = 'banked'; this.elapsed = 0; this.shutHold = 1;
   }
+  // R12 rule 4: after a bite the next chest arrives only under a closed lid (the gate deals at once, as in R11).
+  dealOrAwaitClose(ev) { if (this.gate() || this.lid.inShutZone) this.nextChest(ev); else this.awaitClose(ev); }
+  awaitClose(ev) {
+    this.awaitingClose = true; this.phase = 'ready';
+    if (this.stage !== ASLEEP) { ev.push({ e: 'stageChanged', from: this.stage, to: ASLEEP }); this.stage = ASLEEP; }
+    this.loot = []; this.touches.clear(); this.bagCount = 0; this.bagValue = 0; this.shutHold = 0;
+    this.noise = 0; this.quietFor = 0; this.loudFor = 0;
+  }
   nextChest(ev) {
+    this.awaitingClose = false;
     this.index += 1;
     if (this.stage !== ASLEEP) { ev.push({ e: 'stageChanged', from: this.stage, to: ASLEEP }); this.stage = ASLEEP; }
     this.setupChest(chest(this.seed, this.index, this.found));
@@ -375,7 +400,7 @@ class HeistSession {
   startTorchOut(ev) {
     if (this.phase === 'looting') this.chestLog.push({ tier: this.chest.tier, golden: this.chest.golden, value: 0, hushed: false, bitten: false });
     for (const s of this.loot) if (s.place === 'held' || s.place === 'inBag') s.place = 'lost';
-    this.touches.clear(); this.bagValue = 0; this.bagCount = 0;
+    this.touches.clear(); this.bagValue = 0; this.bagCount = 0; this.awaitingClose = false;
     this.phase = 'torchOut'; this.elapsed = 0; ev.push({ e: 'torchOut' });
   }
   finish(ev) { this.phase = 'finished'; ev.push({ e: 'finished' }); }
@@ -526,6 +551,13 @@ class ThiefPilot {
       this.frozen = false; this.freezeDecided = false;
       return { lid: this.lidOut(), touches };
     }
+    // R12 rule 4: the robbed chest waits for the lid ("Close the lid for the next chest"): close it at this chest's speed.
+    if (snap.awaiting) {
+      if (this.drag) { touches.push({ phase: 'ended', id: this.drag.id, x: this.drag.x, y: this.drag.y }); this.drag = null; }
+      this.frozen = false; this.freezeDecided = false;
+      this.moveLid(P.shutTarget, this.closeSpeed, dt);
+      return { lid: this.lidOut(), touches };
+    }
     const idx = snap.chestIndex;
     if (idx !== this.lastChest) {
       if (T.relicGlimmer && (this.skill === 'novice' || this.skill === 'casual')) {
@@ -615,7 +647,7 @@ function pilotWorth(s) { return s.item.kind === 'oil' ? 60 : s.item.value; }
 
 function snapshotOf(s) {
   return {
-    phase: s.phase, chestIndex: s.chest.index, stage: s.stage, noise: s.noise, torchRemaining: s.torch, torchOn: s.opt.torch, jingle: s.jingleFloor(),
+    phase: s.phase, awaiting: s.awaitingClose, chestIndex: s.chest.index, stage: s.stage, noise: s.noise, torchRemaining: s.torch, torchOn: s.opt.torch, jingle: s.jingleFloor(),
     loot: s.loot.map((l) => ({ item: l.item, x: l.x, y: l.y, place: l.place, touch: l.touch, grabbable: l.grabbable })),
   };
 }

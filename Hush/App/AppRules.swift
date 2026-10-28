@@ -222,14 +222,16 @@ enum AppRules {
     static func isWarning(_ hint: HeistHint) -> Bool {
         switch hint {
         case .freeze, .slower, .tooWide, .easeLidDown, .candleLow: return true
-        case .openSlowly, .dragToBag, .shutToBank, .relicDeeper: return false
+        // R12: the robbed chest's only prompt is an instruction, not a warning (it never shows through the bank beat).
+        case .openSlowly, .dragToBag, .shutToBank, .relicDeeper, .closeForNext: return false
         }
     }
 
     static func isTeaching(_ hint: HeistHint) -> Bool {
         switch hint {
         case .openSlowly, .dragToBag, .shutToBank: return true
-        case .freeze, .slower, .tooWide, .easeLidDown, .candleLow, .relicDeeper: return false
+        // R12: `.closeForNext` never retires (it is the only way on after a bite).
+        case .freeze, .slower, .tooWide, .easeLidDown, .candleLow, .relicDeeper, .closeForNext: return false
         }
     }
 
@@ -298,7 +300,7 @@ enum AppRules {
         }
         if r.gold <= 0 {
             return r.bites > 0 ? "The mimic kept every coin. Gentler next time." :
-                "Nothing banked. Ease the lid down to bank your loot."
+                "Nothing banked. Close the lid to bank your loot."
         }
         if outcome.showsNewBest { return "A new best haul. The mimics are whispering about you." }
         if r.goldenBanked > 0 { return "You robbed a golden mimic. It'll sulk for weeks." }

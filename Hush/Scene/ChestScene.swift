@@ -19,7 +19,9 @@ import UIKit
 ///     - the lid half (`SceneLid`, z 0, at y 496): planks, the eye, brow, plate, the jaw (z 50 inside it);
 ///     - the hinge strip (z 5, y 456…496);
 ///     - the floor half (`SceneFloor`, z 0): the satchel; the chest (R3: hops, never leaves) with the front wall, bed, tongue,
-///       darkness, wash; then the loot (z 25), the moments' floor layer (z 27), the HUD (z 30);
+///       darkness, wash; then the loot (z 25), the moments' floor layer (z 27), R12: the closed chest's cover (z 27.8:
+///       the outside of the lid from above, drawn while the lid is shut and lifting back towards the hinge as it
+///       opens), the HUD (z 30);
 ///     - FX: particles (z 55), the moments' callouts, banners, flyers, popups (z 60);
 ///     - the NOISE meter (z 90: on top of everything).
 ///   - overlay (z 100, never shaken): the red flash, the Waking pulse, candle-out darkness.
@@ -250,6 +252,67 @@ final class ChestScene: SKScene {
     var bagNumberCenter: CGPoint { hud.bagNumberCenter }
     var bagNumberScale: CGFloat { hud.bagNumberScale }
 
+    // MARK: R12 (founder, real Duo: "the chest closed means lid closed, chest open means lid open")
+
+    /// The robbed chest: after a bite the run waits for the lid to close before the next chest (Core keeps the bitten
+    /// chest, no loot, hint `.closeForNext`). It is drawn OPEN and EMPTY (no cover while the lid is open, no
+    /// between-chests shadow, no "Next chest…"), the tongue curled tight and the eye glaring on the lid.
+    nonisolated static func isRobbed(_ s: HeistSnapshot) -> Bool {
+        s.hint == .closeForNext && s.loot.allSatisfy { $0.place == .lost }
+    }
+    /// The robbed chest is being drawn this frame.
+    var robbedChestShowing: Bool { robbedShowing }
+    private var robbedShowing = false
+    /// The closed chest's cover (the outside of the lid from above) is drawn this frame, how opaque, how far its
+    /// front edge has slid back towards the hinge (canvas pt), its height as drawn, and the arrival settle.
+    var closedCoverShowing: Bool { floor.coverShowing }
+    var closedCoverAlpha: CGFloat { floor.coverAlpha }
+    var closedCoverSlide: CGFloat { floor.coverShowing ? floor.coverPose.slide : 0 }
+    var closedCoverYScale: CGFloat { floor.coverPose.yScale }
+    var closedCoverArrivalOffset: CGFloat { floor.coverArrivalOffset }
+    /// The dress on the cover (the chest's tier, or golden), and the outgoing cover still fading out (an arrival).
+    var closedCoverDress: ChestDress { floor.coverDress }
+    var closedCoverOldShowing: Bool { floor.coverOldShowing }
+    /// The cover's sprite as drawn, in canvas points (world coordinates; y up).
+    var closedCoverCanvasFrame: CGRect {
+        let n = floor.coverNode
+        guard let parent = n.parent else { return .null }
+        let f = n.frame
+        let ps = [CGPoint(x: f.minX, y: f.minY), CGPoint(x: f.maxX, y: f.minY), CGPoint(x: f.minX, y: f.maxY),
+                  CGPoint(x: f.maxX, y: f.maxY)].map { world.convert($0, from: parent) }
+        let xs = ps.map(\.x), ys = ps.map(\.y)
+        let minX = xs.min() ?? 0, minY = ys.min() ?? 0
+        return CGRect(x: minX, y: minY, width: (xs.max() ?? 0) - minX, height: (ys.max() ?? 0) - minY)
+    }
+    /// The cover lives under `world` (so every quarter turn draws it with the rest of the chest).
+    var closedCoverInWorld: Bool { floor.coverNode.inParentHierarchy(world) }
+    /// The cover's total z (its own plus its ancestors'), and the lowest total z of anything in the HUD or the meter
+    /// (the meter, IN BAG / BANKED, the candle, the chain tab and the pause seat all draw over the cover).
+    var closedCoverGlobalZ: CGFloat { globalZ(floor.coverNode) }
+    var hudLowestGlobalZ: CGFloat { min(lowestZ(hud.root), lowestZ(hud.meterRoot)) }
+    /// The highest total z of an in-chest item's art (under the cover's).
+    var lootInChestGlobalZ: CGFloat { globalZ(lootView.root) }
+
+    private func globalZ(_ n: SKNode) -> CGFloat {
+        var z: CGFloat = 0
+        var p: SKNode? = n
+        while let q = p {
+            z += q.zPosition
+            p = q.parent
+        }
+        return z
+    }
+
+    private func lowestZ(_ n: SKNode) -> CGFloat {
+        var lo = globalZ(n)
+        var stack: [SKNode] = n.children
+        while let c = stack.popLast() {
+            lo = min(lo, globalZ(c))
+            stack.append(contentsOf: c.children)
+        }
+        return lo
+    }
+
     private let world: SKNode
     private let shaker: SKNode
     private let overlay: SKNode
@@ -349,6 +412,7 @@ final class ChestScene: SKScene {
             _ = SceneTextures.lidTile(d)
             _ = SceneTextures.frontWall(d)
             _ = SceneTextures.browKnob(d)
+            _ = SceneTextures.closedCover(d)
         }
         _ = SceneTextures.plateGolden
         _ = SceneTextures.plateSeal(golden: true)
@@ -475,18 +539,26 @@ final class ChestScene: SKScene {
         if let c = s.chest { dressChest(c, animated: false) }
 
         let light = torchLight(s)
+        // R12: the lid's openness IS the chest's: the closed chest's cover follows it, and the robbed chest (after a
+        // bite, waiting for the lid to close) is drawn open, empty and glaring.
+        let pose = ChestLayout.coverPose(openness: s.openness, reduceMotion: reduceMotion)
+        let robbed = ChestScene.isRobbed(s)
+        robbedShowing = robbed
+        moments.robbed = robbed
+        moments.lidCover = pose.alpha
         let mf = moments.update(dt: dt, snapshot: s, effects: fx, hud: hud, lid: lid)
         if moments.slammedThisFrame { lid.squash() }
         floor.chestRoot.position = CGPoint(x: 0, y: mf.chestOffset)
         lootView.root.position = CGPoint(x: 0, y: mf.chestOffset)
         lid.jaw.position = CGPoint(x: 0, y: mf.jawDrop)
-        floor.update(dt: dt, snapshot: s, light: light, reduceMotion: reduceMotion, cover: mf.interiorCover)
+        floor.update(dt: dt, snapshot: s, light: light, reduceMotion: reduceMotion, cover: mf.interiorCover,
+                     closedCover: pose, robbed: robbed)
         lootView.update(dt: dt, loot: s.loot, hideBagged: mf.hideBagged, light: light, openness: s.openness,
-                        cardRect: moments.relicCardRect, cardLevel: moments.relicCardLevel)
+                        cardRect: moments.relicCardRect, cardLevel: moments.relicCardLevel, lidCover: pose)
         hud.update(dt: dt, snapshot: s, light: light, reduceMotion: reduceMotion)
         hud.dimSeat(moments.biteActive, dt: dt)
         lid.update(dt: dt, snapshot: s, light: light, wakeOverride: mf.wakeOverride, teethOverride: mf.teethOverride,
-                   lookAt: lookTarget(), usesSlider: leverShowing, reduceMotion: reduceMotion)
+                   lookAt: lookTarget(), usesSlider: leverShowing, reduceMotion: reduceMotion, angry: robbed)
         fx.update(CGFloat(dt))
         shaker.position = reduceMotion ? .zero : moments.shake
 
@@ -579,6 +651,8 @@ final class ChestScene: SKScene {
             switch e {
             case .chestArrived(_, let tier, _, let name):
                 lootView.clearAll()
+                // R12: under a shut lid the next chest arrives already covered (its cover settles over the old one).
+                floor.arrive()
                 if let c = s.chest {
                     // The plate is re-dressed from the snapshot's chest (trait, tier, golden).
                     lastDressed = nil

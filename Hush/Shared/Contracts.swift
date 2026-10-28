@@ -257,6 +257,9 @@ public enum HeistHint: String, Codable, Sendable {
     case tooWide          // the input reports tooWide: "That's wide enough"
     case candleLow        // R2: ≤ 15 s of candle and loot in the bag: "Candle's low. Bank it!"
     case relicDeeper      // R2: a relic glimmers but isn't lit yet: "Something glints deeper…"
+    /// R12 (founder, real Duo: "chest closed means lid closed, chest open means lid open"): the run needs the next
+    /// chest but the lid is open (after a bite): "Close the lid for the next chest". Never "open" an open lid.
+    case closeForNext
 }
 
 /// Everything the scene, HUD and feedback need for one frame. Value type.

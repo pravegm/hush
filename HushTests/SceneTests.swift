@@ -2163,6 +2163,330 @@ struct SceneTests {
         }
     }
 
+    // MARK: R12 (design/ROUND-12.md, Scene: the closed chest's cover, the robbed chest)
+
+    /// Rule 5: the cover lies whole up to openness 0.02, lifts (eased) and slides back towards the hinge as the
+    /// openness goes to 0.15, and is gone from there. Reduce Motion: a crossfade in place.
+    @Test func closedCoverFollowsTheLidsOpenness() {
+        for o in [-1.0, 0, 0.01, ChestLayout.coverShutOpenness, Double.nan] {
+            let p = ChestLayout.coverPose(openness: o)
+            #expect(p.isShut)
+            #expect(abs(p.alpha - 1) < CGFloat(0.0001) && abs(p.slide) < CGFloat(0.0001))
+            #expect(abs(p.yScale - 1) < CGFloat(0.0001))
+            #expect(ChestLayout.coverPose(openness: o, reduceMotion: true).isShut)
+        }
+        for o in [ChestLayout.coverGoneOpenness, 0.2, 0.5, 1, 5] {
+            #expect(!ChestLayout.coverPose(openness: o).isVisible)
+            #expect(!ChestLayout.coverPose(openness: o, reduceMotion: true).isVisible)
+        }
+        var lastSlide: CGFloat = -1, lastAlpha: CGFloat = 2, lastScale: CGFloat = 2, lastFade: CGFloat = 2
+        for i in 0...25 {
+            let o = ChestLayout.coverShutOpenness + Double(i) * 0.005
+            let p = ChestLayout.coverPose(openness: o)
+            #expect(p.slide >= lastSlide - 0.0001)
+            #expect(p.alpha <= lastAlpha + 0.0001)
+            #expect(p.yScale <= lastScale + 0.0001)
+            // The slide is the front edge's travel towards the hinge (the hinge edge stays put).
+            #expect(abs(p.slide - ChestLayout.coverTextureRect.height * (1 - p.yScale)) < CGFloat(0.01))
+            lastSlide = p.slide
+            lastAlpha = p.alpha
+            lastScale = p.yScale
+            let rm = ChestLayout.coverPose(openness: o, reduceMotion: true)
+            #expect(abs(rm.slide) < CGFloat(0.0001) && abs(rm.yScale - 1) < CGFloat(0.0001))
+            #expect(rm.alpha <= lastFade + 0.0001)
+            lastFade = rm.alpha
+        }
+        // Eased: it starts gently (well under a linear slide), is still whole but half lifted at the middle, and has
+        // all but faded just before the shut zone's top.
+        let span = ChestLayout.coverGoneOpenness - ChestLayout.coverShutOpenness
+        let early = ChestLayout.coverPose(openness: ChestLayout.coverShutOpenness + span * 0.08)
+        let linear = ChestLayout.coverTextureRect.height * (1 - ChestLayout.coverLiftMinScale) * 0.08
+        #expect(early.slide > 0 && early.slide < linear * 0.5)
+        let mid = ChestLayout.coverPose(openness: ChestLayout.coverShutOpenness + span * 0.5)
+        #expect(mid.alpha > CGFloat(0.99))
+        #expect(mid.slide > CGFloat(60))
+        #expect(mid.shade > 0)
+        #expect(ChestLayout.coverPose(openness: ChestLayout.coverGoneOpenness - 0.01).alpha < CGFloat(0.05))
+        let rmMid = ChestLayout.coverPose(openness: ChestLayout.coverShutOpenness + span * 0.5, reduceMotion: true)
+        #expect(abs(rmMid.alpha - 0.5) < CGFloat(0.01))
+        // The new chest's settle: 14 pt below its place on arrival, home by 0.4 s, none under Reduce Motion.
+        #expect(abs(ChestLayout.coverArrivalOffset(age: 0) - ChestLayout.coverArrivalDrop) < CGFloat(0.001))
+        #expect(ChestLayout.coverArrivalOffset(age: 0.2) < ChestLayout.coverArrivalOffset(age: 0.05))
+        #expect(ChestLayout.coverArrivalOffset(age: ChestLayout.coverArrivalTime) == 0)
+        #expect(ChestLayout.coverArrivalOffset(age: 0.05, reduceMotion: true) == 0)
+    }
+
+    /// Rule 5's art: the cover lies over the interior (rims overhung), never reaches the bag strip's plates or the
+    /// fold strip; its lock and the royal jewels are clear of the HUD at every scale; every tier and the golden
+    /// mimic draw a different lid (the lock reads, the royal jewels are set, the golden one is the brightest).
+    @Test @MainActor func closedCoverArtDressesEveryTierAndGolden() {
+        let r = ChestLayout.coverRect
+        #expect(r.contains(ChestLayout.interior))
+        #expect(r.minX < ChestLayout.rimInner.minX && r.maxX > ChestLayout.rimInner.maxX)
+        #expect(r.minY < ChestLayout.rimInner.minY && r.maxY > ChestLayout.rimInner.maxY)
+        #expect(r.maxY <= ChestLayout.floorTop)
+        let tr = ChestLayout.coverTextureRect
+        #expect(abs(tr.maxY - r.maxY) < CGFloat(0.001))
+        #expect(tr.minY >= ChestLayout.bagStrip.maxY - 0.001)
+        for plate in [ChestLayout.bagValueRect, ChestLayout.counterRect, ChestLayout.pouchRect,
+                      ChestLayout.bagLabelRect, ChestLayout.bankLabelRect] {
+            #expect(!tr.intersects(plate))
+        }
+        let lock = CGRect(x: ChestLayout.coverLockCenter.x - ChestLayout.coverLockSize.width / 2,
+                          y: ChestLayout.coverLockCenter.y - ChestLayout.coverLockSize.height / 2,
+                          width: ChestLayout.coverLockSize.width, height: ChestLayout.coverLockSize.height)
+        let jr = ChestLayout.coverJewelRadius
+        let jewels = ChestLayout.coverJewels.map { CGRect(x: $0.x - jr, y: $0.y - jr, width: 2 * jr, height: 2 * jr) }
+        #expect(jewels.count >= 3)
+        for box in jewels + [lock] {
+            #expect(r.insetBy(dx: 20, dy: 0).contains(box))
+            for hud in [ChestLayout.torchRect, ChestLayout.countdownRect, ChestLayout.meterRect, ChestLayout.chainRect] {
+                #expect(!box.intersects(hud))
+            }
+            for s in [ChestLayout.minViewScale, CGFloat(0.6), CGFloat(0.8), CGFloat(1)] {
+                #expect(!box.intersects(ChestLayout.pauseSeat(viewScale: s)))
+                #expect(box.maxY < ChestLayout.hintPlateBottom(viewScale: s))
+            }
+            for x in ChestLayout.coverBandXs { #expect(box.maxX < x - 14 || box.minX > x + 14) }
+        }
+
+        func at(_ px: Pixels, _ p: CGPoint) -> (Double, Double, Double) {
+            let sx = Double(px.width) / Double(tr.width), sy = Double(px.height) / Double(tr.height)
+            return px.rgb(Int((Double(p.x - tr.minX) * sx).rounded()), Int((Double(tr.maxY - p.y) * sy).rounded()))
+        }
+        var means: [(Double, Double, Double)] = []
+        var lumas: [ChestDress: Double] = [:]
+        for d in ChestDress.all {
+            let tex = SceneTextures.closedCover(d)
+            #expect(SceneTextures.has("cover-\(d.key)-r12"))
+            let px = SceneTests.pixels(tex.cgImage())
+            #expect(px.width > Int(tr.width) && px.height > Int(tr.height))
+            var m = (0.0, 0.0, 0.0)
+            var n = 0.0
+            for y in stride(from: 0, to: px.height, by: 4) {
+                for x in stride(from: 0, to: px.width, by: 4) {
+                    let c = px.rgb(x, y)
+                    m = (m.0 + c.0, m.1 + c.1, m.2 + c.2)
+                    n += 1
+                }
+            }
+            m = (m.0 / n, m.1 / n, m.2 / n)
+            means.append(m)
+            lumas[d] = 0.2126 * m.0 + 0.7152 * m.1 + 0.0722 * m.2
+            // The lock's keyhole reads dark on every lid.
+            let hole = at(px, CGPoint(x: ChestLayout.coverLockCenter.x, y: ChestLayout.coverLockCenter.y + 8))
+            #expect(0.2126 * hole.0 + 0.7152 * hole.1 + 0.0722 * hole.2 < 0.2)
+            // The royal lid's blue jewel is set (and no other lid has one there).
+            let blue = at(px, ChestLayout.coverJewels[1])
+            if d == .tier(.royal) {
+                #expect(blue.2 > blue.0 + 0.2)
+            } else {
+                #expect(blue.2 < blue.0 + 0.05)
+            }
+        }
+        for i in 0..<means.count {
+            for j in (i + 1)..<means.count {
+                let a = means[i], b = means[j]
+                #expect(max(abs(a.0 - b.0), abs(a.1 - b.1), abs(a.2 - b.2)) > 0.01)
+            }
+        }
+        let golden = lumas[.golden] ?? 0
+        for d in ChestDress.all where d != .golden { #expect(golden > (lumas[d] ?? 1)) }
+    }
+
+    /// Rule 5 in the scene, every tier and golden, every quarter turn: at openness 0 the cover lies whole over the
+    /// interior (nothing in the chest shows, not even a lit item), in the tier's dress, under `world`, where the
+    /// quarter turn puts it; half open it has slid back towards the hinge (the hinge edge stays); open, it is gone.
+    @Test @MainActor func closedCoverLiesShutAndLiftsInEveryTierAndQuarterTurn() {
+        let layout = ScreenLayout.make(hasFold: true, viewSize: CGSize(width: 951, height: 669))
+        let w = layout.size.width, h = layout.size.height, off = layout.contentOffsetY
+        let tr = ChestLayout.coverTextureRect
+        let span = ChestLayout.coverGoneOpenness - ChestLayout.coverShutOpenness
+        for k in 0...3 {
+            for d in ChestDress.all {
+                let scene = ChestScene(layout: layout)
+                scene.quarterTurns = k
+                let driver = SceneFakeDriver()
+                scene.driver = driver
+                var spec = SceneFakeDriver.chest(tier: .wooden, index: 1)
+                if case .tier(let t) = d { spec.tier = t } else { spec.golden = true }
+                driver.startChest(spec)
+                driver.snap.loot[0].light = 1
+                var clock = 0.0
+                SceneFakeDriver.run(scene, frames: 120, clock: &clock)
+                #expect(scene.closedCoverShowing)
+                #expect(scene.closedCoverAlpha > CGFloat(0.999))
+                #expect(scene.closedCoverSlide < CGFloat(0.01))
+                #expect(scene.closedCoverDress == d)
+                #expect(scene.closedCoverInWorld)
+                #expect(scene.visibleLoot == 0)
+                let f = scene.closedCoverCanvasFrame
+                #expect(abs(f.minX - tr.minX) < CGFloat(0.5) && abs(f.maxX - tr.maxX) < CGFloat(0.5))
+                #expect(abs(f.minY - tr.minY) < CGFloat(0.5) && abs(f.maxY - tr.maxY) < CGFloat(0.5))
+                // Where the quarter turn draws it (worked by hand), inside the scene, the floor side of the fold.
+                let c = CGPoint(x: tr.midX, y: tr.midY)
+                let seen = scene.scenePoint(fromCanvas: c)
+                let want = SceneTests.turnedByHand(CGPoint(x: c.x, y: c.y + off), k: k, width: w, height: h)
+                #expect(abs(seen.x - want.x) < CGFloat(0.5) && abs(seen.y - want.y) < CGFloat(0.5))
+                #expect(seen.x >= 0 && seen.x <= scene.size.width && seen.y >= 0 && seen.y <= scene.size.height)
+
+                driver.openTo(ChestLayout.coverShutOpenness + span * 0.5)
+                SceneFakeDriver.run(scene, frames: 2, clock: &clock)
+                #expect(scene.closedCoverShowing)
+                #expect(scene.closedCoverSlide > CGFloat(60))
+                let g = scene.closedCoverCanvasFrame
+                #expect(abs(g.maxY - tr.maxY) < CGFloat(0.5))
+                #expect(g.minY > tr.minY + 60)
+
+                driver.openTo(0.3)
+                driver.snap.loot[0].light = 1
+                SceneFakeDriver.run(scene, frames: 2, clock: &clock)
+                #expect(!scene.closedCoverShowing)
+                #expect(scene.visibleLoot >= 1)
+            }
+        }
+    }
+
+    /// HUD legibility over the shut lid: the cover draws over the chest's loot and the between-chests shadow but under
+    /// every piece of the HUD (meter, IN BAG / BANKED, the candle, the chain tab, the pause seat). And no texture is
+    /// built while the lid opens and closes.
+    @Test @MainActor func hudStaysOverTheClosedCover() {
+        let scene = ChestScene(layout: SceneTests.phone)
+        let driver = SceneFakeDriver()
+        scene.driver = driver
+        driver.startChest(SceneFakeDriver.chest(tier: .royal, index: 3))
+        var clock = 0.0
+        SceneFakeDriver.run(scene, frames: 30, clock: &clock)
+        #expect(scene.closedCoverShowing)
+        #expect(scene.closedCoverGlobalZ > scene.lootInChestGlobalZ + 2.5)
+        #expect(scene.closedCoverGlobalZ < scene.hudLowestGlobalZ)
+        #expect(scene.closedCoverGlobalZ < SceneLootView.heldZ + scene.lootInChestGlobalZ)
+        let textures = SceneTextures.count
+        for o in [0.0, 0.05, 0.1, 0.2, 0.9, 0.1, 0.0] {
+            driver.openTo(o)
+            SceneFakeDriver.run(scene, frames: 20, clock: &clock)
+        }
+        #expect(SceneTextures.count == textures)
+        #expect(scene.closedCoverShowing)
+    }
+
+    /// Rule 4 / 5 after a bite (`loot` empty, hint `.closeForNext`): the robbed chest stays open and empty (no cover,
+    /// no between-chests shadow, no "Next chest…"), the tongue curled and the eye glaring, until the lid closes; then
+    /// the next chest arrives under the shut lid already covered (never a frame without the cover), settles, and opens.
+    @Test @MainActor func robbedChestStaysOpenAndGlaringThenTheNextArrivesCovered() {
+        for reduce in [false, true] {
+            let scene = ChestScene(layout: ScreenLayout(hasFold: true))
+            scene.reduceMotion = reduce
+            let driver = SceneFakeDriver()
+            scene.driver = driver
+            driver.startChest(SceneFakeDriver.chest(tier: .iron, index: 2))
+            var clock = 0.0
+            driver.openTo(0.9)
+            driver.bag([0, 1])
+            SceneFakeDriver.run(scene, frames: 60, clock: &clock)
+            #expect(!scene.robbedChestShowing)
+            driver.loseBag()
+            driver.snap.phase = .bitten(elapsed: 0)
+            driver.snap.stage = .biting
+            driver.snap.noise = 1
+            driver.pending = [.bitten(lostValue: 40), .biteCost(lostValue: 40, seconds: 10)]
+            SceneFakeDriver.run(scene, frames: 230, clock: &clock)
+            // Core: the robbed chest waits, open, for the lid to close.
+            driver.snap.phase = .ready
+            driver.snap.stage = .asleep
+            driver.snap.noise = 0
+            driver.snap.loot = []
+            driver.snap.hint = .closeForNext
+            #expect(ChestScene.isRobbed(driver.snap))
+            SceneFakeDriver.run(scene, frames: 90, clock: &clock)
+            #expect(scene.robbedChestShowing)
+            #expect(!scene.closedCoverShowing)
+            #expect(scene.interiorShut < CGFloat(0.05))
+            #expect(!scene.nextChestShowing)
+            #expect(!scene.calloutActive)
+            #expect(scene.visibleLoot == 0)
+            #expect(scene.tongueCurl > CGFloat(0.8))
+            #expect(scene.browTilt > CGFloat(0.2))
+            #expect(scene.eyeWake > 0.5)
+            #expect(scene.teethShown > CGFloat(0.8))
+            #expect(scene.chestShellIsWhole)
+            // Closing: still the robbed chest until the shut zone; the lid's cover comes down with it.
+            driver.snap.openness = 0.1
+            SceneFakeDriver.run(scene, frames: 10, clock: &clock)
+            #expect(scene.robbedChestShowing)
+            #expect(scene.closedCoverShowing && scene.closedCoverAlpha < CGFloat(0.999))
+            // In the shut zone Core deals the next chest: it arrives closed, already covered.
+            driver.snap.hint = nil
+            driver.startChest(SceneFakeDriver.chest(tier: .royal, index: 3, name: "Dozy Dora"))
+            driver.snap.openness = 0.01
+            SceneFakeDriver.run(scene, frames: 1, clock: &clock)
+            #expect(!scene.robbedChestShowing)
+            #expect(scene.closedCoverShowing && scene.closedCoverAlpha > CGFloat(0.999))
+            #expect(scene.closedCoverDress == .tier(.royal))
+            #expect(scene.closedCoverOldShowing)
+            if reduce {
+                #expect(scene.closedCoverArrivalOffset == 0)
+            } else {
+                #expect(scene.closedCoverArrivalOffset > CGFloat(5))
+            }
+            var alwaysCovered = true
+            for _ in 0..<72 {
+                SceneFakeDriver.run(scene, frames: 1, clock: &clock)
+                alwaysCovered = alwaysCovered && scene.closedCoverAlpha > CGFloat(0.999) && scene.visibleLoot == 0
+            }
+            #expect(alwaysCovered)
+            #expect(scene.closedCoverArrivalOffset == 0)
+            #expect(!scene.closedCoverOldShowing)
+            #expect(scene.mimicName == "Dozy Dora")
+            // Open it to play.
+            driver.openTo(0.4)
+            SceneFakeDriver.run(scene, frames: 2, clock: &clock)
+            #expect(!scene.closedCoverShowing)
+        }
+    }
+
+    /// Rule 3 / 4: a bank closes the lid, and the next chest (each tier, then golden) is dealt under it: covered from
+    /// its first frame, in its own dress, the bank's words over the lid. The robbed rule never fires on a bank.
+    @Test @MainActor func nextChestAfterABankArrivesUnderTheShutLid() {
+        let scene = ChestScene(layout: SceneTests.phone)
+        let driver = SceneFakeDriver()
+        scene.driver = driver
+        driver.startChest(SceneFakeDriver.chest(tier: .wooden, index: 0))
+        var clock = 0.0
+        var index = 1
+        var next: [ChestDress] = ChestTier.allCases.map { ChestDress.tier($0) }
+        next.append(.golden)
+        for d in next {
+            driver.openTo(0.9)
+            driver.bag([0])
+            driver.snap.bagValue = 20
+            SceneFakeDriver.run(scene, frames: 30, clock: &clock)
+            #expect(!scene.closedCoverShowing)
+            driver.openTo(0)
+            driver.snap.phase = .banked(elapsed: 0)
+            driver.snap.banked += 20
+            driver.snap.bagValue = 0
+            driver.pending = [.banked(value: 20, items: 1, hushed: true)]
+            SceneFakeDriver.run(scene, frames: 30, clock: &clock)
+            #expect(scene.bankActive)
+            #expect(scene.closedCoverShowing)
+            #expect(!scene.robbedChestShowing)
+            SceneFakeDriver.run(scene, frames: 150, clock: &clock)
+            var spec = SceneFakeDriver.chest(tier: .wooden, index: index)
+            if case .tier(let t) = d { spec.tier = t } else { spec.golden = true }
+            index += 1
+            driver.startChest(spec)
+            var covered = true
+            for _ in 0..<60 {
+                SceneFakeDriver.run(scene, frames: 1, clock: &clock)
+                covered = covered && scene.closedCoverShowing && scene.closedCoverAlpha > CGFloat(0.999)
+            }
+            #expect(covered)
+            #expect(scene.closedCoverDress == d)
+            #expect(scene.chestShellIsWhole)
+        }
+    }
+
     // MARK: Pixel helpers
 
     struct Pixels {

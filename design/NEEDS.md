@@ -364,3 +364,66 @@ For CI (details in `design/notes/app-R11.md`). No existing demo key or log line 
 - **Scene R11 wired:** `ChestScene.calloutActive` hides the hint (`AppRules.hintYieldsToScene`), the praise ink and the
   struck-metal badges (page, Results, the `screen=badges` export) are in. `ChestScene.hintPlateCanvasRect` is left nil
   on purpose (the plate hugs its text; the scene's tallest-plate estimate is the safe floor).
+
+## CI engineer (R12)
+Three new checks in `ci/duo.sh`: START-OPEN, BITE-CLOSE-NEXT and BANK-CLOSE-FULL. Details are in
+`design/notes/ci-R12.md`. The asks are all DEBUG/demo only, and each has a fallback: INCONCLUSIVE, or the part is
+reported as pending, never a false FAIL.
+- **App: `HUSH-T hint <name>` whenever the HUD's shown hint changes** (`HeistHint` rawValue, e.g. `closeForNext`,
+  `easeLidDown`, `openSlowly`, `shutToBank`, and `HUSH-T hint none` when it clears). Today only `HUSH-T hint tooWide`
+  exists (GameController ~2053). It's needed at least for `closeForNext`, `easeLidDown` and `openSlowly`. CI FAILs any
+  `easeLidDown` in a run, and an `openSlowly` logged above 115°. Once any non-tooWide hint line appears, BITE-CLOSE-NEXT
+  also requires `hint closeForNext` while the robbed chest waits. Log it at the point where the HUD's hint is chosen
+  (the same place as tooWide), so a hint that `AppRules.hintYieldsToScene` hides is still logged.
+- **App: demo key `bag=<n>`** (DEBUG; name the field apart from the key, like `holdAfter`, because the TestFlight guard
+  greps Release). On the first chest's first `.looting` step (any mode, attract included), put n of its items straight
+  into the bag as if they had been dragged there: bagCount n, their value in the bag, no drag noise. Log
+  `HUSH-T demo bag <n> value <v>`. BANK-CLOSE-FULL launches `screen=run;mode=attract;seed=7;bag=1` with the hinge at 150
+  and closes it in one go. Why not a pilot: a pilot drives the lid too, so the hinge's close would be ignored. And
+  `simctl` can't drag. Core may need a small DEBUG/test hook (e.g. `HeistSession.demoBag(_:)`). Without the key the
+  check says INCONCLUSIVE.
+- **App: `noiseUntil=bite`** (next to `noiseUntil=pause`). Hold `noise=` only until the first `bitten`, then
+  `HUSH-T noise released <n>` and let the session own the noise. BITE-CLOSE-NEXT launches
+  `screen=run;mode=run;seed=7;noise=1;noiseUntil=bite` at 150, so the held noise bites the first chest the moment it
+  loots, which is deterministic (a sim slam may only stir). Without the release, the hold bites the NEXT chest too,
+  before its `lidCracked` can log. CI accepts that bite as the "it opened" evidence for now.
+- **Core/App, please confirm:** after a bank with the lid closed in one go (150 → 30 → 0), the next `chestArrived` comes
+  while the lid is still closed: during the bank moment, or under the pause. It must never come on the way back up
+  (BANK-CLOSE-FULL FAILs a `chestArrived` logged above 113°). On the sim, iOS can hand the app to the cover display at
+  74–92° on a close, so if the session doesn't step through `.banked` while paused, the deal lands on the reopen.
+- **Core, FYI:** 105° is openness 0.08, above `lidCrackedOpenness` (0.05). A chest dealt at 105° loots and cracks at
+  once. The R12 checks therefore close to 100° (openness 0) when they need a closed chest. SLOW-OPEN, LANDSCAPE-PLAY
+  and the frames pass now start at 100°.
+
+## App engineer (R12)
+Details in `design/notes/app-R12.md`. Nothing compiled here (CI is the compiler); nothing committed.
+- **For CI (your three asks are in):**
+  - `HUSH-T hint <rawValue|none>` every time the HUD's chosen hint changes, logged before `hintYieldsToScene` hides it
+    (it replaces the lone `HUSH-T hint tooWide`, same text for that one).
+  - `bag=<n>` (field `bagItems`, 1…12): on the first chest's first looting steps (attract included, never the lesson),
+    n lit items are picked and dropped in the bag strip by synthetic touches at ~100 pt/s (no drag noise; the pick and
+    bag clinks, 0.05 noise each, still count). `HUSH-T demo bag <n> value <v>` once done. Items deeper than the lid's
+    light aren't grabbable, so at 150° all of chest #1's shallow loot qualifies; the line reports how many really went in.
+  - `noiseUntil=bite`: `noise=` is held until the first `bitten`, then `HUSH-T noise released <n>`.
+  - Also new: `startOpen=1` (field `opensAtStart`) holds `lid=` open from the very first frame (no 0.25 s shut beat);
+    `HUSH-T first chest phase=<looting|ready> openness=<o>` on every run's first step (START-OPEN can grep it);
+    `HUSH-T next chest dealt under the pause reason=<closing|cover|shut>` when a robbed chest is folded shut too fast for
+    a step in the shut zone (Core's `noteLidShut`).
+  - New frames 53-run-start-open, 54-run-closed-cover-fold, 55-robbed-close-next; captions 09 and 39 follow the R12 copy.
+- **"Close the lid for the next chest" never after a bank:** the App only shows `.closeForNext` while
+  `session.awaitingClose` (and clears a gate still holding it the frame the next chest is dealt). Tested in
+  `R12Tests.aFullCloseAfterABankReopensIntoTheNextChest`.
+- **Feel (FYI, your file, not touched):** while `awaitingClose` the App now sends `HeistTelemetry.playing = false`
+  (`AppRules.feedbackPlays`), so the snore bed doesn't play over the robbed chest (Core sets it asleep, noise 0). That
+  also quiets the continuous lid layers (the creak) and the candle tick during the close. If you'd rather keep those,
+  add `FeedbackDirector.setRobbed(_ on: Bool)` (snore bed only) and tell me; I'll switch the App to it and send
+  `playing: true` again.
+- **Core (FYI):** the App calls `noteLidShut()` when the closing pause engages, when the cover display takes over
+  (handover to the small canvas, pose `.cover`) and when the Duo is shut (≤ 10°), never from the menu's Resume hold,
+  the first-report hold or an input-switch hold (the lid may be open then).
+- **Copy changed (frames will show it):** bank "Close the lid to bank" (Duo), stakes row "Close the lid to bank it",
+  lesson step 5 "Close the lid to bank it.", step 1 with the lid open "Close the lid to start" (marker "Close the lid a
+  little"), step 2 "Now open it… slowly. Watch the noise." then "Keep going… slowly. …" once it's up, `.easeLidDown`
+  "Close the lid a little first", run banner "Candle lit. Gently does it." with the lid open, Home "Shh… something's
+  peeking." from openness 0.15 (was 0.3), `.openSlowly` with the lid already up "A little wider… slowly", the
+  phone's `.closeForNext` "Slide it down for the next chest" (see the note for why not the 8-word line).

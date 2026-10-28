@@ -23,6 +23,9 @@ import Foundation
 //   a stick-slip jump of 0.5–2° in one frame (drawn from its own stream, so every other draw is unchanged). Expert and
 //   perfect still play to the R2–R6 lines (12 / 18 °/s), not to R7's forgiving 14 / 28: the forgiveness is for real
 //   hands on unknown hardware, not a free speed-up for the skill ceiling.
+// - R12 (design/ROUND-12.md rule 4): when the robbed chest waits for the lid (`hint == .closeForNext`) it closes the lid
+//   at that chest's closing speed (no new draws but the stick-slip); the next chest then arrives in the shut zone and
+//   the settle step takes the lid the rest of the way down before opening it.
 // Keep in sync with ThiefPilot in tools/balance-sim.js (same draw order).
 
 enum PilotSkill: String, CaseIterable, Sendable {
@@ -312,6 +315,19 @@ struct ThiefPilot {
             }
             frozen = false
             freezeDecided = false
+            return PilotOutput(lid: lidOutput, touches: touches)
+        }
+
+        // R12 rule 4: the robbed chest waits, open and empty, for the lid ("Close the lid for the next chest"). Close
+        // it at this chest's closing speed; the next chest is dealt in the shut zone and rolls its own speeds.
+        if snap.hint == .closeForNext {
+            if let d = drag {
+                touches.append(touch(.ended, d))
+                drag = nil
+            }
+            frozen = false
+            freezeDecided = false
+            _ = moveLid(to: PilotProfile.shutTarget, degreesPerSecond: closeSpeed, dt: dt)
             return PilotOutput(lid: lidOutput, touches: touches)
         }
 

@@ -253,8 +253,12 @@ final class SceneLootView {
     /// R11: items in the chest drawn (alpha > 0.05) where the relic card covers them this frame (tests: always 0).
     private(set) var underCardVisible = 0
 
+    /// R12: `lidCover` is the closed chest's cover this frame: while it lies whole (the lid shut) nothing in the chest
+    /// is drawn (no halo or glint can show over the lid), and while it is up at all no relic glimmers through it.
     func update(dt: Double, loot: [LootState], hideBagged: Bool, light: CGFloat, openness: Double = 0,
-                cardRect: CGRect = .null, cardLevel: CGFloat = 0) {
+                cardRect: CGRect = .null, cardLevel: CGFloat = 0, lidCover: CoverPose? = nil) {
+        let shut = lidCover?.isShut ?? false
+        let covered = lidCover?.isVisible ?? false
         time += dt
         frameStamp &+= 1
         var visible = 0
@@ -363,7 +367,7 @@ final class SceneLootView {
             case .inChest:
                 let vis = SceneLootView.smooth(0, 0.4, l)
                 var gl: CGFloat = 0
-                if slot.isRelic {
+                if slot.isRelic && !covered {
                     gl = SceneLootView.glimmer(depth: st.item.depth, openness: openness, light: Double(l))
                 }
                 slot.node.isHidden = vis <= 0.002 && gl <= 0.002
@@ -395,6 +399,8 @@ final class SceneLootView {
                     slot.glimmer.setScale(0.7 + 0.35 * CGFloat(pulse))
                     glimmering += 1
                 }
+                // R12: the lid is shut: the chest's contents are under its cover.
+                if shut { slot.node.isHidden = true }
                 // R11: hidden under the relic card (and a margin round it) while the card is up.
                 if cardLevel > 0 {
                     let c = CGPoint(x: p.x + root.position.x, y: p.y + root.position.y)

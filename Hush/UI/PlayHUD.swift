@@ -3,11 +3,18 @@ import SwiftUI
 /// The words for Core's hints (Core decides which applies; the UI owns the words). ≤ 6 words each. R3 (decision 4):
 /// `slider` is the LAYOUT's words (no fold: the lever; a fold: the lid). R3 (decision 3): one verb, "bank". Pure; tested.
 enum HushCopy {
-    static func hint(_ hint: HeistHint, slider: Bool) -> String {
+    /// R12 (founder: "chest closed means lid closed, chest open means lid open"): `lidOpen` (`AppRules.lidReadsOpen`)
+    /// is the lid as it is NOW, so a line never asks to open a lid that is already open, even while the hint gate
+    /// still holds a hint Core has just stopped wanting.
+    static func hint(_ hint: HeistHint, slider: Bool, lidOpen: Bool = false) -> String {
         switch hint {
-        // R11 (UX P2-2): "Ease the lid down" is the bank's phrase; before looting the lid only has to come lower.
-        case .easeLidDown: return slider ? "Slide the lever down first" : "Lower the lid a little first"
-        case .openSlowly: return slider ? "Slide the lever up… slowly" : "Open the lid… slowly"
+        // R11 (UX P2-2): "Ease the lid down" was the bank's phrase. R12: the lesson's chest words, "Close the lid…"
+        // (Core produces it only in the lesson now).
+        case .easeLidDown: return slider ? "Slide the lever down first" : "Close the lid a little first"
+        case .openSlowly:
+            // R12: Core still asks while nothing is lit yet; with the lid already up, it only needs to go wider.
+            if lidOpen { return "A little wider… slowly" }
+            return slider ? "Slide the lever up… slowly" : "Open the lid… slowly"
         case .slower: return "Slower…"
         case .freeze: return "Freeze!"
         case .dragToBag: return "Drag the loot into your bag"
@@ -15,16 +22,28 @@ enum HushCopy {
         case .tooWide: return "That's wide enough"
         case .candleLow: return "Candle's low. Bank it!"
         case .relicDeeper: return "Something glints deeper…"
+        // R12 rule 4: the robbed chest after a bite. The founder's words on a fold; on a phone "it" (the lever: the
+        // 8-word "Slide the lever down for the next chest" measured ~0.70 of its size on a 402 pt phone's plate, the
+        // truncation line).
+        case .closeForNext: return slider ? HushCopy.closeForNextLever : HushCopy.closeForNextLid
         }
     }
 
-    /// R7 (ROUND-7 App 1, DEVICE-RISKS-1 item 3): "down", never "shut". The game's shut is upright (100°), and a hand
-    /// told "shut" folds the Duo all the way, onto the cover display, after every bank.
-    static let bankLid = "Ease the lid down to bank"
+    /// R7 (ROUND-7 App 1): "down", never "shut". R12 rule 3 (founder): bank = close the lid ("closing it all the way is
+    /// fine: the bank fires on the way down").
+    static let bankLid = "Close the lid to bank"
+    /// R12: the stakes card's bank row on a fold.
+    static let bankStakeLid = "Close the lid to bank it"
+    /// R12 rule 4 (`HeistHint.closeForNext`).
+    static let closeForNextLid = "Close the lid for the next chest"
+    static let closeForNextLever = "Slide it down for the next chest"
 
     /// Every hint, for the tests and the word-count rule (HeistHint isn't CaseIterable).
     static let allHints: [HeistHint] = [.easeLidDown, .openSlowly, .slower, .freeze, .dragToBag, .shutToBank, .tooWide,
-                                        .candleLow, .relicDeeper]
+                                        .candleLow, .relicDeeper, .closeForNext]
+
+    /// R12: the founder's `.closeForNext` line is 7 words; every other hint keeps the ≤ 6 rule. Tested.
+    static func wordLimit(_ hint: HeistHint) -> Int { hint == .closeForNext ? 7 : 6 }
 
     static func wordCount(_ s: String) -> Int {
         s.split(whereSeparator: { $0 == " " }).count
@@ -35,7 +54,7 @@ enum HushCopy {
         [
             StakeRow(icon: .candle, text: "Candle out = run over"),
             StakeRow(icon: .fang, text: "Too loud? It bites your bag"),
-            StakeRow(icon: .lock, text: slider ? "Slide the lever down to bank" : HushCopy.bankLid),
+            StakeRow(icon: .lock, text: slider ? "Slide the lever down to bank" : HushCopy.bankStakeLid),
         ]
     }
 
@@ -122,7 +141,7 @@ struct PlayLayer: View {
                 let axis = fit.viewPoint(canvas: CGPoint(x: HUDLayout.chestAxisX, y: 0)).x
                 AxisCentredLayout(axisX: axis - band.minX) {
                     HintLine(hint: hud.hint, banner: hud.banner, slider: controller.sliderWording,
-                             scale: fit.textScale, reduceMotion: controller.reduceMotion)
+                             scale: fit.textScale, reduceMotion: controller.reduceMotion, lidOpen: hud.lidOpen)
                 }
                 .frame(width: band.width, height: band.height)
                 .position(x: band.midX, y: band.midY)
@@ -223,6 +242,8 @@ struct HintLine: View {
     let slider: Bool
     var scale: CGFloat = 1
     let reduceMotion: Bool
+    /// R12: the lid is open now (`AppRules.lidReadsOpen`): the words never ask to open it.
+    var lidOpen: Bool = false
     @State private var pulse = false
 
     /// R4 (ROUND-4 App 1): every plate's line shrinks to this, never further.
@@ -233,7 +254,7 @@ struct HintLine: View {
             // R4 (juror P0-1, UX P1-1): one line, laid out inside the plate's text rect (clear of the brass
             // end-caps), shrinking to 0.7 before it ever touches them.
             if let hint {
-                Text(HushCopy.hint(hint, slider: slider))
+                Text(HushCopy.hint(hint, slider: slider, lidOpen: lidOpen))
                     .font(HushType.hint(scale: scale))
                     .foregroundStyle(color(hint))
                     .lineLimit(1)
@@ -242,7 +263,7 @@ struct HintLine: View {
                     .scaleEffect(hint == .freeze && pulse && !reduceMotion ? 1.06 : 1)
                     .id(hint)
                     .transition(.opacity.combined(with: .scale(scale: 0.94)))
-                    .accessibilityLabel(HushCopy.hint(hint, slider: slider))
+                    .accessibilityLabel(HushCopy.hint(hint, slider: slider, lidOpen: lidOpen))
             } else if let banner {
                 Text(banner)
                     .font(.system(size: 22 * scale, weight: .bold, design: .rounded))
@@ -269,7 +290,7 @@ struct HintLine: View {
         case .freeze: return PlateArt.text(.urgent)
         case .slower, .easeLidDown, .candleLow, .relicDeeper: return PlateArt.accent(.parchment)
         case .tooWide: return PlateArt.muted(.parchment)
-        case .openSlowly, .dragToBag, .shutToBank: return PlateArt.text(.parchment)
+        case .openSlowly, .dragToBag, .shutToBank, .closeForNext: return PlateArt.text(.parchment)
         }
     }
 }
@@ -632,7 +653,7 @@ struct LessonStepCard: View {
 }
 
 /// Step 6 (UX P0-3): the stakes, three drawn icon rows, then "Got it" (the first run). R3: the leather plate, the
-/// layout's words ("Ease the lid down to bank" on a fold, the lever otherwise).
+/// layout's words (R12: "Close the lid to bank it" on a fold, the lever otherwise).
 struct LessonFinalCard: View {
     @ObservedObject var controller: GameController
     let compact: Bool

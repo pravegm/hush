@@ -353,7 +353,7 @@ struct LessonScript: Equatable {
     enum LiftCue: Equatable {
         /// Flat (≥ 168°) or no angle yet: "↑ Lift this half".
         case lift
-        /// Open past the window (> 112°): "↓ Lower this half a little".
+        /// Open past the window (> 112°): "↓ Close the lid a little" (R12; was "Lower this half a little").
         case lower
         /// Under the window (< 90°): "↑ Lift this half".
         case liftMore
@@ -364,7 +364,8 @@ struct LessonScript: Equatable {
         var label: String {
             switch self {
             case .lift, .liftMore: return "Lift this half"
-            case .lower: return "Lower this half a little"
+            // R12 rule 7: chest words.
+            case .lower: return "Close the lid a little"
             case .hold: return "Hold it there…"
             }
         }
@@ -390,25 +391,30 @@ struct LessonScript: Equatable {
 
     /// The card's one line (GAME-DESIGN §8). R3 (decision 4): `slider` is the LAYOUT's words (no fold: the lever;
     /// a fold: the lid), never the input's. R3 (decision 3): one verb, "bank".
-    func line(slider: Bool, angle: Double?, hint: HeistHint?) -> String {
+    /// R12 rule 7: the same order (close it, then open it slowly) in chest words, and never "open" while the lid is
+    /// open: `openness` (the session's, nil = unknown) past `AppRules.lidOpenLine` swaps the open step's words.
+    func line(slider: Bool, angle: Double?, hint: HeistHint?, openness: Double? = nil) -> String {
         if let praiseLine { return praiseLine }
         if isSlower { return "Slower… it's grumbling." }
+        let lidOpen = openness.map { AppRules.lidReadsOpen($0) } ?? false
         switch step {
         case .pose:
             if slider { return "Slide the lever up… slowly." }
             switch Self.liftCue(angle: angle) {
             case .lift: return "Stand your Duo like a little laptop."
-            // R11 (UX P2-2): "Lower", the pose step's own verb (the only "close" left in the lesson).
-            case .lower: return "Lower the lid a little, nearly upright…"
+            // R12 rule 7: the lid is open at step 1, so the step asks to close it first.
+            case .lower: return Self.closeToStart
             case .liftMore: return "Lift it a little more…"
             case .hold: return "Hold it there…"
             }
         case .open:
-            // R11 (UX P2-2): "Ease the lid down" means bank; here the lid only has to come under 110°.
+            // R12: the lesson's chest still waits for a closed lid (Core keeps its gate there): chest words.
             if hint == .easeLidDown {
-                return slider ? "Slide the lever all the way down first." : "Lower the lid a little first."
+                return slider ? "Slide the lever all the way down first." : "Close the lid a little first."
             }
-            return slider ? "Slide the lever up… slowly. Watch the noise." : "Open the lid… slowly. Watch the noise."
+            if slider { return "Slide the lever up… slowly. Watch the noise." }
+            // R12 rule 7: "Now open it… slowly." while it is closed; once it is up, only "keep going".
+            return lidOpen ? "Keep going… slowly. Watch the noise." : "Now open it… slowly. Watch the noise."
         case .grab:
             // R4 (tester 7): several coins show, so any of them will do.
             return "Drag a coin into your bag."
@@ -416,18 +422,21 @@ struct LessonScript: Equatable {
             if !stirred { return "Shh… did you hear that?" }
             return movedDuringFreeze ? "Freeze! Not a twitch." : "It's stirring. Freeze!"
         case .bank:
-            // R7 (DEVICE-RISKS-1 item 3): never "shut" (the game's shut is upright, 100°; a hand folds the Duo shut).
-            // R11 (UX P2-2, ROUND-11 App 4): one "to" (it read "down to upright to bank it").
-            return slider ? "Slide the lever down to bank it." : "Ease the lid back upright to bank it."
+            // R7 (DEVICE-RISKS-1 item 3): never "shut". R12 rule 3 (founder): bank = close the lid.
+            return slider ? "Slide the lever down to bank it." : "Close the lid to bank it."
         case .done:
             return "Candle out = run over"
         }
     }
 
-    func display(slider: Bool, angle: Double?, hint: HeistHint?) -> LessonDisplay {
+    /// R12 rule 7: step 1 with the lid open.
+    static let closeToStart = "Close the lid to start"
+
+    func display(slider: Bool, angle: Double?, hint: HeistHint?, openness: Double? = nil) -> LessonDisplay {
         let warning = praiseLine == nil && (isSlower || (step == .freeze && stirred))
         let marks = step == .pose && praiseLine == nil
-        return LessonDisplay(step: step.rawValue, line: line(slider: slider, angle: angle, hint: hint),
+        return LessonDisplay(step: step.rawValue,
+                             line: line(slider: slider, angle: angle, hint: hint, openness: openness),
                              praise: praiseLine != nil, warning: warning, canSkip: canSkip,
                              marksLid: marks, isFinal: step == .done && praiseLine == nil,
                              usesSlider: slider,
