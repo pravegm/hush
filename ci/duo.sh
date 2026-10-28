@@ -705,6 +705,9 @@ if [[ " $PASSES " == *" hinge "* ]]; then
     result SLAM INCONCLUSIVE "$d (the hinge tool under-delivered the slam twice: peak < ${SLAM_MIN_PEAK} lid°/s, noise unchanged)"
   elif [[ -n "$scov" ]]; then
     result SLAM INCONCLUSIVE "$d (the sim's cover display took the run mid-slam both times: the pause froze the noise)"
+  elif [[ "$ns" =~ ^[0-9]+$ ]] && (( ns < 4 )); then
+    # R14 (run 40749413494: 2 samples, peak 72): too few hinge reports to judge a 0.4 s slam (unit tests cover it).
+    result SLAM INCONCLUSIVE "$d (the hinge tool sent only $ns reports during the slam)"
   else result SLAM FAIL "$d"; fi
   [[ -f "$OUT_ABS/duo-h2-slam-bite.png" ]] || shoot_now duo-h2-slam-bite
   shoot duo-h2-after-slam inner
@@ -801,7 +804,11 @@ if [[ " $PASSES " == *" hinge "* ]]; then
   r0=$(nlines "$RO")
   early=$(first_line "$RO" "HUSH-T resumed" "${p:-$c0}")
   [[ -n "$early" && "$early" -gt "$r0" ]] && early=""
-  hinge_sweep 160 0.5
+  # R14 (run 40749413494): the reopen IS the chest opening now (every chest starts closed; R14b deals a fresh one
+  # after a mid-chest close), and opening fast is what wakes the mimic, so a 310°/s flip may rightly bite. The check
+  # keeps its intent for the hand the game asks for ("Open the phone slowly"): 5 → 120° over 4 s (29°/s ≈ 12.5 lid
+  # °/s, under quietSpeed 14) must never bite.
+  hinge_sweep 120 4
   sleep 2
   r2=$(nlines "$RO")
   sleep 3
