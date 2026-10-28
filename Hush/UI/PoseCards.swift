@@ -368,6 +368,8 @@ struct CoverCard: View {
                 .accessibilityFocused($escapeFocused)
             }
         }
+        // R11b (CI frame 50): the buttons sat wider than the leather plate, over its brass end caps.
+        .padding(.horizontal, 22)
         .frame(width: max(width, 200))
         .hushPlate(padding: 14, radius: 22)
     }

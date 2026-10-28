@@ -136,7 +136,9 @@ struct ResultsView: View {
                 }
             }
             .accessibilityElement(children: .combine)
-            if summary.offersForgiving {
+            // R11b (CI frame 52): on a fold the lid half is its own short scroll, and the nudge pushed the gold number
+            // into its bottom fade; there the nudge leads the floor's details instead.
+            if summary.offersForgiving && !info.hasFold {
                 forgivingNudge(c)
             }
             MimicPortraitView(scene: controller.portraits.results, fps: min(controller.preferredFPS, 60))
@@ -236,6 +238,9 @@ struct ResultsView: View {
         let r = summary.result
         let o = summary.outcome
         return VStack(spacing: c ? 10 : 12) {
+            if summary.offersForgiving && info.hasFold {
+                forgivingNudge(c)
+            }
             HStack(alignment: .top, spacing: 10) {
                 // R4 (tester 7): the chests OPENED, counted like the strip (the one the candle went out on too), so
                 // the tile and the strip never disagree ("14" next to 15 chips).
