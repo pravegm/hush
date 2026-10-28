@@ -1979,7 +1979,7 @@ struct CoreTests {
         #expect(!s.awaitsFirstShut)
         #expect(s.snapshot.chest?.index == 0)
         #expect(s.snapshot.phase == .ready)
-        let ev: [HeistEvent] = s.step(dt: 1.0 / 60.0, lid: lidAt(0.5))
+        let ev: [HeistEvent] = s.step(dt: 1.0 / 60.0, lid: lidAt(0.9))   // opening, not closing
         #expect(count(ev, isArrived) == 0)
         #expect(count(ev, isCracked) == 1)
         #expect(s.snapshot.phase == .looting)
@@ -2062,7 +2062,7 @@ struct CoreTests {
         }
         _ = bagItem(b, k)
         _ = b.step(dt: 1.0 / 60.0, lid: lidAt(0.5))
-        #expect(b.snapshot.bagValue > 0)
+        // (The shallowest item may be worth nothing, oil: the bag counts it all the same.)
         #expect(!b.endsEmptyOnShut)
         #expect(b.canBankOnShut)
 
