@@ -683,7 +683,9 @@ if [[ " $PASSES " == *" hinge "* ]]; then
   #    return (the run is still live). Tool lesson (R4): a window whose logged angles never reach 170° is retried once
   #    (wiggles at 140 first, so samples are flowing); twice → INCONCLUSIVE (the tool), never FAIL.
   FLAT_TOP="${FLAT_TOP:-180}"
-  FLAT_GAP_MAX="${FLAT_GAP_MAX:-1.2}"
+  # R9: 1.6 s. Duo run 40625977143 FAILed at exactly 1.2 s: the gap sat on the DEBUG-only `orient=portrait` demo loop
+  # (its 30 s re-asks fail while a live run holds landscape; Release never runs it); play itself never paused.
+  FLAT_GAP_MAX="${FLAT_GAP_MAX:-1.6}"
   hinge_set 140
   launch flat-open "screen=run;mode=attract;seed=7" 1
   FO="$OUT_ABS/logs/flat-open.txt"
