@@ -365,6 +365,11 @@ final class GameController: ObservableObject, SceneDriver {
     func advance(dt: TimeInterval, now: TimeInterval) -> (HeistSnapshot, [HeistEvent]) {
         frames += 1
         if frames == 120 { AppTrace.t("HUSH-T frame 120") }
+        // R10 (VISUAL-REGRESSION-R9 R5): the scene's brass seat fades out whenever PlayLayer hides the coin (the bite
+        // is the scene's own flag), so no empty recess sits by a card.
+        scene?.pauseSeatHidden = AppRules.pauseCoinHidden(menuOpen: isMenuOpen, closingPaused: isClosingPaused,
+                                                          finalLessonCard: route == .lesson
+                                                              && (lessonDisplay?.isFinal ?? false))
         var out = pendingSceneEvents
         pendingSceneEvents.removeAll()
         guard let session else { return (HeistSnapshot(), out) }
@@ -842,11 +847,27 @@ final class GameController: ObservableObject, SceneDriver {
         }
     }
 
+    /// R10 (VISUAL-REGRESSION-R9 R1): the pause coin's centre in canvas points, from the SwiftUI frame RootView lays
+    /// out (`AppCanvas.pauseSeatCanvasCenter`: the safe-area clamp included, after the insets are turned with k).
+    private(set) var pauseSeatCanvas: CGPoint?
+
+    /// R10: RootView hands over every drawn frame (k, size, insets); the scene draws the coin's brass seat exactly
+    /// where PlayLayer puts the coin.
+    func placePauseSeat(_ info: AppCanvas) {
+        guard info.size.width > 10, info.size.height > 10 else { return }
+        let c = info.pauseSeatCanvasCenter()
+        guard c.x.isFinite, c.y.isFinite else { return }
+        if let old = pauseSeatCanvas, abs(old.x - c.x) < 0.01, abs(old.y - c.y) < 0.01 { return }
+        pauseSeatCanvas = c
+        scene?.pauseSeatCanvasCenter = c
+    }
+
     private func makeScene(_ layout: ScreenLayout) {
         let newScene = ChestScene(layout: layout)
         newScene.scaleMode = .aspectFill
         newScene.reduceMotion = reduceMotion
         newScene.quarterTurns = quarterTurns
+        newScene.pauseSeatCanvasCenter = pauseSeatCanvas
         newScene.driver = self
         scene = newScene
         sceneGeneration += 1

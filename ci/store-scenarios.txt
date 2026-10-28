@@ -19,9 +19,12 @@
 #   seen after a bank, so they freeze 1.75 s after bank #2 (0.35 s into the golden chest #3, banner up); "Double gold"
 #   became "Extra gold" (R4 App: the seal shows the real total multiplier, ×3 on an Iron-bound golden; screenshots.md
 #   to follow, design/NEEDS.md CI R4).
+# R10 (design/VISUAL-REGRESSION-R9.md R2): P3 uses the perfect pilot. Since R7's realistic hands the casual stirs chest
+#   #1 and banks it un-Hushed (BANKED +179, STIRRING, no chain); the perfect's first bank is "Hushed! BANKED +197 /
+#   Hush Chain ×1.1" (ci17s logs/37: banked value=197 items=6 hushed=1, chainUp 1.10), the store beat it was.
 P1-hero-open|screen=run;mode=run;seed=7;pilot=casual;freezeOn=reveal|25|Open the lid. *Slowly.* / Any iPhone. Best on iPhone Duo.|HUSH-T freeze reveal|tabletop:D1-hero-open
 P2-freeze|screen=run;mode=run;seed=7;pilot=novice;freezeOn=waking|60|It's waking. *Freeze!* / Hold still and it settles.|HUSH-T freeze waking
-P3-bank|screen=run;mode=run;seed=7;pilot=casual;freezeOn=bank;freezeDelay=0.25|60|Slide it down to *bank*. / Bank before the candle burns out.|HUSH-T event banked value=[1-9]
+P3-bank|screen=run;mode=run;seed=7;pilot=perfect;freezeOn=bank;freezeDelay=0.25|60|Slide it down to *bank*. / Bank before the candle burns out.|HUSH-T event banked value=[1-9]
 P4-chain|screen=run;mode=run;seed=7;pilot=perfect;freezeAfter=24;freezeOn=bank;freezeDelay=0.6|90|Sleepy banks pay *more*. / Hush Chain: up to ×1.5 gold.|HUSH-T event chainUp count=[0-9]+ multiplier=1\.[2-5]
 P5-chomp|screen=run;mode=run;seed=7;pilot=novice;freezeOn=bite|60|Too loud? *CHOMP.* / Lose your bag and 10 seconds.|HUSH-T event bitten
 P6-codex|screen=codex;progress=mid|6|Twenty-four relics. One *Codex*. / Daily Dungeon, ranks, Game Center.|HUSH-T canvas

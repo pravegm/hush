@@ -108,6 +108,17 @@ final class SceneFloorHUD {
             if abs(viewScale - oldValue) > 0.0005 { placeSeat() }
         }
     }
+    /// R10 (VISUAL-REGRESSION-R9 R1): the coin's centre in canvas points, handed over by the App
+    /// (`AppCanvas.pauseSeatCanvasCenter`: one source of truth, safe-area clamp included). nil (tests, before the App's
+    /// first layout): the scene's own view-scale clamp, `ChestLayout.pauseCenter(viewScale:)`.
+    var seatCanvasCenter: CGPoint? {
+        didSet {
+            if let c = seatCanvasCenter, !(c.x.isFinite && c.y.isFinite) { seatCanvasCenter = nil }
+            if seatCanvasCenter != oldValue { placeSeat() }
+        }
+    }
+    /// R10 (R5): the App's coin is hidden (a modal card, the lesson's final card): the seat fades right out with it.
+    var seatHidden = false
     /// The seat as drawn (canvas; tests).
     var seatRect: CGRect {
         CGRect(x: seat.position.x - seat.size.width / 2, y: seat.position.y - seat.size.height / 2,
@@ -378,19 +389,29 @@ final class SceneFloorHUD {
         seat = seatN
     }
 
-    /// R5 (juror P2-3, frame 13): the seat dims to 0.3 during the bite (the CHOMP reads; the App hides or dims its coin
-    /// on `ChestScene.biteActive` too), easing back after it.
+    /// R5 (juror P2-3, frame 13): the seat dims during the bite (the CHOMP reads; the App hides its coin on
+    /// `ChestScene.biteActive` too), easing back after it.
+    /// R10 (VISUAL-REGRESSION-R9 R5): it fades right out (to 0) whenever the App's coin is hidden (`seatHidden`: the
+    /// pause menu, the closing card, the lesson's final card; and the bite), so no empty dark recess is ever left.
     func dimSeat(_ dim: Bool, dt: Double) {
-        let target: CGFloat = dim ? 0.3 : 1
+        let target = SceneFloorHUD.seatTarget(biting: dim, coinHidden: seatHidden)
         let k = CGFloat(min(max(dt.isFinite ? dt : 0, 0) * 10, 1))
         seat.alpha += (target - seat.alpha) * k
+        seat.isHidden = seat.alpha < 0.01
     }
 
-    /// The seat under the App's coin at the current `viewScale`.
+    /// R10: the seat's alpha target: gone whenever the coin is (a card, the bite: the App hides its coin on
+    /// `ChestScene.biteActive` too), else full. Pure; tested.
+    nonisolated static func seatTarget(biting: Bool, coinHidden: Bool) -> CGFloat {
+        coinHidden || biting ? 0 : 1
+    }
+
+    /// The seat under the App's coin: where the App says it is (R10), else the view-scale clamp; sized to the coin at
+    /// the current `viewScale`.
     private func placeSeat() {
         let r = ChestLayout.pauseSeatRadius(viewScale: viewScale)
         seat.size = CGSize(width: r * 2, height: r * 2)
-        seat.position = ChestLayout.pauseCenter(viewScale: viewScale)
+        seat.position = seatCanvasCenter ?? ChestLayout.pauseCenter(viewScale: viewScale)
     }
 
     /// R4: the meter word's ink for a stage (dark on the brass recess; warmer, then red, as it wakes).

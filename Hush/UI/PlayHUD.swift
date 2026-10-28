@@ -94,8 +94,9 @@ struct PlayLayer: View {
     var body: some View {
         let fit = info.fit
         // R4 (UX P1-1): the hint plate never reaches the pause stud (16 pt clear). R5: measured against the seat as
-        // drawn at this scale, 20 pt off the fold.
-        let band = fit.viewRect(canvas: HUDLayout.hintPlateRect(viewScale: fit.scale))
+        // drawn at this scale, 20 pt off the fold. R10: against the seat where it is really drawn (the coin's own
+        // centre, safe-area clamp included: the Duo at k = 1).
+        let band = fit.viewRect(canvas: HUDLayout.hintPlateRect(seat: info.pauseSeatCanvasRect()))
         let paused = controller.isMenuOpen || controller.isClosingPaused
         ZStack {
             accessibilityHooks(fit)
@@ -128,7 +129,9 @@ struct PlayLayer: View {
                     .position(x: spot.x, y: spot.y)
                     .allowsHitTesting(false)
             }
-            if !(controller.lessonDisplay?.isFinal ?? false) && !paused {
+            if !AppRules.pauseCoinHidden(menuOpen: controller.isMenuOpen, closingPaused: controller.isClosingPaused,
+                                         finalLessonCard: controller.lessonDisplay?.isFinal ?? false) {
+                // R10: the scene's seat is drawn at this same point (`AppCanvas.pauseSeatCanvasCenter`).
                 let pause = info.pauseCenter()
                 // R5 (juror P2-3, frame 13): the bite's teeth own the screen; the coin steps away for the moment.
                 // R7 (ROUND-7 App 2): on a Duo, mid-chest, a 0.35 s press-and-hold (a ring fills); a tap says

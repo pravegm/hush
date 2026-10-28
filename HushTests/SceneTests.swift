@@ -1576,6 +1576,68 @@ struct SceneTests {
         #expect(scene.pauseSeatAlpha > CGFloat(0.95))
     }
 
+    // MARK: R10 (design/VISUAL-REGRESSION-R9.md)
+
+    /// R10 (R1): the seat goes exactly where the App says its coin is (canvas points), sized at the view scale; nil
+    /// falls back on the view-scale clamp.
+    @Test @MainActor func pauseSeatFollowsTheAppsCoinCentre() {
+        let scene = ChestScene(layout: SceneTests.phone)
+        scene.viewScale = 1
+        let want = CGPoint(x: 589, y: 400)
+        scene.pauseSeatCanvasCenter = want
+        let seat = scene.pauseSeatRect
+        #expect(abs(seat.midX - want.x) < CGFloat(0.01) && abs(seat.midY - want.y) < CGFloat(0.01))
+        #expect(abs(seat.width / 2 - ChestLayout.pauseSeatRadius(viewScale: 1)) < CGFloat(0.01))
+        scene.viewScale = 0.6
+        let smaller = scene.pauseSeatRect
+        #expect(abs(smaller.midX - want.x) < CGFloat(0.01))
+        #expect(abs(smaller.width / 2 - ChestLayout.pauseSeatRadius(viewScale: 0.6)) < CGFloat(0.01))
+        scene.pauseSeatCanvasCenter = nil
+        let back = scene.pauseSeatRect
+        #expect(abs(back.midX - ChestLayout.pauseCenter(viewScale: 0.6).x) < CGFloat(0.01))
+        scene.pauseSeatCanvasCenter = CGPoint(x: CGFloat.nan, y: 400)
+        let rejected = scene.pauseSeatCanvasCenter
+        #expect(rejected == nil)
+    }
+
+    /// R10 (R5, frames 39 and duo-h3): the seat fades right out while the App's coin is hidden (a card), and comes
+    /// back with it; the bite takes it out too.
+    @Test @MainActor func pauseSeatFadesOutWithAHiddenCoin() {
+        let scene = ChestScene(layout: SceneTests.phone)
+        let driver = SceneFakeDriver()
+        scene.driver = driver
+        driver.startChest(SceneFakeDriver.chest(tier: .wooden, index: 0))
+        var clock = 0.0
+        SceneFakeDriver.run(scene, frames: 30, clock: &clock)
+        #expect(scene.pauseSeatAlpha > CGFloat(0.99))
+        scene.pauseSeatHidden = true
+        SceneFakeDriver.run(scene, frames: 120, clock: &clock)
+        #expect(scene.pauseSeatAlpha < CGFloat(0.02))
+        scene.pauseSeatHidden = false
+        SceneFakeDriver.run(scene, frames: 240, clock: &clock)
+        #expect(scene.pauseSeatAlpha > CGFloat(0.95))
+        driver.snap.phase = .bitten(elapsed: 0)
+        driver.snap.stage = .biting
+        driver.pending = [.bitten(lostValue: 40)]
+        SceneFakeDriver.run(scene, frames: 90, clock: &clock)
+        #expect(scene.biteActive)
+        #expect(scene.pauseSeatAlpha < CGFloat(0.05))
+    }
+
+    /// R10 (R6, frame 26's "ghost ruby"): the expert pilot drags while the lid opens, straight down to the bag row
+    /// (x ± 40), so a held gem crosses the front rim right of the meter. There it is within `labelFade` of the BANKED
+    /// label, so it is drawn half-faded (by design: the word reads through it), never below the held floor, and full
+    /// again once clear of the plates. Only held items and the pouch hop fade this way.
+    @Test @MainActor func heldGemOverTheRimIsOnlyLabelFaded() {
+        let r = SceneLootView.drawnRadius(24) * 1.15
+        let rim = SceneLootView.labelClearAlpha(at: CGPoint(x: 513, y: 130), radius: r,
+                                                minAlpha: SceneLootView.heldOverLabelAlpha)
+        #expect(rim >= SceneLootView.heldOverLabelAlpha - 0.001 && rim < 1)
+        let interior = SceneLootView.labelClearAlpha(at: CGPoint(x: 513, y: 300), radius: r,
+                                                     minAlpha: SceneLootView.heldOverLabelAlpha)
+        #expect(interior > CGFloat(0.999))
+    }
+
     // MARK: R6
 
     /// The window sizes of ROUND-6 item 3 (landscape and portrait), plus the Duo canvas and a phone.

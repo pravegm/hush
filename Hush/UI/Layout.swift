@@ -45,6 +45,12 @@ struct CanvasFit: Equatable {
         CGPoint(x: rect.minX + p.x * scale, y: rect.minY + (sceneSize.height - contentOffsetY - p.y) * scale)
     }
 
+    /// R10: the inverse of `viewPoint(canvas:)`: a view point (y down) → canvas points (y up). Pure; tested.
+    func canvasPoint(view v: CGPoint) -> CGPoint {
+        let s = scale.isFinite && scale > 0 ? scale : 1
+        return CGPoint(x: (v.x - rect.minX) / s, y: sceneSize.height - contentOffsetY - (v.y - rect.minY) / s)
+    }
+
     /// The 670 × 952 canvas, the lid half (drawn upper) and the floor half (drawn lower), in view points.
     var canvasRect: CGRect {
         viewRect(canvas: CGRect(x: 0, y: 0, width: ScreenLayout.canvasWidth, height: ScreenLayout.canvasHeight))
@@ -98,8 +104,15 @@ enum HUDLayout {
     /// the hint band's left end to `pauseGap` short of the pause seat AS DRAWN at that scale (≈ 574 on the Duo, ≈ 528
     /// on a 402 pt phone), and clear of the fold. Wide enough to centre most lines on the chest's axis. Pure; tested.
     static func hintPlateRect(viewScale: CGFloat) -> CGRect {
+        hintPlateRect(seat: ChestLayout.pauseSeat(viewScale: viewScale))
+    }
+
+    /// R10 (VISUAL-REGRESSION-R9 R1): the same band measured against the seat where it is really drawn
+    /// (`AppCanvas.pauseSeatCanvasRect`: the coin's own centre, safe-area clamp included), so a coin pulled in by an
+    /// inset (the Duo at k = 1) still keeps `pauseGap` from the plate. Pure; tested.
+    static func hintPlateRect(seat: CGRect) -> CGRect {
         let band = hintBand
-        let maxX = ChestLayout.pauseSeat(viewScale: viewScale).minX - pauseGap
+        let maxX = seat.minX - pauseGap
         guard maxX.isFinite, maxX > band.minX + 100 else { return hintPlateRect }
         return clearOfFold(CGRect(x: band.minX, y: band.minY, width: maxX - band.minX, height: band.height))
     }
@@ -250,6 +263,22 @@ struct AppCanvas: Equatable {
         let r = safeRect.insetBy(dx: Self.pauseInset + side / 2, dy: Self.pauseInset + side / 2)
         guard r.width > 0, r.height > 0 else { return CGPoint(x: want.midX, y: want.midY) }
         return CGPoint(x: min(max(want.midX, r.minX), r.maxX), y: min(max(want.midY, r.minY), r.maxY))
+    }
+
+    /// R10 (VISUAL-REGRESSION-R9 R1, the Duo at k = 1): the ONE source of truth for the pause coin's place. The coin's
+    /// centre (`pauseCenter`, safe-area clamp included) in CANVAS points (y up): the App hands it to the scene
+    /// (`ChestScene.pauseSeatCanvasCenter`), which draws its brass seat exactly there, for every k and every inset.
+    /// Pure; tested.
+    func pauseSeatCanvasCenter(side: CGFloat = HushTheme.minTap) -> CGPoint {
+        fit.canvasPoint(view: pauseCenter(side: side))
+    }
+
+    /// R10: the seat's bounding square on the canvas (the coin's radius plus the brass ring, at this canvas's scale).
+    /// Pure; tested.
+    func pauseSeatCanvasRect(side: CGFloat = HushTheme.minTap) -> CGRect {
+        let c = pauseSeatCanvasCenter(side: side)
+        let r = ChestLayout.pauseSeatRadius(viewScale: fit.scale)
+        return CGRect(x: c.x - r, y: c.y - r, width: 2 * r, height: 2 * r)
     }
 
     /// A readable column width.

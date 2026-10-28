@@ -63,8 +63,14 @@
 13c-creak-fold|screen=run;mode=attract;seed=7;pilot=novice;fold=1;turn=0;freezeOn=creak;freezeDelay=0|60|CREAK in the Duo layout (fold=1, upright): the same slam, "CREAK!" on the floor half under the hint band, the meter flashing red, no bite (the Duo's own is duo.sh duo-h2c-slam-creak)|HUSH-T event creak
 # R4 14 (R3 frame: the 1.25 s hold had passed the whole bank group, so only a black interior showed): freezeDelay=0.25
 # lands mid-moment (toast up, loot in the air). 14b keeps the settled counter (BANKED = the sum of the banks, R2 tester 1).
-14-bank|screen=run;mode=run;seed=7;pilot=casual;freezeOn=bank;freezeDelay=0.25|60|Banked: "Hushed! BANKED +197" (and "Hush Chain ×1.1") over the interior, loot flying INTO the BANKED plate under its label, the counter rolling; R4 Scene: the interior dims to ~40 % with "Next chest…", never black|HUSH-T event banked
-14b-bank-settled|screen=run;mode=run;seed=7;pilot=casual;freezeOn=bank|60|Bank settled: the counter has rolled to the full total (BANKED 197 = the bank), the toast gone, the chain medal by BANKED|HUSH-T event banked
+# R10 (design/VISUAL-REGRESSION-R9.md R2): since R7's realistic hands the casual pilot's open stirs chest #1 (speed 22,
+# noise ~0.23 → stirring; ci17s logs/14-bank: "banked value=179 items=6 hushed=0", no chainUp), so 14/14b lost "Hushed!"
+# and the chain. The perfect pilot never stirs it (ci17s logs/37-chain-badge: its FIRST bank is "banked value=197
+# items=6 hushed=1" then "chainUp count=1 multiplier=1.10", ~8–10 s in): freezeOn=bank freezes that first bank, so no
+# freezeAfter is needed and the frames show exactly what the captions promised in R4 (+197, ×1.1). The expect now
+# demands hushed=1. 10/31/32/35/36b keep the casual: their captions promise a reveal (no chain tab), which they still are.
+14-bank|screen=run;mode=run;seed=7;pilot=perfect;freezeOn=bank;freezeDelay=0.25|60|Banked: "Hushed! BANKED +197" (and "Hush Chain ×1.1") over the interior, loot flying INTO the BANKED plate under its label, the counter rolling, the mimic asleep (NOISE); R4 Scene: the interior dims to ~40 % with "Next chest…", never black|HUSH-T event banked value=[1-9][0-9]* items=[0-9]+ hushed=1
+14b-bank-settled|screen=run;mode=run;seed=7;pilot=perfect;freezeOn=bank|60|Bank settled: the counter has rolled to the full total (BANKED 197 = the bank), the toast gone, the chain tab "CHAIN ×1.1" by BANKED|HUSH-T event chainUp count=1
 # 15 (R3, juror "15 captured a bank"): the relic card only rises once the bank group has had its 1.15 s
 # (SceneMoments.bankGroupEnd); DemoMode's relic hold is now 1.65 s and the line passes 1.7 explicitly.
 15-relic|screen=run;mode=run;seed=7;pilot=expert;skipTo=25;freezeOn=relic;freezeDelay=1.7|120|Relic found: the big relic card on the floor (the relic's art, "Relic found!", its name) for ~1.2 s; the BANKED label stays clear|HUSH-T event relicFound
@@ -81,10 +87,10 @@
 21-results-late|screen=results;seed=7;progress=late;pilot=expert|8|Results, late progress: "NEW BEST!", the gilded portrait, 3 relics, 13+ Hushed, the strip with "+N more"|HUSH-T canvas
 22-codex-mid|screen=codex;progress=mid|6|Codex: 9 of 24 relics (24 different shapes) on velvet tiles, the rest "???" silhouettes; Home says 9/24 too|HUSH-T canvas
 23-codex-late|screen=codex;progress=late|6|Codex: 22 of 24 relics|HUSH-T canvas
-24-settings|screen=settings|5|Settings: Sound, Haptics, Play sound on silent, Reduce motion, Replay First Chest, About, Credits, Done|HUSH-T canvas
+24-settings|screen=settings|5|Settings: Sound, Vibration (Off / Normal / Strong), Lid sensitivity (Forgiving / Normal / Careful), Play sound on silent, Reduce motion, Replay First Chest, About, Credits (R10: never faded when it all fits; a "⌄" and a fade only while more is below), Done|HUSH-T canvas
 # R4 25: "Play anyway" appears after 8 s on the card (PoseCards, QA-2 P2-4), so the wait is 11 s.
 25-pose|screen=home;progress=mid;fold=1|6|R6: no blocking book card any more; Home on the Duo layout (a landscape Duo now draws the right way up, k odd; the non-blocking tip is a Duo-only frame, duo-ui-pose-card)|HUSH-T canvas
-26-daily|screen=run;mode=daily;seed=7;progress=mid;pilot=expert;freezeOn=reveal|25|Daily Dungeon in play: the "DAILY DUNGEON · <date>" plaque on the lid, the day's chest open with its loot lit (today's best shows only after a first try)|HUSH-T freeze reveal
+26-daily|screen=run;mode=daily;seed=7;progress=mid;pilot=expert;freezeOn=reveal|25|Daily Dungeon in play: the "DAILY DUNGEON · <date>" plaque on the lid, the day's chest open with its loot lit (today's best shows only after a first try); R10 note: the expert drags while it opens, so a held gem may be caught mid-drag over the front rim, half-faded as it nears the BANKED label (SceneLootView.labelClearAlpha, by design)|HUSH-T freeze reveal
 27-cover|screen=cover;progress=mid|5|Cover-display card off a run: the sleeping mimic, "Open me… gently" / "There's gold in here. And something else." (mid-run it says "Open to carry on": the Duo's duo-h7 frame); no hairlines, no clipped "z" (juror P1-3)|HUSH-T canvas
 # The Duo layout on a phone (fold=1): the fold band at mid-height, no slider. turn defaults on with a fold, so 30/31
 # are drawn turned round (the lid is the blurring half) and 32 shows the same moment with turn=0 for comparison.
@@ -111,9 +117,9 @@
 #    (the banner shows for 1.9 s), +0.4 s scene hold.
 36-golden-mimic|screen=run;mode=run;seed=7;pilot=expert;golden=1;freezeAfter=13;freezeOn=bank;freezeDelay=1.75|60|Golden mimic arriving (chest #3, Treasure Trev): gilded frame and sparkle, "GOLDEN MIMIC" on the nameplate, the seal with the real total multiplier, the banner "A golden mimic! Extra gold!" (R4 App copy)|event chestArrived .*golden=1
 36b-golden-reveal|screen=run;mode=run;seed=7;pilot=casual;golden=1;freezeAfter=22;freezeOn=reveal|70|Golden mimic opened: the gilded chest with its loot lit; R4 Scene: the loot pops the SAME "×N" as the seal and no other number shows (R3 frame: seal ×3, gem ×2)|event chestArrived .*golden=1
-37-chain-badge|screen=run;mode=run;seed=7;pilot=perfect;freezeAfter=24;freezeOn=bank;freezeDelay=0.6|90|Hush Chain: a Hushed bank, "Hushed! BANKED +N" over "Hush Chain ×1.3"; R4 Scene: the medal by BANKED reads CHAIN over GOLD ×1.3, the same multiplier as the toast, fully on screen|HUSH-T event chainUp
+37-chain-badge|screen=run;mode=run;seed=7;pilot=perfect;freezeAfter=24;freezeOn=bank;freezeDelay=0.6|90|Hush Chain: a Hushed bank, "Hushed! BANKED +N" over "Hush Chain ×1.3"; R5 Scene: the tab by BANKED reads "CHAIN ×1.3" on one line, the same multiplier as the toast, fully on screen|HUSH-T event chainUp
 38-results-chest-strip|screen=results;seed=7;progress=mid;pilot=perfect|8|Results after a clean run: every chest 💤 (Hushed), 0 bites, "New best!" or "N short of your best", the strip's "+N more"|HUSH-T canvas
-39-lesson-final-fold|screen=lesson;lessonStep=6;fold=1|6|Duo lesson final card (turned round): the 3 icon rows ("Ease the lid shut to bank") and "Got it", clear of the fold|fold=1
+39-lesson-final-fold|screen=lesson;lessonStep=6;fold=1|6|Duo lesson final card (turned round): the 3 icon rows ("Ease the lid down to bank", R7 copy) and "Got it", clear of the fold; R10: no empty pause seat by the card (it fades out with the coin)|fold=1
 # Game Center badges (asc.yml collects ci-screens/badges/*.png and greps logs/*badges*.txt for "HUSH-T badges").
 40-badges|screen=badges|10|A real badge grid screen (R2): "0 of 12 earned", the 12 achievement badges (R4 Scene: a real Relic Hunter glyph), also rendered to Documents/badges (copied to badges/)|HUSH-T badges
 # Large Dynamic Type (R3, REVIEW-2-ux "no frame proves no clipping"): the same pages launched with the text size forced
@@ -123,7 +129,7 @@
 # are the same picture: the App's type stops growing at XXXL, so 41–44 show the capped layout, not AX3 (NEEDS CI R4).
 41-results-axl|screen=results;seed=7;progress=mid;pilot=casual|8|Results at Accessibility Large: stat tiles above the chest strip, the cause line, no text under the buttons; R4 App: the chevron never covers a total|HUSH-T dynamic-type UICTContentSizeCategoryAccessibilityL|-UIPreferredContentSizeCategoryName UICTContentSizeCategoryAccessibilityL
 42-codex-axl|screen=codex;progress=mid|6|Codex at Accessibility Large: title and "9 of 24" readable, grid aligned, bottom row clears Done; R4 App: names wrap, never "…"|HUSH-T dynamic-type UICTContentSizeCategoryAccessibilityL|-UIPreferredContentSizeCategoryName UICTContentSizeCategoryAccessibilityL
-43-settings-axl|screen=settings|5|Settings at Accessibility Large: every toggle's title and detail wrap, nothing under Done|HUSH-T dynamic-type UICTContentSizeCategoryAccessibilityL|-UIPreferredContentSizeCategoryName UICTContentSizeCategoryAccessibilityL
+43-settings-axl|screen=settings|5|Settings at Accessibility Large: every toggle's title and detail wrap, nothing under Done; R10: the Vibration and Lid sensitivity pills stack one per line ("Forgiving" never fills its pill), the "⌄" says more is below|HUSH-T dynamic-type UICTContentSizeCategoryAccessibilityL|-UIPreferredContentSizeCategoryName UICTContentSizeCategoryAccessibilityL
 44-home-axl|screen=home;progress=mid|6|Home at Accessibility Large: the labelled buttons (Codex, Badges, Daily) and the best-haul card fit; R4 App: "Today's try ready" wraps, never "…"|HUSH-T dynamic-type UICTContentSizeCategoryAccessibilityL|-UIPreferredContentSizeCategoryName UICTContentSizeCategoryAccessibilityL
 45-results-xxxl|screen=results;seed=7;progress=mid;pilot=casual|8|Results at XXXL (the largest standard size); R4 App: the chevron never covers a total|HUSH-T dynamic-type UICTContentSizeCategoryXXXL|-UIPreferredContentSizeCategoryName UICTContentSizeCategoryXXXL
 46-codex-xxxl|screen=codex;progress=mid|6|Codex at XXXL: relic names on up to 2 lines, never truncated|HUSH-T dynamic-type UICTContentSizeCategoryXXXL|-UIPreferredContentSizeCategoryName UICTContentSizeCategoryXXXL

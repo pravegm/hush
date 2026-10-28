@@ -179,6 +179,18 @@ final class ChestScene: SKScene {
     }
     /// The pause coin's brass seat as drawn (canvas).
     var pauseSeatRect: CGRect { hud.seatRect }
+    /// R10 (VISUAL-REGRESSION-R9 R1): where the App's coin's centre is, in canvas points (`AppCanvas
+    /// .pauseSeatCanvasCenter`, the one source of truth, safe-area clamp included, every k). The seat is drawn there;
+    /// nil falls back on `ChestLayout.pauseCenter(viewScale:)`.
+    var pauseSeatCanvasCenter: CGPoint? {
+        get { hud.seatCanvasCenter }
+        set { hud.seatCanvasCenter = newValue }
+    }
+    /// R10 (R5): the App's coin is hidden (pause menu, closing card, the lesson's final card): the seat fades out.
+    var pauseSeatHidden: Bool {
+        get { hud.seatHidden }
+        set { if hud.seatHidden != newValue { hud.seatHidden = newValue } }
+    }
     /// The meter's stage word ("NOISE" / "STIRRING" / "WAKING!") and its drawn width.
     var meterWord: String { hud.meterWordText }
     var meterWordWidth: CGFloat { hud.meterWordWidth }
@@ -191,7 +203,7 @@ final class ChestScene: SKScene {
     var chainDrawnFontSize: CGFloat { hud.chainDrawnFontSize }
     /// The "IN BAG" and "BANKED" labels as drawn (canvas).
     var plateLabelFrames: [CGRect] { hud.plateLabelFrames }
-    /// The pause seat's alpha (0.3 during the bite).
+    /// The pause seat's alpha (R10: 0 whenever the App's coin is hidden: the bite, a card).
     var pauseSeatAlpha: CGFloat { hud.seatAlpha }
     /// Every bank flyer drawn this frame is clear of the plates' labels (it fades out before it reaches them).
     var flyersClearOfLabels: Bool { moments.flyersClearOfLabels }

@@ -277,6 +277,10 @@ struct RootView: View {
         }
         .frame(width: info.size.width, height: info.size.height)
         .animation(HushTheme.settle(controller.reduceMotion), value: controller.route)
+        // R10 (VISUAL-REGRESSION-R9 R1): one source of truth for the pause coin: the scene's seat goes where this frame
+        // (k, size, turned insets) puts the coin.
+        .onAppear { controller.placePauseSeat(info) }
+        .onChange(of: info) { _, new in controller.placePauseSeat(new) }
     }
 
     /// R6: the pose tip, upright to gravity (`AppRules.tipTurns`), on the book's sharp page, in the window's frame.

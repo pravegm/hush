@@ -3186,3 +3186,128 @@ struct R9Tests {
         #expect(AppRules.phaseName(.banked(elapsed: 0.2)) == "banked")
     }
 }
+
+// MARK: - R10 (design/VISUAL-REGRESSION-R9.md, design/notes/r10.md): the visual regressions after the orientation rounds
+
+/// R10: one source of truth for the pause coin and its brass seat (every k, every inset), the seat fading with a hidden
+/// coin, the Settings split and pills, and the Results mimic's size.
+@MainActor
+struct R10Tests {
+    private static let windows = [CGSize(width: 951, height: 669), CGSize(width: 669, height: 951)]
+
+    /// Duo-like safe areas, in the WINDOW's frame (RootView turns them with k): none, a home-indicator edge, and the
+    /// sim's landscape set with the sensor sides.
+    private static let rawInsets = [EdgeInsets(),
+                                    EdgeInsets(top: 0, leading: 0, bottom: 21, trailing: 0),
+                                    EdgeInsets(top: 24, leading: 37, bottom: 21, trailing: 37),
+                                    EdgeInsets(top: 37, leading: 0, bottom: 34, trailing: 0)]
+
+    /// R1 (duo-06, k = 1: the coin sat ~33 pt off its seat): for every k and inset set, the scene's seat (given the
+    /// App's canvas centre) lands on the SwiftUI coin to within a point, sized to it, and the hint plate keeps clear.
+    @Test func pauseSeatSitsUnderTheCoinForEveryQuarterTurnAndInset() {
+        for window in Self.windows {
+            for k in 0...3 {
+                for raw in Self.rawInsets {
+                    let drawn = AppRules.drawnSize(window: window, quarterTurns: k)
+                    let info = AppCanvas(size: drawn, insets: AppRules.insets(raw, quarterTurns: k), hasFold: true,
+                                         turned: k == 2)
+                    let fit = info.fit
+                    let scene = ChestScene(layout: ScreenLayout.make(hasFold: true, viewSize: drawn))
+                    scene.quarterTurns = k
+                    let mode = AppRules.sceneScaleMode(drawn: drawn)
+                    scene.scaleMode = mode
+                    scene.viewScale = fit.scale
+                    scene.pauseSeatCanvasCenter = info.pauseSeatCanvasCenter()
+                    let seat = scene.pauseSeatRect
+                    let coin = AppRules.windowPoint(fromDrawn: info.pauseCenter(), drawn: drawn, window: window,
+                                                    quarterTurns: k)
+                    let seatMid = scene.scenePoint(fromCanvas: CGPoint(x: seat.midX, y: seat.midY))
+                    let drawnSeat = AppRules.viewPoint(fromScene: seatMid, scene: scene.size, view: window, mode: mode)
+                    #expect(near(coin.x, drawnSeat.x, 1) && near(coin.y, drawnSeat.y, 1),
+                            "k=\(k) window=\(window) insets=\(raw): coin \(coin) vs seat \(drawnSeat)")
+                    // The seat is the coin's radius plus its 4 pt ring, in view points.
+                    let ringR = ChestLayout.pauseCoinViewDiameter / 2 + ChestLayout.pauseSeatViewRing
+                    #expect(near(seat.width / 2 * fit.scale, ringR, 0.5))
+                    // The App's own seat rect is the scene's.
+                    let appSeat = info.pauseSeatCanvasRect()
+                    #expect(near(appSeat.midX, seat.midX, 0.01) && near(appSeat.midY, seat.midY, 0.01))
+                    // The hint plate keeps its gap from the seat where it is really drawn.
+                    let plate = HUDLayout.hintPlateRect(seat: appSeat)
+                    #expect(plate.maxX <= appSeat.minX - HUDLayout.pauseGap + 0.5)
+                    #expect(plate.width >= 300)
+                }
+            }
+        }
+    }
+
+    /// Without side insets (a phone, the Duo with none) the App's centre is the scene's old view-scale clamp, so
+    /// every frame that lined up before still does.
+    @Test func pauseSeatMatchesTheOldClampWithoutSideInsets() {
+        let phone = AppCanvas(size: CGSize(width: 402, height: 874),
+                              insets: EdgeInsets(top: 62, leading: 0, bottom: 34, trailing: 0), hasFold: false,
+                              turned: false)
+        let duo = AppCanvas(size: CGSize(width: 669, height: 951), insets: EdgeInsets(), hasFold: true, turned: false)
+        for info in [phone, duo] {
+            let c = info.pauseSeatCanvasCenter()
+            let old = ChestLayout.pauseCenter(viewScale: info.fit.scale)
+            #expect(near(c.x, old.x, 1) && near(c.y, old.y, 1), "\(info.size): \(c) vs \(old)")
+        }
+    }
+
+    /// `CanvasFit.canvasPoint(view:)` undoes `viewPoint(canvas:)` (portrait fill and landscape fit).
+    @Test func canvasPointInvertsViewPoint() {
+        for size in [CGSize(width: 402, height: 874), CGSize(width: 669, height: 951), CGSize(width: 951, height: 669)] {
+            let fit = CanvasFit(viewSize: size)
+            for p in [CGPoint(x: 0, y: 0), CGPoint(x: 622, y: 400), CGPoint(x: 335, y: 952), CGPoint(x: 12, y: -40)] {
+                let back = fit.canvasPoint(view: fit.viewPoint(canvas: p))
+                #expect(near(back.x, p.x, 0.01) && near(back.y, p.y, 0.01))
+            }
+        }
+    }
+
+    /// R5: the coin hides under the pause menu, the closing card, the final lesson card and the bite; the seat's
+    /// target follows (0 whenever the coin is hidden).
+    @Test func pauseSeatFadesWithTheCoin() {
+        #expect(!AppRules.pauseCoinHidden(menuOpen: false, closingPaused: false, finalLessonCard: false))
+        #expect(AppRules.pauseCoinHidden(menuOpen: true, closingPaused: false, finalLessonCard: false))
+        #expect(AppRules.pauseCoinHidden(menuOpen: false, closingPaused: true, finalLessonCard: false))
+        #expect(AppRules.pauseCoinHidden(menuOpen: false, closingPaused: false, finalLessonCard: true))
+        #expect(AppRules.pauseCoinHidden(menuOpen: false, closingPaused: false, finalLessonCard: false, biting: true))
+        #expect(SceneFloorHUD.seatTarget(biting: false, coinHidden: false) == 1)
+        #expect(SceneFloorHUD.seatTarget(biting: false, coinHidden: true) == 0)
+        #expect(SceneFloorHUD.seatTarget(biting: true, coinHidden: false) == 0)
+    }
+
+    /// R3: the Duo's Settings uses both halves; a phone keeps one column; the pills stack at the accessibility sizes;
+    /// the scroll's foot is small now that the fade only shows while more is below.
+    @Test func settingsUseBothHalvesAndPillsFit() {
+        #expect(SettingsView.splitsAcrossHalves(hasFold: true))
+        #expect(!SettingsView.splitsAcrossHalves(hasFold: false))
+        #expect(SettingChoice<Int>.stacksPills(.accessibility1))
+        #expect(SettingChoice<Int>.stacksPills(.accessibility5))
+        #expect(!SettingChoice<Int>.stacksPills(.xxxLarge))
+        #expect(!SettingChoice<Int>.stacksPills(.large))
+        #expect(SettingChoice<Int>.pillPadding >= 10)
+        #expect(PageScaffold<EmptyView>.scrollFoot >= 8 && PageScaffold<EmptyView>.scrollFoot < 72)
+        // Content that fits is never faded (the old mask always faded the last 10 %: frame 24's Credits).
+        let fits = FadingScroll<EmptyView>.state(contentHeight: 500, viewHeight: 520, offset: 0)
+        #expect(!fits.overflows && fits.atEnd)
+    }
+
+    /// R4: the Results chest draws at least 90 pt wide on a phone at its smallest, and larger on the Duo's lid half;
+    /// the phone's fitted portrait never goes under that floor.
+    @Test func resultsMimicIsAClearChest() {
+        #expect(ResultsView.drawnChestWidth(portrait: ResultsView.minPortrait) >= 90)
+        #expect(ResultsView.drawnChestWidth(portrait: 20) >= 90)
+        let duoLid = AppCanvas(size: CGSize(width: 669, height: 951), insets: EdgeInsets(), hasFold: true,
+                               turned: false).lidHalf.height
+        let duo = ResultsView.drawnChestWidth(portrait: ResultsView.duoPortrait(lidHeight: duoLid))
+        #expect(duo > ResultsView.drawnChestWidth(portrait: ResultsView.minPortrait) + 20)
+        let fitted = ResultsView.fittedPortrait(current: 150, stripBottom: 900, viewport: 700, fade: 36,
+                                                minimum: ResultsView.minPortrait, maximum: 150)
+        #expect(fitted >= ResultsView.minPortrait)
+        // The ratio is the portrait scene's own geometry (600 × 480 aspect-fit, a 400-unit box, a 330-unit chest).
+        #expect(PortraitScenes.size == CGSize(width: 600, height: 480))
+        #expect(MimicPortraitScene.box == 400)
+    }
+}

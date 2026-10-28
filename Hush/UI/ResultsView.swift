@@ -23,8 +23,21 @@ struct ResultsView: View {
 
     /// The phone column's coordinate space (the scroll's content, so scrolling never moves what's measured in it).
     static let columnSpace = "hush.results.column"
-    /// The hero portrait never shrinks below this (it is still the mimic).
-    static let minPortrait: CGFloat = 60
+    /// The hero portrait never shrinks below this (it is still the mimic). R10 (VISUAL-REGRESSION-R9 R4: the chest
+    /// drew 45–50 pt wide, "a speck" by the total): 110, so the chest itself draws ≥ 90 pt wide
+    /// (`drawnChestWidth(portrait:)`); the outcome line now shares the "gold banked" row to pay for it.
+    static let minPortrait: CGFloat = 110
+    /// R10: the chest's drawn width per point of portrait height. The 600 × 480 portrait scene is shown aspect-fit in
+    /// the frame (so 480 scene points span its height), its 400-unit art box is fitted to the short side (480), and
+    /// the chest (the lid's face) is 330 units wide: 330 / 400 of the frame's height. Pure; tested.
+    static let chestWidthPerPortraitPoint: CGFloat = 330.0 / 400.0
+    static func drawnChestWidth(portrait: CGFloat) -> CGFloat {
+        max(portrait.isFinite ? portrait : 0, minPortrait) * chestWidthPerPortraitPoint
+    }
+    /// R10: the Duo's lid-half portrait (larger than a phone's: the lid half is all hero).
+    static func duoPortrait(lidHeight: CGFloat) -> CGFloat {
+        min(max(lidHeight.isFinite ? lidHeight : 0, 0) * 0.4, 190)
+    }
 
     private var phonePortraitMax: CGFloat { min(info.safeRect.height * 0.2, 150) }
 
@@ -59,7 +72,7 @@ struct ResultsView: View {
                 let floor = info.floorHalf
                 let width = min(floor.width - 32, 560)
                 FadingScroll {
-                    hero(c, portrait: min(lid.height * 0.34, 170))
+                    hero(c, portrait: Self.duoPortrait(lidHeight: lid.height))
                         .frame(width: lid.width)
                         .frame(minHeight: lid.height)
                 }
@@ -131,30 +144,21 @@ struct ResultsView: View {
             }
             .accessibilityElement(children: .ignore)
             .accessibilityLabel("\(summary.result.gold) gold banked")
-            Text("gold banked")
-                .font(HushType.body(c))
-                .foregroundStyle(HushTheme.mist)
-                .accessibilityHidden(true)
-            if o.showsNewBest {
-                HushPill(text: o.practice ? "Practice best!" : "New best!")
-                    .scaleEffect(appeared || controller.reduceMotion ? 1 : 0.6)
-                    .opacity(appeared ? 1 : 0)
-            } else if o.isFirstHaul {
-                VStack(spacing: 4) {
-                    HushPill(text: "First haul!")
-                        .scaleEffect(appeared || controller.reduceMotion ? 1 : 0.6)
-                        .opacity(appeared ? 1 : 0)
-                    Text("Now beat it.")
-                        .font(HushType.caption(c))
-                        .foregroundStyle(HushTheme.mist)
+            // R10 (VISUAL-REGRESSION-R9 R4): the outcome ("New best!", "First haul!", "751 short…", "Best N") shares
+            // the "gold banked" row while it fits (one line less: the room the bigger mimic needs), else sits under it.
+            ViewThatFits(in: .horizontal) {
+                HStack(alignment: .center, spacing: 10) {
+                    goldBankedLabel(c)
+                    outcomeLine(c)
                 }
-            } else if let near = summary.nearMiss {
-                Text(near)
-                    .font(HushType.caption(c).monospacedDigit())
-                    .foregroundStyle(HushTheme.amber)
-            } else if o.best > 0 {
-                Text("Best \(o.best.formatted())")
-                    .font(HushType.caption(c).monospacedDigit())
+                VStack(spacing: c ? 6 : 10) {
+                    goldBankedLabel(c)
+                    outcomeLine(c)
+                }
+            }
+            if o.isFirstHaul && !o.showsNewBest {
+                Text("Now beat it.")
+                    .font(HushType.caption(c))
                     .foregroundStyle(HushTheme.mist)
             }
             Text(summary.story)
@@ -164,6 +168,36 @@ struct ResultsView: View {
                 .fixedSize(horizontal: false, vertical: true)
                 .padding(.horizontal, 20)
                 .padding(.top, 2)
+        }
+    }
+
+    private func goldBankedLabel(_ c: Bool) -> some View {
+        Text("gold banked")
+            .font(HushType.body(c))
+            .foregroundStyle(HushTheme.mist)
+            .accessibilityHidden(true)
+    }
+
+    /// The run's outcome beside (or under) "gold banked": the pill, the near miss or the best.
+    @ViewBuilder
+    private func outcomeLine(_ c: Bool) -> some View {
+        let o = summary.outcome
+        if o.showsNewBest {
+            HushPill(text: o.practice ? "Practice best!" : "New best!")
+                .scaleEffect(appeared || controller.reduceMotion ? 1 : 0.6)
+                .opacity(appeared ? 1 : 0)
+        } else if o.isFirstHaul {
+            HushPill(text: "First haul!")
+                .scaleEffect(appeared || controller.reduceMotion ? 1 : 0.6)
+                .opacity(appeared ? 1 : 0)
+        } else if let near = summary.nearMiss {
+            Text(near)
+                .font(HushType.caption(c).monospacedDigit())
+                .foregroundStyle(HushTheme.amber)
+        } else if o.best > 0 {
+            Text("Best \(o.best.formatted())")
+                .font(HushType.caption(c).monospacedDigit())
+                .foregroundStyle(HushTheme.mist)
         }
     }
 

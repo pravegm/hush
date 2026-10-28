@@ -9,6 +9,9 @@ struct PageScaffold<Content: View>: View {
     var subtitle: String?
     let info: AppCanvas
     let onDone: () -> Void
+    /// R10 (VISUAL-REGRESSION-R9 R3): on a Duo, what goes on the lid half under the title (Settings' first group), in
+    /// its own fading scroll; nil: the title alone, centred on the lid half. Ignored without a fold.
+    var lidExtra: AnyView? = nil
     @ViewBuilder let content: () -> Content
 
     var body: some View {
@@ -19,9 +22,26 @@ struct PageScaffold<Content: View>: View {
             if info.hasFold {
                 let lid = info.lidHalf
                 let floor = info.floorHalf
-                header(c)
-                    .frame(width: lid.width)
+                if let lidExtra {
+                    VStack(spacing: 8) {
+                        header(c)
+                            .padding(.top, 8)
+                        FadingScroll {
+                            lidExtra
+                                .frame(width: info.columnWidth)
+                                .padding(.top, 4)
+                                .padding(.bottom, Self.scrollFoot)
+                                .frame(maxWidth: .infinity)
+                        }
+                    }
+                    .padding(.bottom, 8)
+                    .frame(width: lid.width, height: lid.height)
                     .position(x: lid.midX, y: lid.midY)
+                } else {
+                    header(c)
+                        .frame(width: lid.width)
+                        .position(x: lid.midX, y: lid.midY)
+                }
                 column(c)
                     .padding(.top, 8)
                     .padding(.bottom, 8)
@@ -59,18 +79,21 @@ struct PageScaffold<Content: View>: View {
         .padding(.horizontal, 24)
     }
 
+    /// R10: the space under a page's last row inside its scroll (the old fixed 10 % fade and its 72 pt are gone).
+    static var scrollFoot: CGFloat { 12 }   // computed: a generic type can't store a static
+
     private func column(_ c: Bool) -> some View {
         VStack(spacing: 0) {
-            ScrollView {
+            // R10 (VISUAL-REGRESSION-R9 R3): the Results-style scroll: it fades above Done and shows the "⌄" only while
+            // more is below; content that fits is never faded (frame 24's Credits read as disabled under the old
+            // always-on 10 % fade), and the last row always scrolls fully clear of Done.
+            FadingScroll {
                 content()
                     .frame(width: info.columnWidth)
                     .padding(.top, 4)
-                    .padding(.bottom, 72)   // R3: the last row scrolls clear of the fade and Done
+                    .padding(.bottom, Self.scrollFoot)
+                    .frame(maxWidth: .infinity)
             }
-            .scrollIndicators(.hidden)
-            .mask(LinearGradient(stops: [.init(color: .black, location: 0), .init(color: .black, location: 0.9),
-                                         .init(color: .black.opacity(0), location: 1)],
-                                 startPoint: .top, endPoint: .bottom))
             HushButton(kind: .secondary, height: HushTheme.primaryHeight, compact: c, action: onDone) {
                 Text("Done")
             }
@@ -335,48 +358,27 @@ struct SettingsView: View {
     static let sensitivityOptions: [(LidSensitivity, String)] =
         LidSensitivity.allCases.map { ($0, AppRules.sensitivityName($0)) }
 
+    /// R10 (VISUAL-REGRESSION-R9 R3): a Duo's Settings uses both halves: the title and the sound-and-feel group
+    /// (Sound, Vibration, Lid sensitivity, Play sound on silent) on the lid half, the rest and Done on the floor half,
+    /// each in its own fading scroll with the "⌄" cue. A phone keeps one column. Pure; tested.
+    static func splitsAcrossHalves(hasFold: Bool) -> Bool { hasFold }
+
     var body: some View {
         let c = info.isCompact
-        PageScaffold(title: "Settings", info: info, onDone: { controller.show(.home) }) {
+        let split = Self.splitsAcrossHalves(hasFold: info.hasFold)
+        PageScaffold(title: "Settings", info: info, onDone: { controller.show(.home) },
+                     lidExtra: split ? AnyView(feelRows(c).hushCard(padding: 6, radius: 22)) : nil) {
             VStack(spacing: 12) {
-                VStack(spacing: 0) {
-                    SettingToggle(title: "Sound", detail: nil, isOn: $settings.soundOn, compact: c)
-                    divider
-                    // R7 (ROUND-7 App 4): Vibration, Off / Normal / Strong (was a Haptics on/off toggle). Unchosen,
-                    // it shows what the device plays (Strong on a Duo) and is not stored.
-                    let duo = controller.hingeSeen || info.hasFold
-                    SettingChoice(title: AppRules.vibrationTitle,
-                                  detail: AppRules.vibrationDetail(chosen: settings.vibration != nil, duo: duo),
-                                  options: Self.vibrationOptions,
-                                  selected: SettingsStore.shownVibration(chosen: settings.vibration,
-                                                                         hapticsOn: settings.hapticsOn,
-                                                                         hasFold: duo),
-                                  compact: c) { settings.chooseVibration($0) }
-                    divider
-                    // R7 (ROUND-7 App 4, DEVICE-RISKS-1 D3): Lid sensitivity; the row says the scored Daily is Normal.
-                    SettingChoice(title: AppRules.sensitivityTitle,
-                                  detail: AppRules.sensitivityDetail(settings.lidSensitivity),
-                                  options: Self.sensitivityOptions,
-                                  selected: settings.lidSensitivity,
-                                  compact: c) { settings.lidSensitivity = $0 }
-                    divider
-                    SettingToggle(title: Self.silentTitle, detail: "The creak plays with the ringer off.",
-                                  isOn: Binding(get: { !settings.respectSilentSwitch },
-                                                set: { settings.respectSilentSwitch = !$0 }),
-                                  compact: c)
-                    if controller.hingeSeen || info.hasFold {
-                        divider
-                        // R8 (QA-5 P2-2): the page never flips under the finger; the change applies as Settings
-                        // closes, and the row says so meanwhile.
-                        SettingToggle(title: Self.turnTitle,
-                                      detail: Self.turnDetailLine(pending: controller.turnRoundPending),
-                                      isOn: $settings.turnRound, compact: c)
+                if split {
+                    playRows(c, leadingDivider: false)
+                        .hushCard(padding: 6, radius: 22)
+                } else {
+                    VStack(spacing: 0) {
+                        feelRows(c)
+                        playRows(c, leadingDivider: true)
                     }
-                    divider
-                    SettingToggle(title: "Reduce motion", detail: "Calmer shakes and sparkles.",
-                                  isOn: $settings.reduceMotion, compact: c)
+                    .hushCard(padding: 6, radius: 22)
                 }
-                .hushCard(padding: 6, radius: 22)
                 VStack(spacing: 0) {
                     SettingRow(icon: "key.fill", title: "Replay First Chest", compact: c) { controller.replayLesson() }
                     divider
@@ -430,6 +432,54 @@ struct SettingsView: View {
             }
             .animation(.easeOut(duration: 0.2), value: showsAbout)
             .animation(.easeOut(duration: 0.2), value: showsCredits)
+        }
+    }
+
+    /// Sound, Vibration, Lid sensitivity, Play sound on silent.
+    private func feelRows(_ c: Bool) -> some View {
+        VStack(spacing: 0) {
+            SettingToggle(title: "Sound", detail: nil, isOn: $settings.soundOn, compact: c)
+            divider
+            // R7 (ROUND-7 App 4): Vibration, Off / Normal / Strong (was a Haptics on/off toggle). Unchosen, it shows
+            // what the device plays (Strong on a Duo) and is not stored.
+            let duo = controller.hingeSeen || info.hasFold
+            SettingChoice(title: AppRules.vibrationTitle,
+                          detail: AppRules.vibrationDetail(chosen: settings.vibration != nil, duo: duo),
+                          options: Self.vibrationOptions,
+                          selected: SettingsStore.shownVibration(chosen: settings.vibration,
+                                                                 hapticsOn: settings.hapticsOn, hasFold: duo),
+                          compact: c) { settings.chooseVibration($0) }
+            divider
+            // R7 (ROUND-7 App 4, DEVICE-RISKS-1 D3): Lid sensitivity; the row says the scored Daily is Normal.
+            SettingChoice(title: AppRules.sensitivityTitle,
+                          detail: AppRules.sensitivityDetail(settings.lidSensitivity),
+                          options: Self.sensitivityOptions,
+                          selected: settings.lidSensitivity,
+                          compact: c) { settings.lidSensitivity = $0 }
+            divider
+            SettingToggle(title: Self.silentTitle, detail: "The creak plays with the ringer off.",
+                          isOn: Binding(get: { !settings.respectSilentSwitch },
+                                        set: { settings.respectSilentSwitch = !$0 }),
+                          compact: c)
+        }
+    }
+
+    /// Turn the chest round (Duo only), Reduce motion.
+    private func playRows(_ c: Bool, leadingDivider: Bool) -> some View {
+        VStack(spacing: 0) {
+            if controller.hingeSeen || info.hasFold {
+                if leadingDivider { divider }
+                // R8 (QA-5 P2-2): the page never flips under the finger; the change applies as Settings closes, and
+                // the row says so meanwhile.
+                SettingToggle(title: Self.turnTitle,
+                              detail: Self.turnDetailLine(pending: controller.turnRoundPending),
+                              isOn: $settings.turnRound, compact: c)
+                divider
+            } else if leadingDivider {
+                divider
+            }
+            SettingToggle(title: "Reduce motion", detail: "Calmer shakes and sparkles.",
+                          isOn: $settings.reduceMotion, compact: c)
         }
     }
 
@@ -596,15 +646,33 @@ struct SettingChoice<Value: Hashable>: View {
                 }
             }
             .accessibilityElement(children: .combine)
-            HStack(spacing: 6) {
-                ForEach(options.indices, id: \.self) { i in
-                    pill(options[i].0, name: options[i].1)
-                }
+            // R10 (VISUAL-REGRESSION-R9 R3, frame 43): one row up to XXXL (each name keeps `pillPadding` either side,
+            // shrinking a little before it ever touches the pill's edge); at the accessibility sizes ("Forgiving"
+            // filled its pill edge to edge at AXL) the pills stack, full width.
+            if Self.stacksPills(typeSize) {
+                VStack(spacing: 6) { pills }
+            } else {
+                HStack(spacing: 6) { pills }
             }
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 8)
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    @Environment(\.dynamicTypeSize) private var typeSize
+
+    /// R10: the room a pill keeps either side of its name.
+    static var pillPadding: CGFloat { 14 }   // computed: a generic type can't store a static
+
+    /// R10: the pills stack (one per line, full width) at the accessibility text sizes. Pure; tested.
+    static func stacksPills(_ size: DynamicTypeSize) -> Bool { size.isAccessibilitySize }
+
+    @ViewBuilder
+    private var pills: some View {
+        ForEach(options.indices, id: \.self) { i in
+            pill(options[i].0, name: options[i].1)
+        }
     }
 
     private func pill(_ value: Value, name: String) -> some View {
@@ -618,6 +686,7 @@ struct SettingChoice<Value: Hashable>: View {
                 .foregroundStyle(on ? HushTheme.ink : HushTheme.parchment)
                 .lineLimit(1)
                 .minimumScaleFactor(0.7)
+                .padding(.horizontal, Self.pillPadding)
                 .frame(maxWidth: .infinity, minHeight: HushTheme.minTap)
                 .background(Capsule().fill(on ? HushTheme.gold : HushTheme.night.opacity(0.6)))
                 .overlay(Capsule().stroke(on ? Color.clear : HushTheme.stroke, lineWidth: 1))
