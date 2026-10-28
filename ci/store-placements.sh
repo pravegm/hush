@@ -27,8 +27,9 @@ HERO="${HERO:-D01-hero-open}"
 ANGLE="${TABLETOP_ANGLE:-125}"
 ELEV="${TABLETOP_ELEVATION:-28}"
 # The app's own words: the cover intro's headline (Hush/UI/PoseCards.swift CoverCard, R15c) and frame 1's caption.
-HEADER_CAPTION="${HEADER_CAPTION:-*Hush* / Steal the mimic's gold while it sleeps.}"
-SEARCH_CAPTION="${SEARCH_CAPTION:-Open the chest. *Slowly.* / Steal the mimic's gold while it sleeps.}"
+# (Set apart from ${…:-…}: macOS bash 3.2 can't parse an apostrophe inside a quoted default, run 40782567781.)
+if [[ -z "${HEADER_CAPTION:-}" ]]; then HEADER_CAPTION="*Hush* / Steal the mimic's gold while it sleeps."; fi
+if [[ -z "${SEARCH_CAPTION:-}" ]]; then SEARCH_CAPTION="Open the chest. *Slowly.* / Steal the mimic's gold while it sleeps."; fi
 
 mkdir -p "$OUT/review"
 OUT="$(cd "$OUT" && pwd)"

@@ -22,10 +22,10 @@
 P01-hero-open|screen=run;mode=run;seed=7;pilot=casual;freezeOn=reveal|25|Open the chest. *Slowly.* / Any iPhone. Best on iPhone Duo.|HUSH-T freeze reveal|tabletop:D01-hero-open
 P02-rules|screen=home;progress=fresh|6|Learn it in *three* lines. / No tutorial to sit through.|HUSH-T canvas
 P03-loot|screen=run;mode=run;seed=7;pilot=casual;freezeAfter=3.25|25|Drag the loot to your *bag*. / Slowly: quick hands make noise.|HUSH-T event itemPicked
-P04-freeze|screen=run;mode=run;seed=7;pilot=novice;freezeOn=waking|60|It's waking. *Freeze!* / Keep still and it settles.|HUSH-T freeze waking
+P04-freeze|screen=run;mode=run;seed=7;pilot=novice;freezeOn=waking|60|It's waking. *Freeze!* / Stay still and it settles.|HUSH-T freeze waking
 P05-bank|screen=run;mode=run;seed=7;pilot=perfect;freezeOn=bank;freezeDelay=0.25|60|Slide it down to *bank*. / Bank before the candle burns out.|HUSH-T event banked value=[1-9]
 P06-chomp|screen=run;mode=run;seed=7;pilot=novice;freezeOn=bite|60|Too loud? *CHOMP.* / Lose your bag and 10 seconds.|HUSH-T event bitten
-P07-chain|screen=run;mode=run;seed=7;pilot=perfect;freezeAfter=24;freezeOn=bank;freezeDelay=0.6|90|Sleepy banks pay *more*. / Hush Chain: up to ×1.5 gold.|HUSH-T event chainUp count=[0-9]+ multiplier=1\.[2-5]
+P07-chain|screen=run;mode=run;seed=7;pilot=perfect;freezeAfter=24;freezeOn=bank;freezeDelay=0.35|90|Sleepy banks pay *more*. / Hush Chain: up to ×1.5 gold.|HUSH-T event chainUp count=[0-9]+ multiplier=1\.[2-5]
 P08-relic|screen=run;mode=run;seed=7;pilot=expert;skipTo=25;freezeOn=relic;freezeDelay=1.7|120|Open wide for *relics*. / The best loot sits deepest.|HUSH-T event relicFound
 P09-codex|screen=codex;progress=mid|6|Twenty-four relics. One *Codex*. / Daily Dungeon, ranks, Game Center.|HUSH-T canvas
 P10-results|screen=results;seed=7;progress=mid;pilot=casual|10|One more *chest*? / No ads. No in-app purchases.|HUSH-T run gold=
