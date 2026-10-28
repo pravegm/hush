@@ -663,7 +663,8 @@ if [[ " $PASSES " == *" hinge "* ]]; then
   if [[ -z "$rl" ]]; then verdict=FAIL; d="$d; no resume after the reopen (even at 165°)"
   else
     { [[ "$ra" == none ]] || lt "$ra" 88; } && { verdict=FAIL; d="$d; resumed below 88° (R7 hysteresis)"; }
-    [[ "$rc" != "$INNER_CANVAS" ]] && { verdict=FAIL; d="$d; resumed on $rc, not the inner $INNER_CANVAS"; }
+    inner_flip="${INNER_CANVAS#*x}x${INNER_CANVAS%x*}"   # R6: the inner display may be landscape (odd k) too
+    [[ "$rc" != "$INNER_CANVAS" && "$rc" != "$inner_flip" ]] && { verdict=FAIL; d="$d; resumed on $rc, not the inner $INNER_CANVAS or $inner_flip"; }
   fi
   [[ -n "$oncover" ]] && verdict=FAIL
   [[ -n "$bit" ]] && verdict=FAIL
