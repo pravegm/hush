@@ -79,13 +79,31 @@
 #  closed-chest cover). `HUSH-T hint <name>` lines are asked for in design/NEEDS.md (CI R12); without them the hint parts
 #  of the checks are reported as pending, never failed.
 #
+# R13 (commit be9a963, "the phone IS the chest"; Hush/Core/Tuning.swift "R13 The Duo's hinge", Lid.hingeOpenness,
+# HingeLidSource): the PHYSICAL hinge angle maps onto the chest directly. Every trajectory and threshold below follows:
+#  - openness = θ / 150 clamped (0 at 0°, 1 at ≥ 150°; was (θ − 100) / 65); lidCracked first at openness 0.05 ≈ 7.5°;
+#  - shut zone (bank / next chest) θ ≤ 15° (was 110°); closing pause θ < 12° for 0.4 s, unlatching above 20° (was 70 /
+#    78°); resume at θ ≥ 18° held still, hysteresis down to 15° (was 92 / 88°); the watchdog resumes after 6 s at ≥ 18°;
+#  - the lid speed in `HUSH-T lid … speed X` is hinge °/s × 0.4333 (65 / 150): the noise rules are unchanged in LID °/s,
+#    so every speed threshold here stays in logged (lid) °/s and the physical moves are made faster instead (the slam is
+#    160 → 20° in 0.4 s, 350°/s physical ≈ 152 lid °/s, the old 150 → 104 in 0.3 s slam's lid speed); a gentle move is
+#    ≤ ~25°/s physical (≈ 11 lid °/s, under quietSpeed 14);
+#  - a closed start is 5° (openness 0.03), an open start 150°; closing to bank / for the next chest goes to 5°;
+#  - lesson pose window 45–150° (loose 30–165°), no shut-first gate; too wide still > 172°; the cover card's "Already
+#    open?" escape still at ≥ 92°.
+#  Simulator: closing below ~90° the sim may hand the app to the cover display while the chest is still OPEN (R12b: a
+#  bag banks at once, `HUSH-T banked under the pause reason=cover`; a robbed chest's next one is dealt under the pause,
+#  `HUSH-T next chest dealt under the pause reason=…`, its `chestArrived` with the first step back). Its cover stays lit on
+#  a reopen up to ~150°, so every reopen after a deep close either goes to 160–165° or, when nothing resumed and the
+#  cover is still up (`cover_up`), goes on to 165° and looks again; a check the cover display blocked is INCONCLUSIVE.
+#
 # PASSES=store (R3): the App Store Duo set (ci/store-capture.sh duo → ci/duo-store-scenarios.txt), one tabletop capture
 # per line at STORE_ANGLE (150°): store-<name>.png + logs/store-<name>.at-capture.txt (ci/store-set.sh frames them).
 #
 # Env: UDID (required), OUT (duo-screens), PASSES ("hinge frames ui"; "store" is opt-in), ORIENT ("portrait"), STRICT
 # (1 = exit 1 when a check FAILs; default 0: the frames and the PASS/FAIL table are the evidence), INNER_CANVAS
 # ("669x951"), STORE_LIST / STORE_FILTER / STORE_ANGLE (the store pass); R6: FLAT_TOP (180), FLAT_GAP_MAX (1.2),
-# WATCHDOG_REOPEN_S (14), WATCHDOG_LIMIT (8); R12: START_OPEN_LIMIT (3), BITE_NEXT_LIMIT (1).
+# WATCHDOG_REOPEN_S (14), WATCHDOG_LIMIT (8); R12: START_OPEN_LIMIT (3), BITE_NEXT_LIMIT (1); SLAM_MIN_PEAK (60 lid °/s).
 # Writes: $OUT/*.png (lit panel), $OUT/raw/<shot>-inner|cover.png, $OUT/logs/<launch>.txt (app stdout+stderr),
 # $OUT/logs/run.txt (this script), $OUT/checks.tsv (check <TAB> PASS|FAIL|INFO|INCONCLUSIVE <TAB> detail) and, when
 # $GITHUB_STEP_SUMMARY is set, a summary table.
@@ -173,7 +191,11 @@ hinge_wiggle() {
   for (( i = 0; i < $2; i++ )); do hinge_sweep $(( $1 - 1 )) 0.4; hinge_sweep "$1" 0.4; done
 }
 # A slam whose logged peak lid speed is under this (°/s) is retried once, then INCONCLUSIVE if the noise didn't move.
+# R13: the logged speed is the LID's (hinge °/s × 0.4333) and the noise rules are unchanged in it, so the line stays 60
+# lid °/s (≈ 138°/s physical, 2× closeQuietSpeed 28); the slam itself is made faster physically (350°/s nominal).
 SLAM_MIN_PEAK="${SLAM_MIN_PEAK:-60}"
+# R13: the shut zone, the closing line and the resume line (physical °), for the checks and their messages.
+SHUT_ZONE=15; CLOSE_LINE=12; RESUME_LINE=18; RESUME_LOW=15
 
 # brightness of a PNG, 0-255 (sips → 16×16 BMP)
 brightness() {
@@ -192,12 +214,14 @@ PY
   rm -f "$tmp"
 }
 
+LAST_PICK=""   # R13: the panel the last `shoot` kept (inner|cover): the frames pass reads it to spot a lit cover at 5°
 shoot() {   # shoot <name> <inner|cover>: both panels to raw/, the lit one (or the wanted one) to <name>.png
   local name="$1" want="$2" ib=-1 cb=-1 pick
   [[ -n "$INNER" ]] && to 30 xcrun simctl io "$UDID" screenshot --display="$INNER" "$OUT_ABS/raw/$name-inner.png" >/dev/null 2>>"$RUNLOG" && ib=$(brightness "$OUT_ABS/raw/$name-inner.png")
   [[ -n "$COVER" ]] && to 30 xcrun simctl io "$UDID" screenshot --display="$COVER" "$OUT_ABS/raw/$name-cover.png" >/dev/null 2>>"$RUNLOG" && cb=$(brightness "$OUT_ABS/raw/$name-cover.png")
   if [[ -z "$INNER$COVER" ]]; then to 30 xcrun simctl io "$UDID" screenshot "$OUT_ABS/$name.png" >/dev/null 2>>"$RUNLOG"; return; fi
   if (( ib > 6 && cb <= 6 )); then pick=inner; elif (( cb > 6 && ib <= 6 )); then pick=cover; else pick="$want"; fi
+  LAST_PICK="$pick"
   [[ -f "$OUT_ABS/raw/$name-$pick.png" ]] && cp "$OUT_ABS/raw/$name-$pick.png" "$OUT_ABS/$name.png"
   [[ "$pick" != "$want" ]] && log "NOTE $name: wanted the $want panel, the $pick panel was the lit one"
   log "shot $name (inner=$ib cover=$cb -> $pick, hinge ${CUR}°) size=$(to 20 sips -g pixelWidth -g pixelHeight "$OUT_ABS/$name.png" 2>/dev/null | awk '/pixel/{printf "%s ", $2}')"
@@ -227,18 +251,18 @@ after() { tail -n +"$(( $2 + 1 ))" "$1" 2>/dev/null; }     # after <file> <line>
 between() { awk -v a="$2" -v b="$3" 'NR > a + 0 && NR <= b + 0' "$1" 2>/dev/null; }
 # lid_vals <field>: from "HUSH-T lid <o> speed <v> angle <θ> noise <n> stage <s>" lines on stdin, the <field> values.
 lid_vals() { awk -v k="$1" '/HUSH-T lid / { for (i = 1; i < NF; i++) if ($i == k) print $(i + 1) }'; }
-# slam_samples <file> <line> (R4): how many samples the app saw during a slam from ~150 to 104: the distinct lid angles
-# logged after <line> that differ from the one before (starting from the hold's last angle, at or before <line>), up
-# to the first angle <= 106°, and the raw HUSH-H lines in that span. Duo run 40533062342's failing slam reads 1
-# (146.7 -> 136.0 -> 103.2); a streamed 0.3 s slam at 10 Hz lid lines reads 2-4.
+# slam_samples <file> <line> [stop °, default 25] (R4): how many samples the app saw during a slam (R13: 160 → 20°):
+# the distinct lid angles logged after <line> that differ from the one before (starting from the hold's last angle, at
+# or before <line>), up to the first angle <= stop, and the raw HUSH-H lines in that span. Duo run 40533062342's failing
+# slam reads 1 (146.7 -> 136.0 -> 103.2); a streamed slam at 10 Hz lid lines reads 2-4.
 slam_samples() {
-  awk -v a="$2" '
+  awk -v a="$2" -v s="${3:-25}" '
     /HUSH-T lid / { v = ""; for (i = 1; i < NF; i++) if ($i == "angle" && $(i + 1) ~ /^[0-9.]+$/) v = $(i + 1) + 0 }
     !/HUSH-T lid / { v = "" }
     NR <= a + 0 { if (v != "") prev = v; next }
     /^HUSH-H / { h++ }
-    v != "" { if (v <= 106) exit; if (prev == "" || v != prev) m++; prev = v }
-    END { printf "%d (lid-angle changes before 106°), HUSH-H=%d\n", m, h }' "$1" 2>/dev/null
+    v != "" { if (v <= s + 0) exit; if (prev == "" || v != prev) m++; prev = v }
+    END { printf "%d (lid-angle changes before %s°), HUSH-H=%d\n", m, s, h }' "$1" 2>/dev/null
 }
 max_of() { awk 'BEGIN { m = "" } $1 ~ /^-?[0-9.]+$/ { if (m == "" || $1 + 0 > m + 0) m = $1 } END { print (m == "" ? "none" : m) }'; }
 min_of() { awk 'BEGIN { m = "" } $1 ~ /^-?[0-9.]+$/ { if (m == "" || $1 + 0 < m + 0) m = $1 } END { print (m == "" ? "none" : m) }'; }
@@ -383,13 +407,31 @@ fsub() { awk -v a="$1" -v b="$2" 'BEGIN { if (a !~ /^-?[0-9.]+$/ || b !~ /^-?[0-
 
 # ---- R12 helpers -----------------------------------------------------------------------------------------------------
 # first_angle_line <log> <after> <le|ge> <θ>: the first `HUSH-T lid` line after <after> whose angle (the App's own
-# reading, the one its shut zone uses) is <= (le) or >= (ge) θ, or "".
+# reading, the one its shut zone uses) is <= (le) or >= (ge) θ, or "". R13: a `HUSH-H <t> <θ>` sample counts too (on
+# the sim the cover display can take the run before the shut zone, and a paused run may log no lid lines).
 first_angle_line() {
-  awk -v a="$2" -v op="$3" -v t="$4" 'NR > a + 0 && /HUSH-T lid / {
-      for (i = 1; i < NF; i++) if ($i == "angle" && $(i + 1) ~ /^[0-9.]+$/) {
-        v = $(i + 1) + 0
-        if ((op == "le" && v <= t + 0) || (op == "ge" && v >= t + 0)) { print NR; exit }
-      } }' "$1" 2>/dev/null
+  awk -v a="$2" -v op="$3" -v t="$4" 'NR > a + 0 {
+      v = ""
+      if ($1 == "HUSH-H" && $3 ~ /^[0-9.]+$/) v = $3 + 0
+      else if (/HUSH-T lid /) { for (i = 1; i < NF; i++) if ($i == "angle" && $(i + 1) ~ /^[0-9.]+$/) { v = $(i + 1) + 0; break } }
+      if (v != "" && ((op == "le" && v <= t + 0) || (op == "ge" && v >= t + 0))) { print NR; exit }
+    }' "$1" 2>/dev/null
+}
+# cover_up <log> (R13): 0 when the sim's cover display holds the app now: the latest `HUSH-T pose cover|play` line says
+# cover (or, with no pose line, the latest canvas is cover-sized).
+cover_up() {
+  local p
+  p=$(grep -oE 'HUSH-T pose (cover|play)' "$1" 2>/dev/null | tail -1 | awk '{print $3}')
+  [[ "$p" == cover ]] && return 0
+  [[ -n "$p" ]] && return 1
+  is_cover_size "$(canvas_before "$1" $(( $(nlines "$1") + 1 )))"
+}
+# cover_note <log> <a> <b> (R13): "; the sim's cover display took over at line N (θ°)" when a `HUSH-T pose cover` line
+# is in a+1 … b, else "".
+cover_note() {
+  local c
+  c=$(first_line "$1" "HUSH-T pose cover" "$2")
+  [[ -n "$c" ]] && (( c <= $3 )) && echo "; the sim's cover display took over at line $c ($(angle_before "$1" "$c")°)"
 }
 # last_lid <log> <a> <b> <field>: the <field> (angle|lid|noise|speed) of the last `HUSH-T lid` line in a+1 … b, or "none".
 last_lid() { local v; v=$(between "$1" "$2" "$3" | lid_vals "$4" | grep -E '^-?[0-9.]+$' | tail -1); echo "${v:-none}"; }
@@ -398,14 +440,14 @@ hints() { between "$1" "$2" "$3" | grep -oE 'HUSH-T hint [A-Za-z]+' | awk '{ s =
 # hints_on: 0 when the App prints HUD hint lines (any `HUSH-T hint` other than the R6 tooWide one) in any log so far.
 hints_on() { grep -hoE 'HUSH-T hint [A-Za-z]+' "$OUT_ABS"/logs/*.txt 2>/dev/null | grep -vqE ' tooWide$'; }
 # bad_hints <log> <a> <b>: R12 rule 7, never ask to open an open lid: every `hint easeLidDown` (no longer produced in
-# runs) and every `hint openSlowly` logged while the angle was > 115° (above the shut zone and the hinge's slack), as
-# "line:name@angle" (space-joined), or "".
+# runs) and every `hint openSlowly` logged while the angle was > 20° (R13: above the 15° shut zone and the hinge's ±5°
+# slack; was 115°), as "line:name@angle" (space-joined), or "".
 bad_hints() {
   local ln nm an out=""
   while IFS=: read -r ln nm; do
     [[ -n "$ln" ]] || continue
     an=$(angle_before "$1" "$ln")
-    if [[ "$nm" == easeLidDown ]] || { [[ "$nm" == openSlowly ]] && num "$an" && ! le "$an" 115; }; then out="$out $ln:$nm@$an"; fi
+    if [[ "$nm" == easeLidDown ]] || { [[ "$nm" == openSlowly ]] && num "$an" && ! le "$an" $(( SHUT_ZONE + 5 )); }; then out="$out $ln:$nm@$an"; fi
   done < <(awk -v a="$2" -v b="$3" 'NR > a + 0 && NR <= b + 0 && match($0, /HUSH-T hint (easeLidDown|openSlowly)/) {
              print NR ":" substr($0, RSTART + 12, RLENGTH - 12) }' "$1" 2>/dev/null)
   echo "${out# }"

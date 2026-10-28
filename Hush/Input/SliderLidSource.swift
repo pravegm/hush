@@ -8,11 +8,14 @@ import Foundation
 /// - **Speed** (ARCHITECTURE): |d openness/dt| × `degreesPerFraction` (the lid's travel, 65°), through the same
 ///   `FeelSpeedEstimator` as the hinge, so a finger held still decays to 0 exactly like a still hinge, and the noise
 ///   rules feel the same on every phone.
-/// - Shut zone: openness ≤ 0.15. Never too wide.
+/// - Shut zone: openness ≤ 0.06 (R13: was 0.15). Never too wide.
+/// - R13 (founder: "closed means closed"; phone QA P1-6): let go in the shut zone, the lever settles to shut (0)
+///   silently, so the chest is drawn shut, not left ajar over the next one.
 @MainActor
 final class SliderLidSource: LidSource {
-    /// Openness at or under which the slider is in the shut zone.
-    static let shutZoneOpenness = 0.15
+    /// Openness at or under which the slider is in the shut zone. R13: 0.15 → 0.06, so a lever a little way up is
+    /// a chest a little way open (the founder's "even 1 degree open … means chest is opening").
+    static let shutZoneOpenness = 0.06
 
     /// Degrees of lid per full slider stroke: the lid's travel, `Tuning.wideAngle − Tuning.shutAngle` (65°).
     var degreesPerFraction: Double = Tuning.wideAngle - Tuning.shutAngle
@@ -50,7 +53,14 @@ final class SliderLidSource: LidSource {
         }
         openness = next
         speedometer.sample(openness * degreesPerFraction, at: time)
-        if ended { isTouching = false }
+        if ended {
+            isTouching = false
+            // R13: the shut detent (no speed: it is the lever settling, not the thumb).
+            if openness > 0 && openness <= Self.shutZoneOpenness {
+                openness = 0
+                speedometer.rebase(0, at: time)
+            }
+        }
     }
 
     /// Put the lid somewhere without a touch (a new chest, a restart): no speed.

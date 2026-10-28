@@ -36,7 +36,8 @@ enum HushCopy {
     static let bankStakeLid = "Close the lid to bank it"
     /// R12 rule 4 (`HeistHint.closeForNext`).
     static let closeForNextLid = "Close the lid for the next chest"
-    static let closeForNextLever = "Slide it down for the next chest"
+    /// R13 (phone QA P1-1): the lever named ("it" had no subject on the plate). Shorter than before.
+    static let closeForNextLever = "Lever down for the next chest"
 
     /// Every hint, for the tests and the word-count rule (HeistHint isn't CaseIterable).
     static let allHints: [HeistHint] = [.easeLidDown, .openSlowly, .slower, .freeze, .dragToBag, .shutToBank, .tooWide,

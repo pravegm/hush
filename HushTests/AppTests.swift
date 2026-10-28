@@ -1136,7 +1136,7 @@ struct CopyTests {
     }
 
     @Test func homeCaptionTeaches() {
-        #expect(HomeView.caption(HomeLid(openness: 0, speed: 0), hinge: true) == "Lift the lid… slowly.")
+        #expect(HomeView.caption(HomeLid(openness: 0, speed: 0), hinge: true) == "Open the lid slowly. The chest opens with it.")
         // R11 (tester 11): the lever's own words on a phone.
         #expect(HomeView.caption(HomeLid(openness: 0, speed: 0), hinge: false) == "Slide the lever up… slowly.")
         #expect(HomeView.caption(HomeLid(openness: 0.5, speed: 0), hinge: true).contains("peeking"))
@@ -3365,13 +3365,13 @@ struct R11Tests {
         #expect(rest == LessonScript(start: .pose).line(slider: true, angle: nil, hint: nil))
         #expect(rest.hasPrefix(HushCopy.hint(.openSlowly, slider: true)))
         // The Duo keeps the lid's words.
-        #expect(HomeView.caption(HomeLid(openness: 0, speed: 0), hinge: true) == "Lift the lid… slowly.")
+        #expect(HomeView.caption(HomeLid(openness: 0, speed: 0), hinge: true) == HomeView.duoCaption)
     }
 
     // MARK: Item 1: Forgiving is findable; "Careful" is "Strict"
 
     @Test func everySensitivityOptionSaysWhenToPickIt() {
-        #expect(AppRules.sensitivityLine(.forgiving) == "For a stiff hinge or shaky hands. Easier to stay quiet.")
+        #expect(AppRules.sensitivityLine(.forgiving) == "For shaky hands. Easier to stay quiet.")
         #expect(AppRules.sensitivityLine(.normal) == "If it wakes while you're being gentle, try Forgiving.")
         #expect(AppRules.sensitivityLine(.careful) == "For thieves who never creak.")
         // The scored Daily line stays, whatever is chosen.

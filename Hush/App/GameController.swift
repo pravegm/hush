@@ -2055,7 +2055,8 @@ final class GameController: ObservableObject, SceneDriver {
         let next = rank + 1 < ThiefRanks.count ? ThiefRanks.title(rank + 1) : nil
         let before = outcome.rankedUp ? 0 : ProgressRules.rankProgress(lifetime: outcome.lifetimeBefore, rank: rank)
         let after = ProgressRules.rankProgress(lifetime: outcome.lifetimeAfter, rank: rank)
-        let story = AppRules.story(result, outcome: outcome, relicName: { RelicCatalog.relic($0).name })
+        let story = AppRules.story(result, outcome: outcome, relicName: { RelicCatalog.relic($0).name },
+                                   slider: sliderWording)
         // R11 (UX P1-1): the one-time "Keeps waking? Try a forgiving lid." (seen once it is offered).
         let forgiving = AppRules.offersForgivingNudge(mode: result.mode, bites: result.bites, runsSoFar: store.data.runs,
                                                       sensitivity: settings.lidSensitivity,

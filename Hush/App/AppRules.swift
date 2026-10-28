@@ -292,7 +292,9 @@ enum AppRules {
     }
 
     /// One sentence naming the best moment, or the cause of the end (GAME-DESIGN §7).
-    static func story(_ r: RunResult, outcome: RecordOutcome, relicName: (RelicID) -> String) -> String {
+    /// R13 (phone QA P1-2): `slider` is the layout's words (the lever on a phone).
+    static func story(_ r: RunResult, outcome: RecordOutcome, relicName: (RelicID) -> String,
+                      slider: Bool = false) -> String {
         if let first = r.relics.first {
             if r.relics.count > 1 {
                 return "\(r.relics.count) relics, \(midSentence(relicName(first))) among them. Sticky fingers!"
@@ -301,7 +303,7 @@ enum AppRules {
         }
         if r.gold <= 0 {
             return r.bites > 0 ? "The mimic kept every coin. Gentler next time." :
-                "Nothing banked. Close the lid to bank your loot."
+                (slider ? "Nothing banked. Slide the lever down to bank." : "Nothing banked. Close the lid to bank your loot.")
         }
         if outcome.showsNewBest { return "A new best haul. The mimics are whispering about you." }
         if r.goldenBanked > 0 { return "You robbed a golden mimic. It'll sulk for weeks." }

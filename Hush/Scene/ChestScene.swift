@@ -802,7 +802,9 @@ final class ChestScene: SKScene {
             touchHalves[id] = true
             floorTouchPoints[id] = p
             d.floorTouchBegan(id, at: floorPoint(forCanvas: p), time: time)
-        } else if lever {
+        } else if lever && !touchHalves.values.contains(false) {
+            // R13 (phone QA P1-4): only the first lid-half finger owns the lever. A second one re-anchored the
+            // relative drag, so the first finger's next move snapped the lid by the gap between them (a slam).
             touchHalves[id] = false
             d.sliderTouch(began: true, ended: false, fraction: sliderFraction(p), time: time)
         }

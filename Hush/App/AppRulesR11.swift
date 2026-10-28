@@ -12,7 +12,8 @@ extension AppRules {
     /// hint. Pure; tested.
     static func sensitivityLine(_ s: LidSensitivity) -> String {
         switch s {
-        case .forgiving: return "For a stiff hinge or shaky hands. Easier to stay quiet."
+        // R13 (phone QA P2): words for the lid and the lever alike.
+        case .forgiving: return "For shaky hands. Easier to stay quiet."
         case .normal: return "If it wakes while you're being gentle, try Forgiving."
         case .careful: return "For thieves who never creak."
         }
