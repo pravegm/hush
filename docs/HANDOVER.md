@@ -9,6 +9,9 @@ You said: "the chest closed means lid closed, chest open means lid open". Now it
   lid and it opens. It never asks you to open a lid that's already open.
 - **After a bite** the robbed chest stays open and empty, with "Close the lid for the next chest". The mimic grumbles
   instead of snoring. Close the lid and the next chest is waiting, closed.
+- **Closing banks, however you close.** Close it slowly, quickly, or all the way shut so the outer screen comes on:
+  the loot in the bag banks with a ka-ching as the lid comes down. Before, closing all the way could switch to the
+  outer screen before the bank registered.
 - **A closed chest is drawn closed.** With the lid shut you see the chest's lid from above. It lifts as you open.
 - Copy now says "Close the lid to bank" (you close it, so the next chest arrives closed).
 - **Sound and feel:** a richer creak, a louder coin and ka-ching, a heavier CHOMP, and stronger layered vibration.
