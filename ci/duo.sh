@@ -411,8 +411,10 @@ if [[ " $PASSES " == *" hinge "* ]]; then
   shoot duo-h0-ready-105 inner
   wh=$(png_wh "$OUT_ABS/duo-h0-ready-105.png"); cl=$(canvas_line "$SL")
   d="inner frame $wh; ${cl:-no canvas line}; orient=${ORIENT:-none}; $(grep -m1 -oE 'HUSH-T orient [a-z]+ [a-z]+' "$SL" || echo 'no HUSH-T orient line')"
+  # R6: a landscape inner display is playable too (drawn with odd k, the right way up for a tabletop Duo).
   if is_portrait "$wh"; then result PORTRAIT PASS "$d"
-  else result PORTRAIT FAIL "$d (the sim stayed in book pose: DemoMode needs Brim's orient=portrait)"; fi
+  elif k_odd "$cl"; then result PORTRAIT PASS "$d (landscape interface, drawn with odd k: playable since R6)"
+  else result PORTRAIT FAIL "$d (neither portrait nor an odd-k landscape canvas)"; fi
   m0=$(nlines "$SL")
   hinge_sweep 160 7
   m1=$(nlines "$SL")
@@ -483,7 +485,10 @@ if [[ " $PASSES " == *" hinge "* ]]; then
   done
   rise=$(awk -v a="${n0:-0}" -v b="$pn" 'BEGIN { if (b !~ /^-?[0-9.]+$/) print "none"; else printf "%.2f\n", b - (a ~ /^-?[0-9.]+$/ ? a : 0) }')
   d="attempt $attempt/2; peakSpeed=${peak}°/s; slam samples: $ns; noise ${n0:-none} -> $pn (rise $rise); first: ${hit:-none}; bite: ${bit:-none}; $froze"
+  # R7 (real hands: closing quiet 28 deg/s, 0.08 s onset): a sim slam (the tool's peak is ~80 deg/s) may only stir;
+  # it must still register as clearly too loud (noise rise >= 0.35, i.e. Stirring).
   if [[ -n "$hit" ]]; then result SLAM PASS "$d"
+  elif [[ "$rise" != none ]] && ge "$rise" 0.35; then result SLAM PASS "$d (registered as loud: rise $rise >= 0.35)"
   elif { [[ "$peak" == none ]] || lt "$peak" "$SLAM_MIN_PEAK"; } && { [[ "$rise" == none ]] || lt "$rise" 0.05; }; then
     result SLAM INCONCLUSIVE "$d (the hinge tool under-delivered the slam twice: peak < ${SLAM_MIN_PEAK}°/s, noise unchanged)"
   else result SLAM FAIL "$d"; fi
@@ -833,7 +838,7 @@ if [[ " $PASSES " == *" hinge "* ]]; then
     hinge_sweep 105 6; sleep 1
   done
   lstand=$(grep -m1 -nE "HUSH-T pose standUp" "$LP" 2>/dev/null | tr -d '\r' | cut -c1-120)
-  lpp=$(grep -m1 -nE "HUSH-T paused pose" "$LP" 2>/dev/null | tr -d '\r')
+  lpp=$(between "$LP" "$l0" "$l1" | grep -m1 -nE "HUSH-T paused pose" 2>/dev/null | tr -d '')   # R7: only inside the window (later checks reuse this log)
   lpose=$(grep -oE "HUSH-T pose [A-Za-z-]+" "$LP" | tail -1 | awk '{print $3}')
   lcl=$(canvas_full_before "$LP" $(( l1 + 1 )))
   if k_odd "$lcl"; then lk=odd; elif [[ -n "$(canvas_k "$lcl")" ]]; then lk=even; else lk=unknown; fi
@@ -843,7 +848,7 @@ if [[ " $PASSES " == *" hinge "* ]]; then
   lar=$(fsub "$(echo "$la" | max_of)" "$(echo "$la" | min_of)")
   lo=$(openness "$LP" "$l0" "$l1")
   lorr=$(awk -v a="$(echo "$lo" | max_of)" -v b="$(echo "$lo" | min_of)" 'BEGIN { if (a !~ /^[0-9.]+$/ || b !~ /^[0-9.]+$/) print "none"; else printf "%.2f\n", a - b }')
-  lcr=$(after "$LP" "$l0" | grep -c "HUSH-T event lidCracked" | tr -d ' ')
+  lcr=$(head -n "$l1" "$LP" | grep -c "HUSH-T event lidCracked" | tr -d ' ')   # R7: the lid is already cracked at 105° (openness 0.06)
   linp=$(grep -oE "HUSH-T input [a-z]+" "$LP" | tail -1 | awk '{print $3}')
   shoot duo-h11-landscape-play-160 inner
   lwh=$(png_wh "$OUT_ABS/duo-h11-landscape-play-160.png")
