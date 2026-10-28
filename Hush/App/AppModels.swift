@@ -169,6 +169,8 @@ final class FixedLidSource: LidSource {
     var openness: Double = 0
     /// R12: skip the shut beat.
     var startsOpen = false
+    /// R14: standing in for a hinge that hasn't reported yet (demo with no `lid=`): never reads as a closed lid.
+    var standIn = false
     private var start: TimeInterval?
 
     func reset() { start = nil }
@@ -178,7 +180,7 @@ final class FixedLidSource: LidSource {
         start = s
         let held = min(max(openness.isFinite ? openness : 0, 0), 1)
         let o = !startsOpen && time - s < Self.shutFor ? 0 : held
-        return LidInput(openness: o, speed: 0, inShutZone: o <= 0.15, tooWide: false)
+        return LidInput(openness: o, speed: 0, inShutZone: !standIn && o <= 0.15, tooWide: false)
     }
 }
 

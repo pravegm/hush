@@ -2282,6 +2282,9 @@ final class GameController: ObservableObject, SceneDriver {
         store.replace(DemoPresets.progress(d.progress, today: day))
         if !d.sound { settings.muted = true }
         fixedSource.openness = d.lid ?? 0
+        // R14 (CI START-CLOSED): with no `lid=` the fixed source only stands in for a hinge that hasn't reported yet;
+        // its 0 is "unknown", never a close (else the first chest counts as closed before the real angle arrives).
+        fixedSource.standIn = d.lid == nil
         // R12 (demo `startOpen=1`): the held lid is up from the first frame (Play pressed with the lid open).
         fixedSource.startsOpen = d.opensAtStart
         if d.opensAtStart { AppTrace.t("HUSH-T demo start open lid=\(AppTrace.fixed(d.lid ?? 0, 2))") }

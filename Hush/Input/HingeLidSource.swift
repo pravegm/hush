@@ -210,9 +210,10 @@ final class HingeLidSource: LidSource {
         }
     }
 
-    /// The lid for the frame at `time` (`CACurrentMediaTime()` clock). No hinge yet: a shut, still lid.
+    /// The lid for the frame at `time` (`CACurrentMediaTime()` clock). No hinge yet: a still lid at 0 that is NOT in
+    /// the shut zone (R14: an unknown angle must never count as the close that starts a run's first chest).
     func lid(at time: TimeInterval) -> LidInput {
-        guard hasHinge, time.isFinite else { return LidInput() }
+        guard hasHinge, time.isFinite else { return LidInput(openness: 0, speed: 0, inShutZone: false, tooWide: false) }
         // Asked twice for the same frame (or an older one): same answer, and the filters don't advance.
         if let previous = lastQuery, time <= previous { return lastLid }
         lastQuery = time

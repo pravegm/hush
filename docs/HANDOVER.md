@@ -1,5 +1,32 @@
 # Hush: morning handover (28 Oct)
 
+## Build 9: simple (round 14, your build 8 test)
+You said: "right when i start it asks me to open the phone, i open the phone, click play, now in that open state it
+still asks me to open the phone… why do i need to open the phone to start playing? playing starts with the chest
+closed… the game also feels super complicated". Agreed on all of it.
+
+**The whole game, in four lines:**
+1. **Closed phone = closed chest.** Every chest starts closed.
+2. **Open the phone slowly.** The chest opens with it. Too fast and the mimic wakes.
+3. **Drag the loot into your bag**, slowly.
+4. **Close the phone to bank it.** The next chest waits, closed. Repeat until the candle runs out.
+
+**What changed:**
+- **One gesture to play:** with the phone shut, the outer screen says "Open slowly to play". Open it and you're
+  playing, no Play tap. If you tap Play with the phone open, it says "Close the phone to start". Close it, then open
+  it slowly. The candle doesn't burn until the chest opens.
+- **Nothing asks you to "stand it like a laptop" any more:** the pose tip, the lesson's pose step and the "Lift this
+  half" marker are gone. Flat, laptop, any angle plays.
+- **No forced lesson:** first launch goes straight to Home. The first chest's card gives the three rules.
+- **Closing the phone always ends the chest:** with loot it banks, and with an empty bag the next chest comes. No
+  "Hold still…", no "That's wide enough", no "carry on" state.
+- **Fewer things at once:** the Hush Chain, jingle, golden and relic tips wait until your third run. A fast drag now
+  says "Slower…", so a bite is never a mystery.
+- **Every instruction says "phone":** "Close the phone to bank", "Open the phone slowly".
+
+**Please try:** with the phone shut, open it slowly and play one chest. Close it to bank, then open it again. That
+should be the whole game.
+
 ## Build 8: the phone IS the chest (round 13, your build 7 test)
 You said: "the iphone lid is at 90 degrees open and it says that the chest is closed… even 1 degree open lid means
 chest is opening". You were right, and build 7 hadn't fixed it.
