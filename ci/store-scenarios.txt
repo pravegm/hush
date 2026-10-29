@@ -18,13 +18,18 @@
 #   rules, no forced lesson) and grows to ten frames.
 
 # ---- iPhone 6.9" (1320 x 2868) and 6.3" (1206 x 2622): ten frames ------------------------------------------------
+# R15d (runs 40793362597, 40796521782, 40799894378): since R15c (a banking close is silent) the novice pilot no
+#   longer bites on the phones within a run (seeds 7, 8, 11). P06 is a real bite instead: the chest open (lid 0.7, Play
+#   pressed with it up), the noise held at a Waking 0.98 (noiseUntil=bite) while the demo bag fills at walking pace; the
+#   first item's bag clink (Tuning.bagNoise) tips it over Tuning.biteNoise 1.0: CHOMP, the bag (66) lost, −10s.
+#   0.5 s after the bite (past the flash). Run 40804566490 (PR7): both phone sizes bit.
 # P03: freezeAfter=3.25 lands inside the casual pilot's first gem drag (R11 log: itemPicked ~3.1 s, itemBagged ~3.4 s).
 P01-hero-open|screen=run;mode=run;seed=7;pilot=casual;freezeOn=reveal|25|Open the chest. *Slowly.* / Any iPhone. Best on iPhone Duo.|HUSH-T freeze reveal|tabletop:D01-hero-open
 P02-rules|screen=home;progress=fresh|6|Learn it in *three* lines. / No tutorial to sit through.|HUSH-T canvas
 P03-loot|screen=run;mode=run;seed=7;pilot=casual;freezeAfter=3.25|25|Drag the loot to your *bag*. / Slowly: quick hands make noise.|HUSH-T event itemPicked
 P04-freeze|screen=run;mode=run;seed=7;pilot=novice;freezeOn=waking|60|It's waking. *Freeze!* / Stay still and it settles.|HUSH-T freeze waking
 P05-bank|screen=run;mode=run;seed=7;pilot=perfect;freezeOn=bank;freezeDelay=0.25|60|Slide it down to *bank*. / Bank before the candle burns out.|HUSH-T event banked value=[1-9]
-P06-chomp|screen=run;mode=run;seed=7;pilot=novice;freezeOn=bite|60|Too loud? *CHOMP.* / Lose your bag and 10 seconds.|HUSH-T event bitten
+P06-chomp|screen=run;mode=run;seed=7;lid=0.7;startOpen=1;bag=3;noise=0.98;noiseUntil=bite;freezeOn=bite;freezeDelay=0.5|40|Too loud? *CHOMP.* / Lose your bag and 10 seconds.|HUSH-T event bitten
 P07-chain|screen=run;mode=run;seed=7;pilot=perfect;freezeAfter=24;freezeOn=bank;freezeDelay=0.35|90|Sleepy banks pay *more*. / Hush Chain: up to ×1.5 gold.|HUSH-T event chainUp count=[0-9]+ multiplier=1\.[2-5]
 P08-relic|screen=run;mode=run;seed=7;pilot=expert;skipTo=25;freezeOn=relic;freezeDelay=1.7|120|Open wide for *relics*. / The best loot sits deepest.|HUSH-T event relicFound
 P09-codex|screen=codex;progress=mid|6|Twenty-four relics. One *Codex*. / Daily Dungeon, ranks, Game Center.|HUSH-T canvas

@@ -1,92 +1,141 @@
-# Hush: App Store screenshot plan (v1.0)
+# Hush: App Store screenshots, header and search art (v1.0, R15 set)
 
-*Rewritten Tue 27 Oct 2026 (Round 3) by the launch lead. Owner: CI captures and captions (`ROUND-3.md` CI engineer: the store pipeline adapted from Swoop's `store.yml`, `ci/store-capture.sh`, `ci/store-frame.swift`, `ci/store-set.sh`), the launch lead writes captions, the founder approves. **Every frame comes from a real demo state**: the app's own rendering, launched with `-hushDemo "…"` (keys in the header of `Hush/App/DemoMode.swift`) on the iPhone Duo simulator and the iPhone simulators, then captioned on the Mac runner. Each frame below names the existing `ci/scenarios.txt` frame it matches, so the moment is one CI already reaches. Once the store scenario file exists, **it is the source of truth**: change a caption there and here together.*
+*Rewritten Wed 28 Oct 2026 (Round 15) by the launch lead. The R11 set (store run 40675006542, 6 + 6 + 6 frames) predates
+Rounds 13–15 (the phone IS the chest, the outer screen's intro with Play, no forced lesson) and is retired. Owner: the
+store pipeline (`.github/workflows/store.yml`, `ci/store-capture.sh`, `ci/store-set.sh`, `ci/store-frame.swift`,
+`ci/store-upright.sh`, `ci/store-placements.sh`); the launch lead writes captions; the founder approves. **Every frame
+comes from a real demo state**: the app's own rendering, launched with `-hushDemo "…"` (keys in the header of
+`Hush/App/DemoMode.swift`) on the iPhone Duo simulator and the iPhone simulators, then captioned on the Mac runner. The
+scenario files are the source of truth for args and captions: `ci/duo-store-scenarios.txt` (Duo) and
+`ci/store-scenarios.txt` (iPhone). Change a caption there and here together. Apple's rules and sources:
+`docs/appstore/REQUIREMENTS-CHECK.md`.*
+
+## Re-shoot (one command)
+
+```
+gh workflow run store.yml --ref main
+```
+
+About 25–35 minutes: three jobs (phones, duo, assemble). Then, from `C:\Users\59527\Lid`:
+
+```
+gh run list --workflow store.yml -L 1                      # the run ID
+gh run watch <id> --interval 30 > /dev/null 2>&1
+gh run download <id> -n store-69 -n store-61 -n store-duo -n store-placements -D <empty folder>
+```
+
+Read each `store/MANIFEST.txt` (every row `OK`, `summary: ok 10 flagged 0 missing 0`) and
+`store-placements/MANIFEST.txt` (`summary: ok 2  problems 0`), look at every PNG (the checklist below), then put the
+run ID in `.github/workflows/asc.yml` as both `DEFAULT_STORE_RUN` and `DEFAULT_PLACEMENTS_RUN`. Only the Duo or only
+the phones: untick the other job on the Actions page; `duo_from_run=<id>` reuses an earlier run's Duo captures (frame
+1 of every set and the header come from D01).
+
+**Current signed-off run: see `DEFAULT_STORE_RUN` in `.github/workflows/asc.yml`** (the run list and image sizes are in
+`docs/appstore/REQUIREMENTS-CHECK.md`).
 
 ## Sets, sizes and slots
 
-Hush plays in **portrait** (tabletop: the 669 × 951 pt inner canvas with the fold across the middle), exactly like Brim, so every set is portrait.
+Hush plays in **portrait** (tabletop: the 669 × 951 pt inner canvas with the fold across the middle), so every set is
+portrait.
 
 | Upload order | App Store Connect slot | Pixels (portrait) | Frames | Artifact | Status |
 |---|---|---|---|---|---|
-| 1 | **iPhone 6.9"** (Dynamic Island, large display) | **1320 × 2868** | P1–P6 | `store-69` | Optional, but upload it (Apple scales it down for the 6.5" row) |
-| 2 | **iPhone 6.3" / 6.1" class** (Dynamic Island, medium display) | **1206 × 2622** (or 1179 × 2556) | P1–P6 | `store-61` | **Required** (Apple's only required iPhone size). Never 1170 × 2532: that's "Face ID (medium)" and doesn't fill the slot |
-| 3 | **iPhone Duo, inner display** (the hero set) | **2007 × 2853** (the tabletop canvas at 3×) | D1–D6 | `store-duo` | Upload **if** App Store Connect shows an iPhone Duo slot. Submitting Duo screenshots earns the "optimized for iPhone Duo" badge, and from **April 2027** every submission built with the iOS 27.1 SDK needs them |
-| – | iPhone Duo, outer (cover) display | 1398 × 2034 | none | – | Not made: Hush isn't played on the cover (it shows only the sleeping-mimic card, and the run is paused there). One capture of that card only if the slot insists |
+| 1 | **iPhone 6.9"** ("Dynamic Island, large display") | **1320 × 2868** | P01–P10 | `store-69` | Upload. Without it Apple would need the "Face ID (large)" class instead |
+| 2 | **iPhone 6.3"** ("Dynamic Island, medium display") | **1206 × 2622** (or 1179 × 2556) | P01–P10 | `store-61` | **Required** (Apple's only always-required iPhone class) |
+| 3 | **iPhone Duo** (inner display) | **2007 × 2853** | D01–D10 | `store-duo` | Optional until April 2027; submitting it earns the "optimized for iPhone Duo" badge. Upload it |
+| – | iPhone Duo (outer display) | 1398 × 2034 | none as its own set | – | Not needed: the outer screen's only content is the intro, which is D02 (captured on the outer display, framed in the inner slot) |
+| – | Product page header (optional creative asset) | **3840 × 1646** (21:9) | 1 | `store-placements` | Upload in *Header and Search Results* (iOS 27 App Store) |
+| – | Search results art (optional creative asset) | **3840 × 2560** (3:2) | 1 | `store-placements` | Same tab. Without it, search shows frames 1–3 |
 
-**Does App Store Connect have an iPhone Duo slot?** Apple's specification page lists one, but in October 2026 developers reported no Duo entry in the version page's device selector or the API (Apple Developer Forums 845505). So: **look for an "iPhone Duo" entry on upload day.** If it's there, upload `store-duo` (D1–D6). If it isn't, ship 1.0 with the 6.9" and 6.3" sets only (frame 1 still carries the Duo pitch: see below) and add the Duo set with 1.0.1, before April 2027.
+Rules: PNG, **no alpha channel**, 1–10 per size (we use 10). Search results (without the art) show a portrait set's
+**first three frames**, so frames 1–3 sell the game alone: the Duo is the chest, how to start, drag the loot.
 
-Rules: PNG, **no alpha channel**, 1–10 per size (we use 6). In search results a portrait set shows its **first three frames**, so frames 1–3 must each sell the game alone: open slowly, freeze, bank.
+## Caption style (what `ci/store-frame.swift` draws)
 
-## Frame 1: the Duo standing like a little laptop, lid raised, gold glowing
+- **Layout:** caption band across the top (3–21.5 % of the height), the screenshot under it, unaltered, scaled to fit,
+  rounded corners, a hairline gold edge and a soft shadow. The caption never covers the app.
+- **Look:** the dungeon teal-black `#12161C` with a warm candle glow (gold `#F2B84B`, plus-lighter). SF Pro Rounded
+  Heavy in parchment `#F3E9D2`; **one** `*word*` in ink on a gold marker swash; the sub-line after ` / ` in Semibold
+  warm grey `#BFB39A`.
+- **Six words maximum for the headline, and six for the sub-line** (`store-set.sh` lints both). No logo, price, "#1",
+  Apple logos or "Made for iPhone Duo" badge (Guideline 2.3.7).
+- **The app's words, exactly:** the phone (Duo), the lever (iPhone), "Freeze!", CHOMP, the candle, bank. Never "lid",
+  "laptop", "ease it down", "lift", "torch".
 
-The pitch is physical: **the raised half is the lid.** A flat frame of the inner display shows the screen but not the pose, so frame 1 should be a **tabletop composite** (`ci/store-frame.swift --tabletop`, adapted from Swoop's `--book` composite): D1's real Duo capture split at the fold, the floor half mapped flat onto a stylised Duo lying on a table, the lid half mapped onto its raised half at about 130°, seen from in front and slightly above. Graphite bezel, a hinge barrel, a soft table shadow. **No hands.**
-- **Truthful:** every screen pixel is the app's, only warped. Nothing is drawn on the screen. The device is the real tabletop pose Hush is played in, never a non-folding iPhone drawn folded, never flat or closed.
-- **Used in every set** as frame 1, including the iPhone sets (from the same Duo capture), because without a Duo slot the 6.9" set is all anyone sees. The iPhone caption's sub-line says any iPhone plays.
-- **Fallback:** if the composite isn't ready by code freeze, D1 and P1 are the flat captures with the same caption. The caption still makes sense on a flat frame; a real photo of the Duo on a table can replace it in 1.0.1.
+## A. iPhone Duo (2007 × 2853): ten frames
 
-## Caption style (what `ci/store-frame.swift` should draw)
+Captured on the Duo simulator held open at 150° (inner display), upright (`turn=0`); runs hold the book-pose landscape
+interface and are turned upright from the logged k (`ci/store-upright.sh`, R11: only the capture turns, the pixels are
+the app's). D02 is captured by a second pass with the hinge **shut** (0°), so the app is on the **outer display**
+(1398 × 2034) showing the R15 intro exactly as a player with the phone shut sees it. A fold layout never draws the lever.
 
-- **Layout:** caption band across the top (3–24 % of the height), the screenshot itself under it, unaltered, scaled to fit, rounded corners, a hairline gold edge and a soft shadow. The caption never covers the chest, the loot, the meter or the fold band.
-- **Background:** the dungeon teal-black `#12161C` with a warm candle glow (gold `#F2B84B` at low strength, added with plus-lighter blending, never gold at partial alpha over the dark) rising from behind the screenshot.
-- **Type:** SF Pro Rounded Heavy (plain system Heavy if missing), parchment `#F3E9D2`. **One** highlighted word, `*word*` in the scenario file, drawn in ink `#12161C` letters on a gold `#F2B84B` marker swash. Sub-line after ` / ` in SF Pro Rounded Semibold at ~46 %, warm grey `#BFB39A`.
-- **Six words maximum for the headline, and six for the sub-line** (`store-set.sh` lints both; `×1.5` counts as one word). No logo, no price, no "#1", no Apple logos or "Made for iPhone Duo" badge (Guideline 2.3.7; Apple adds its own badge).
-- **The app's words, exactly:** "Freeze!" (exactly so: capital F, lower case, the exclamation mark), the candle, bank, the lever (phones).
-
-## A. iPhone Duo, inner display (2007 × 2853): 6 frames
-
-Captured on the Duo simulator's tabletop canvas, **upright** (`turn=0`). On a real Duo the canvas is drawn turned round by default, but the player turns the phone round too, so the upright capture is the picture they see: don't re-shoot it upside down (Brim's lesson). A fold layout never draws the lever, so no Duo frame shows one.
-
-| # | File | In-game moment (the `ci/scenarios.txt` frame it matches) | Caption: headline / sub-line (words) | Demo args |
+| # | File | In-game moment | Caption: headline / sub-line | Frame |
 |---|---|---|---|---|
-| **D1** | `D1-hero-open` | An Iron-bound or Wooden chest with the lid well open: light from the fold, coins and a gem glinting, the mimic asleep, the meter low (`31`/`32-reveal-fold`) | **Open the lid. *Slowly.*** (4) / Your Duo is the treasure chest. (6) | `screen=run;mode=run;seed=7;pilot=casual;turn=0;freezeOn=reveal` (frame 1 composite source) |
-| **D2** | `D2-freeze` | Waking: the meter red, "Freeze!" on the hint plate, the tongue curled, the eye opening (`33-waking-fold`) | **It's waking. *Freeze!*** (3) / Hold still and it settles. (5) | `screen=run;mode=run;seed=7;pilot=novice;turn=0;freezeOn=waking` (fallback: `screen=run;mode=attract;seed=7;turn=0;lid=0.7;noise=0.85`, frame 18) |
-| **D3** | `D3-bank` | Banked: the lid eased low, loot flying into the BANKED plate (`14-bank`) | **Ease it down to *bank*.** (5; the app says "Ease the lid down to bank", R7. `ci/duo-store-scenarios.txt` D3 still burns in "Ease it shut": fix that line and re-shoot D3 before upload) / Bank before the candle burns out. (6) | `screen=run;mode=run;seed=7;pilot=perfect;turn=0;freezeOn=bank;freezeDelay=0.25` (R10: the perfect pilot's first bank is Hushed) |
-| **D4** | `D4-chain` | A Hushed bank with the Hush Chain medal by BANKED ("GOLD ×1.2" or more) (`37-chain-badge`) | **Sleepy banks pay *more*.** (4) / Hush Chain: up to ×1.5 gold. (6) | `screen=run;mode=run;seed=7;pilot=perfect;turn=0;freezeAfter=24;freezeOn=bank;freezeDelay=0.6` |
-| **D5** | `D5-chomp` | The bite: teeth slammed across the fold, coins flying into the mouth, "−10s" off the candle (`13-bite`) | **Too loud? *CHOMP.*** (3) / Lose your bag and 10 seconds. (6) | `screen=run;mode=run;seed=7;pilot=novice;turn=0;freezeOn=bite` |
-| **D6** | `D6-codex` | The Relic Codex, mid progress: 9 relics drawn on velvet, the rest silhouettes (`22-codex-mid`) | **Twenty-four relics. One *Codex*.** (4) / Daily Dungeon, ranks, Game Center. (5) | `screen=codex;progress=mid;turn=0` |
+| 1 | `D01-hero-open` | The chest open, candlelight on coins and a gem, the mimic asleep, meter low | **Open the phone. *Slowly.*** / Your Duo is the treasure chest. | tabletop composite |
+| 2 | `D02-play` | Phone shut: the outer screen's intro (wordmark, mimic, "Steal the mimic's gold while it sleeps", the three rules, **Play**, "Press Play, then open the phone slowly.") | **Phone shut? Press *Play*.** / Then open the phone slowly. | cover |
+| 3 | `D03-loot` | Looting chest #1: a coin dropping into the bag, "6 not safe yet", the hint "Close the phone to bank" (iPhone: "Slower…") | **Drag the loot to your *bag*.** / Slowly: quick hands make noise. | flat |
+| 4 | `D04-freeze` | Waking: "Freeze!", the meter red, the eye opening | **It's waking. *Freeze!*** / Stay still and it settles. | flat |
+| 5 | `D05-bank` | "Hushed! BANKED +197 / Hush Chain ×1.1" | **Close the phone to *bank*.** / Bank before the candle burns out. | flat |
+| 6 | `D06-chomp` | The bite after the flash: teeth across the fold, "CHOMP!", "−10s" | **Too loud? *CHOMP.*** / Lose your bag and 10 seconds. | flat |
+| 7 | `D07-chain` | A Hushed bank with the chain medal ×1.2 or more | **Sleepy banks pay *more*.** / Hush Chain: up to ×1.5 gold. | flat |
+| 8 | `D08-relic` | The relic card (art and name) | **Open wide for *relics*.** / The best loot sits deepest. | flat |
+| 9 | `D09-codex` | The Relic Codex, 9 of 24 | **Twenty-four relics. One *Codex*.** / Daily Dungeon, ranks, Game Center. | flat |
+| 10 | `D10-results` | Results of a real casual run | **One more *chest*?** / No ads. No in-app purchases. | flat |
 
-Reserves (same rules), in order of preference:
-- `DR1-golden` (`36-golden-mimic`): **A golden mimic. *Extra* gold.** (5) / But it sleeps lighter. (4). Args: `screen=run;mode=run;seed=7;pilot=expert;golden=1;turn=0;freezeAfter=13;freezeOn=bank;freezeDelay=1.75`. Use only if the frame shows the gilded chest and "GOLDEN" on the plate.
-- `DR2-relic` (`15-relic`): **Open wide for *relics*.** (4) / The best loot sits deepest. (5). Args: `screen=run;mode=run;seed=7;pilot=expert;turn=0;skipTo=25;freezeOn=relic;freezeDelay=1.7`. Use only if the relic card (art and name) is in the frame.
-- `DR3-results` (`20-results-mid`): **One more *chest*?** (3) / No ads. No in-app purchases. (5). Args: `screen=results;seed=7;progress=mid;pilot=casual;turn=0`.
-- `DR4-lesson` (`39`/`34-lesson-fold`): **A short lesson shows *how*.** (5) / Open, grab, freeze, bank. (4). Args: `screen=lesson;lessonStep=2;lid=0.25;turn=0` on the Duo sim.
+Reserves (`duo_filter: ^(D[0-9]|DR)`): `DR1-golden` (a golden mimic), `DR2-home` (the inner Home with the three rules:
+the fallback for D02 if the outer-display capture fails).
 
-**File names** (the App Store Connect tool expects exactly these, `tools/appstore/build-metadata.js`): `D1-hero-open`, `D2-freeze`, `D3-bank`, `D4-chain`, `D5-chomp`, `D6-codex` in `store-duo/duo-screens/store/`, and `P1-hero-open` … `P6-codex` (same suffixes) in `store-69/store/` and `store-61/store/`. Rename a frame here and in `build-metadata.js` together.
+## B. iPhone 6.9" (1320 × 2868) and 6.3" (1206 × 2622 / 1179 × 2556): ten frames each
 
-Every Duo frame must log the folded inner canvas (`HUSH-T canvas 669x951 fold=1 turned=0 k=0`), so a cover-display or quarter-turned (odd k) capture is flagged, never uploaded.
+The same moments on the iPhone 18 Pro Max and the iPhone 18 Pro, **with the lever** (no fold, so the app draws the
+lever and speaks its words). The outer-screen intro is Duo-only, so P02 is Home's three lever rules (shown for the first
+runs). P01 is the D01 tabletop composite (the Duo pitch), captioned for any iPhone.
 
-## B. iPhone 6.9" (1320 × 2868) and 6.3" class (1206 × 2622 / 1179 × 2556): 6 frames each
+| # | File | Caption (where it differs from A) |
+|---|---|---|
+| 1 | `P01-hero-open` | **Open the chest. *Slowly.*** / Any iPhone. Best on iPhone Duo. (tabletop composite of D01) |
+| 2 | `P02-rules` | **Learn it in *three* lines.** / No tutorial to sit through. (Home, first launch: the lever's three rules) |
+| 5 | `P05-bank` | **Slide it down to *bank*.** / Bank before the candle burns out. |
+| 3–4, 6–10 | `P03-loot`, `P04-freeze`, `P06-chomp` … `P10-results` | as D03–D04, D06–D10 |
 
-The same moments as A, captured on the iPhone 18 Pro Max and the iPhone 18 Pro (or the newest simulator with a 1179 × 2556 screen), **with the lever showing** on the lid half (no fold, so the lever is drawn: that's what an iPhone player sees). No Duo-only line appears inside an iPhone capture (the app never shows one there).
+## C. Product page header and search results art (optional, iOS 27)
 
-| # | File | Caption: headline / sub-line (where it differs from A) | Demo args |
-|---|---|---|---|
-| **P1** | `P1-hero-open` | **Open the lid. *Slowly.*** / Any iPhone. Best on iPhone Duo. (6) | the frame-1 composite of D1 (fallback: `screen=run;mode=run;seed=7;pilot=casual;freezeOn=reveal`, frame `10-run-reveal`) |
-| **P3** | `P3-bank` | **Slide it down to *bank*.** (5) / Bank before the candle burns out. (6) (the phone's words follow the lever, `ROUND-3.md` decision 4) | as D3 without `turn=0` (frame `14`) |
-| **P2, P4–P6** | `P2-freeze`, `P4-chain`, `P5-chomp`, `P6-codex` | as D2, D4–D6 | as D2, D4–D6 without `turn=0` (frames `12`, `37`, `13`, `22`) |
+`ci/store-placements.sh` draws both from D01's clean Duo capture with `store-frame.swift --banner` (the same tabletop
+composite, the same type):
+- `header-3840x1646.png`: **Hush** on the gold swash / "Steal the mimic's gold while it sleeps." (the outer intro's own
+  headline) on the left, the Duo on the right, all inside the area an iPhone shows.
+- `search-3840x2560.png`: **Open the chest. *Slowly.*** / "Steal the mimic's gold while it sleeps." over the Duo.
+`asc.yml` places them only from `placements_run` (or `DEFAULT_PLACEMENTS_RUN`); they can also be dragged into App Store
+Connect → the version → *Header and Search Results*. Check both in App Store Connect's product page preview.
 
 ## Truthfulness rules (check every frame before upload)
 
-- [ ] **Only what the app renders.** Every screen is an unedited capture from the app (frame 1: only warped onto the device); captions sit outside it. No composited coins, glows, teeth, eyes or medals.
-- [ ] **Frame 1's device is a real iPhone Duo pose** (tabletop, lid raised about 120–150°), never a non-folding iPhone drawn folded, never closed or flat.
-- [ ] **No hands, no people, no photos** in 1.0's sets.
-- [ ] **Every caption is true of the build:** a bite costs the bag and 10 s of candle (`Tuning`); the app shows "Freeze!" at Waking; banking is easing the lid down (the app says "Ease the lid down to bank"; the lever down on phones); the Hush Chain tops out at ×1.5 (`Tuning.chainMax` 5 × `chainStep` 0.1); 24 relics in the Codex. If any of these change, change the caption.
-- [ ] **D4 shows a chain medal** (×1.2 or more) and **D3's floor is not blacked out** (QA: the Round 2 bank moment darkened the whole floor on wooden and iron chests, frames 14 and 37; the Scene fixes it in Round 3). If either is wrong on the store run, use the next reserve.
-- [ ] **Seeded states are reachable states:** pilots play real runs; `noise=` and `lid=` hold real levels a player passes through; "mid progress" is 9 relics and a 5,200 best (`DemoMode` presets). Never seed all 24 relics or an impossible haul.
-- [ ] **The Duo frames are upright** (`turn=0`), as the player sees them after turning the Duo round.
-- [ ] **Nothing important in the crease band** (the fold across the middle) except the light spilling in and the teeth in D5, which are the point.
-- [ ] **No prices, dates, "#1", Apple logos or the "Made for iPhone Duo" badge** drawn into a frame (Guideline 2.3.7).
-- [ ] **The bite frame is comic, not scary:** teeth and flying coins, no red full-screen flash in the frozen frame (choose the moment after the flash).
-- [ ] **Exact size, PNG, no alpha** (the MANIFEST says `slot yes`, `alpha no`). Captions readable at 25 % zoom.
+- [ ] **Only what the app renders.** Every screen is an unedited capture (frame 1 and the header/search art: only
+  warped onto the device; D02: only scaled). Captions sit outside it.
+- [ ] **Every caption is true of the build:** the phone is the chest (any opening opens it, closing with loot banks;
+  R15c: silent at any speed); a fast drag is noise ("Slower…"); "Freeze!" at Waking and it settles when still; a bite
+  costs the bag and 10 s of candle; the Hush Chain tops out at ×1.5; 24 relics; no ads, no IAP.
+- [ ] **D02 shows the R15 intro** with Play and the three rules, on the outer display (MANIFEST: `cover display
+  1398x2034 scaled`); no "Open to carry on", no "Close the phone to start".
+- [ ] **No stale copy** anywhere in a frame: "Lift the lid", "Ease the lid down", "Stand it up like a little laptop",
+  "Hold still…", "That's wide enough", "Close the phone to start", a lesson card.
+- [ ] **D03/P03 show the bag being filled** (loot in the bag, "not safe yet"; `freezeAfter=3.25` of the casual pilot); else re-time
+  `freezeAfter`.
+- [ ] **D07 shows a chain medal** (×1.2 or more); **D08 shows the relic card**; **D06 is after the red flash**.
+- [ ] **Seeded states are reachable:** pilots play real runs; "mid progress" is 9 relics and a 5,200 best.
+- [ ] **No debug overlays, no camera-hole clash** (the Dynamic Island sits over the status bar only), nothing sideways.
+- [ ] **No prices, dates, "#1", Apple logos or badges** in a frame (Guideline 2.3.7).
+- [ ] **Exact size, PNG, no alpha** (MANIFEST `slot yes`, `alpha no`).
 
-## Upload order and checks (founder, runbook §5)
+## Upload order
 
-The App Store Connect tool uploads the sets from the store run named in `.github/workflows/asc.yml` (`DEFAULT_STORE_RUN`) once it exists. By hand: 1. 6.9" slot: `store-69` P1–P6. 2. 6.3"/6.1" slot: `store-61`, the same. 3. If an **iPhone Duo** entry appears: `store-duo` D1–D6, then check them in App Store Connect's preview.
-
-**Never upload** anything in `_flagged/`, anything from a `raw-*` artifact, or anything from `ci.yml`'s `screenshots` artifact (test frames). Upload only from the `store-*` artifact of the run Claude names, after reading its MANIFEST.
+`tools/appstore/asc.swift` (asc.yml, `mode=push`, founder-run) uploads from the run in `DEFAULT_STORE_RUN` in this
+order: 6.9" P01–P10, 6.3" P01–P10, iPhone Duo D01–D10 (if the API offers the Duo group; else by hand in App Store
+Connect's iPhone Duo tab). By hand: drag `store/*.png` in name order. **Never upload** anything in `_flagged/`, a
+`raw-*` artifact or `ci.yml`'s `screenshots` artifact.
 
 ## Sources
-- Apple, App Store Connect Help, *Screenshot specifications* (iPhone Duo inner 2007 × 2853 / 2853 × 2007, outer 1398 × 2034; 6.9" 1320 × 2868; Dynamic Island medium 1206 × 2622 / 1179 × 2556, the one required iPhone size; 1–10 per size; no alpha): https://developer.apple.com/help/app-store-connect/reference/app-information/screenshot-specifications
-- Apple Developer Forums 845505, *How do I upload iPhone Duo screenshots in App Store Connect?* (no Duo entry, Oct 2026): https://developer.apple.com/forums/thread/845505
-- App Review Guideline 2.3.7 (no prices in screenshots): https://developer.apple.com/app-store/review/guidelines/
-- Swoop's store pipeline and book composite: `C:\Users\59527\Wing\.github\workflows\store.yml`, `C:\Users\59527\Wing\ci\store-*`
+- Apple, *Screenshot specifications*: https://developer.apple.com/help/app-store-connect/reference/app-information/screenshot-specifications
+- Apple, *Creative assets specifications*: https://developer.apple.com/help/app-store-connect/reference/app-information/creative-assets-specifications
+- Apple, *Prepare and submit your apps for iPhone Duo* (5 Oct 2026): https://developer.apple.com/news/?id=kkphp5qo
+- App Review Guidelines 2.3.3, 2.3.7: https://developer.apple.com/app-store/review/guidelines/
