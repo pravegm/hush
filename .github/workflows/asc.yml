@@ -9,8 +9,9 @@ name: App Store Connect tool
 # App Store Connect is only contacted on a manual run with `asc` ticked AND the ASC_* secrets set. `mode` decides how
 # far it goes: check (read-only), plan (check + dry run, read-only), push (check + plan + write). The key is written to
 # a temp file for that job and deleted afterwards; it is never echoed. Inherited personal fields are masked.
-# Header and search results art: none for Hush 1.0. Validated offline from DEFAULT_PLACEMENTS_RUN when one is set; sent
-# to App Store Connect only when a manual run names placements_run (the placements step, opt-in).
+# Header and search results art (R15): store.yml's store-placements artifact (header-3840x1646.png,
+# search-3840x2560.png). Validated offline from DEFAULT_PLACEMENTS_RUN; sent to App Store Connect only when a manual run
+# names placements_run (the placements step, opt-in).
 on:
   push:
     branches: [main]

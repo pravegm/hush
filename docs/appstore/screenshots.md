@@ -96,7 +96,8 @@ runs). P01 is the D01 tabletop composite (the Duo pitch), captioned for any iPho
 | 1 | `P01-hero-open` | **Open the chest. *Slowly.*** / Any iPhone. Best on iPhone Duo. (tabletop composite of D01) |
 | 2 | `P02-rules` | **Learn it in *three* lines.** / No tutorial to sit through. (Home, first launch: the lever's three rules) |
 | 5 | `P05-bank` | **Slide it down to *bank*.** / Bank before the candle burns out. |
-| 3–4, 6–10 | `P03-loot`, `P04-freeze`, `P06-chomp` … `P10-results` | as D03–D04, D06–D10 |
+| 6 | `P06-chomp` | as D06. The moment differs: since R15c the novice pilot no longer bites on a phone, so P06 is a real bite on chest 1 (the chest open, the noise held at a Waking 0.98 until the bite, the first bag clink tips it over: CHOMP, −66, −10s; "Candle lit. Gently does it." is still up) |
+| 3–4, 7–10 | `P03-loot`, `P04-freeze`, `P07-chain` … `P10-results` | as D03–D04, D07–D10 |
 
 ## C. Product page header and search results art (optional, iOS 27)
 
