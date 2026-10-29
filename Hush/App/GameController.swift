@@ -470,6 +470,12 @@ final class GameController: ObservableObject, SceneDriver {
             callouts(for: event, snapshot: snapshot, now: now)
             announce(event, chain: chain)
         }
+        // R15d (final walkthrough P2-6): the outer screen's "Banked +N gold!" / "Nothing banked" last until the next
+        // chest is opened at all (not only until it cracks), so they never repeat over it.
+        if snapshot.phase == .looting && (justBanked != nil || justEndedEmpty) {
+            justBanked = nil
+            justEndedEmpty = false
+        }
         if snapshot.noiseFloor >= RunTip.jingleFloor, mode != .lesson { showTip(.jingle, now: now) }
         checkGold(snapshot)
         if AppTrace.enabled && now - lastLidLog >= Self.lidLogInterval {
@@ -1114,6 +1120,8 @@ final class GameController: ObservableObject, SceneDriver {
         guard isLiveRun else { return }
         AppTrace.t("HUSH-T cover end run")
         note("cover end run")
+        // R15d (P2-1): the intro then says how it went.
+        coverEndedGold = session?.partialResult().gold
         goHome()
     }
 
@@ -1123,12 +1131,25 @@ final class GameController: ObservableObject, SceneDriver {
     /// R15 (playtest P0: "where's my ka-ching?"): the last bank's value until the next chest is opened, so the
     /// outer screen, the only one lit after a close, says "Banked +N gold!".
     @Published private(set) var justBanked: Int?
+    /// R15d (final walkthrough P2-5): the close just ended an empty chest (until the next chest opens).
+    @Published private(set) var justEndedEmpty = false
+    /// R15d (P2-1): the gold of a run ended from the outer screen ("Run over · N gold" on the intro).
+    private var coverEndedGold: Int?
 
     /// R15 (walkthrough P2-4): on Results, the cover intro says how the run went (it may have ended with the phone
     /// shut, so the inner Results were never seen).
     var coverLastRun: String? {
+        if route == .home, let gold = coverEndedGold { return CoverCard.lastRunLine(gold: gold) }
         guard route == .results, let s = summary else { return nil }
         return CoverCard.lastRunLine(gold: s.result.gold)
+    }
+
+    /// R15d (P2-3): the cover card speaks of a live chest only while one can still be played (not in the candle-out
+    /// moment, whose Results are seconds away).
+    var coverMidRun: Bool {
+        guard isLiveRun, let session else { return false }
+        if case .torchOut = session.snapshot.phase { return false }
+        return true
     }
 
     /// The cover card's "Home": Home, drawn in play pose (until the display changes or the Duo is shut).
@@ -1388,6 +1409,13 @@ final class GameController: ObservableObject, SceneDriver {
             closingPause.clear()
             setClosing(false)
         }
+        // R15d (final walkthrough P2-2): a card held during a bank or bite moment (Resume, a relight) never sits over
+        // an open phone on the inner display: lifted, it goes.
+        if !AppRules.closingApplies(phase, lessonFinishing: finishing) && isClosingPaused && lifted
+            && canvasClass != .small {
+            closingPause.clear()
+            setClosing(false)
+        }
         guard AppRules.closingApplies(phase, lessonFinishing: finishing) else { return }
         // R6: after "Carry on" (or the watchdog) only a NEW hinge report may close the card again.
         if let stamp = resumeGuardStamp {
@@ -1454,8 +1482,12 @@ final class GameController: ObservableObject, SceneDriver {
         // R14 (UX audit B, D): the first chest closed to start (whatever step reached the shut zone, or none: an early
         // cover hand-off), and a looted chest closed with an empty bag (it ends): Core takes both too.
         let first = session.awaitsFirstShut
-        guard session.awaitingClose || first || session.endsEmptyOnShut else { return }
+        let empty = session.endsEmptyOnShut
+        // R15d (final walkthrough P0): a close during the bite moment is remembered too.
+        guard session.awaitingClose || first || empty || session.inBiteMoment else { return }
         session.noteLidShut()
+        // R15d (P2-5): the outer screen says the empty chest ended ("Nothing banked").
+        if empty { justEndedEmpty = true }
         let fresh = session.isFreshChest
         if fresh != closingFresh { closingFresh = fresh }
         AppTrace.t(first ? "HUSH-T first chest seen shut reason=\(reason)"
@@ -1968,6 +2000,8 @@ final class GameController: ObservableObject, SceneDriver {
         playTime = 0
         bankedSum = 0
         justBanked = nil
+        justEndedEmpty = false
+        coverEndedGold = nil
         goldMismatchLogged = false
         hintGate = HintGate()
         setGlimmer(false)

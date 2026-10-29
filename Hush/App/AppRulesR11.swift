@@ -21,7 +21,8 @@ extension AppRules {
 
     /// The `seenTips` key of the one-time Results nudge.
     static let forgivingTipKey = "forgivingTip"
-    static let forgivingNudgeLine = "Keeps waking? Try a forgiving lid."
+    /// R15d: no "lid" (the phone on a Duo, the lever elsewhere).
+    static let forgivingNudgeLine = "Keeps waking? Try Forgiving mode."
     static let forgivingNudgeButton = "Make it forgiving"
     static let forgivingNudgeDone = "Forgiving on. Change it in Settings."
     /// A run with at least this many bites…

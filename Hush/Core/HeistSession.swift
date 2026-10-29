@@ -336,6 +336,12 @@ final class HeistSession {
         guard !isFinished else { return [] }
         // R14: the first chest's close (the cover display took over, or the closing pause): it now opens with the phone.
         if phase == .ready && !sawShut { sawShut = true }
+        // R15d (final walkthrough P0): shut during the bite moment (the scene stops drawing, so the moment freezes):
+        // remember it, so the moment's end deals the next chest instead of asking to close an already-closed phone.
+        if case .bitten = phase {
+            shutInBite = true
+            return []
+        }
         var ev: [HeistEvent] = []
         if awaitingClose {
             nextChest(&ev)
@@ -365,6 +371,15 @@ final class HeistSession {
     /// R14: the run's first chest still waits for the phone to be seen shut ("Close the phone to start").
     var awaitsFirstShut: Bool { !isFinished && phase == .ready && !sawShut }
 
+    /// R15d: the bite moment is playing (a close now is remembered by `noteLidShut()`).
+    var inBiteMoment: Bool {
+        if case .bitten = phase { return true }
+        return false
+    }
+
+    /// R15d: the phone was seen shut during the bite moment.
+    private var shutInBite: Bool = false
+
     /// R14 (UX audit D): a chest opened past the shut zone (so it was really opened, not a hand settling the phone)
     /// with an empty bag: `noteLidShut()` ends it and deals the next. Never in the lesson (its script is one chest).
     var endsEmptyOnShut: Bool {
@@ -381,6 +396,8 @@ final class HeistSession {
             if ne >= Tuning.bankMomentSeconds { nextChest(&ev) } else { phase = .banked(elapsed: ne) }
         case .bitten(let e):
             let ne: Double = e + h
+            // R15d: shut at any point of the moment counts (a reopen before it ends doesn't undo the close).
+            if lid.inShutZone { shutInBite = true }
             if ne >= Tuning.biteMomentSeconds {
                 if options.torch && torch <= 0 { startTorchOut(&ev) } else { dealOrAwaitClose(&ev) }
             } else {
@@ -704,11 +721,13 @@ final class HeistSession {
     /// shut zone the robbed chest waits for the close (the lesson deals at once, as in R1–R11). A bank always deals at
     /// once (the lid was closed to bank).
     private func dealOrAwaitClose(_ ev: inout [HeistEvent]) {
-        if lid.inShutZone {
+        // R15d: a phone shut during the moment counts, even if it was reopened before the moment ended.
+        if lid.inShutZone || shutInBite {
             nextChest(&ev)
         } else {
             awaitClose(&ev)
         }
+        shutInBite = false
     }
 
     /// R12 rule 4: the robbed chest stays, open and empty: no loot, nothing held or bagged, the mimic back to
@@ -762,6 +781,7 @@ final class HeistSession {
     }
 
     private func startTorchOut(_ ev: inout [HeistEvent]) {
+        shutInBite = false
         // A chest the candle went out on (it was being looted) goes in the log with nothing banked.
         if isLooting {
             chestLog.append(ChestOutcome(tier: chest.tier, golden: chest.golden, value: 0, hushed: false,

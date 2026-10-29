@@ -372,7 +372,7 @@ struct ClosingCard: View {
     static let carryOn = "Carry on"
 
     static func detail(lifted: Bool, awaitingHinge: Bool = false, fresh: Bool = false, first: Bool = false) -> String {
-        if awaitingHinge { return "Then hold it still. The mimic waits." }
+        if awaitingHinge { return "The mimic waits. Your candle does too." }
         // R14 (UX audit E): the run's first chest gives the three rules (the lesson no longer runs first).
         if fresh && first { return "Drag loot to your bag. Close the phone to bank. Your candle is the clock." }
         if fresh { return "The mimic waits. Your candle does too." }

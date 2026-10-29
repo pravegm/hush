@@ -274,7 +274,8 @@ enum HowToPlay {
     static func lines(slider: Bool) -> [String] {
         // R15 (playtest): rule 1 holds whether the phone is shut (the cover intro) or open (Home); rule 3 teaches the
         // candle (the run's clock).
-        slider ? ["The chest opens with the lever. Slide it up slowly.",
+        // R15d (final walkthrough P2-4): Home has no lever, so the lever's line says where it is.
+        slider ? ["In a chest, slide the lever up slowly to open it.",
                   "Drag the loot into your bag.",
                   "Slide the lever down to bank it before your candle runs out."]
             : ["The chest opens with the phone. Move it slowly.",
@@ -330,6 +331,8 @@ struct CoverCard: View {
     var banked: Int = 0
     /// R15 (playtest P0): the bank the close just made (until the next chest opens): the card's headline.
     var justBanked: Int? = nil
+    /// R15d (final walkthrough P2-5): the close just ended an empty chest.
+    var justEndedEmpty: Bool = false
     var onEndRun: () -> Void = {}
     /// R11 (QA-6 P2-10, UX P2-1): VoiceOver moves to the escape's first button when the plate appears.
     @AccessibilityFocusState private var escapeFocused: Bool
@@ -352,6 +355,8 @@ struct CoverCard: View {
     /// R15 (playtest P0): the bank a close just made.
     static func justBankedLine(_ gold: Int) -> String { "Banked +\(gold.formatted()) gold!" }
     static let nextChestTitle = "Open the phone slowly for the next chest"
+    /// R15d: a close that ended an empty chest.
+    static let endedEmptyLine = "Nothing banked. A new chest waits."
     /// R8: the escape plate's line and buttons. Pure; tested.
     static let escapeLine = "Already open?"
     static let carryOnLabel = "Carry on"
@@ -375,10 +380,16 @@ struct CoverCard: View {
                                         .font(HushType.title(true))
                                         .foregroundStyle(HushTheme.goldLight)
                                         .multilineTextAlignment(.center)
+                                } else if justEndedEmpty {
+                                    Text(Self.endedEmptyLine)
+                                        .font(HushType.headline(true))
+                                        .foregroundStyle(HushTheme.mist)
+                                        .multilineTextAlignment(.center)
                                 }
+                                let between = justBanked != nil || justEndedEmpty
                                 MimicPortraitView(scene: portrait, fps: 30)
-                                    .frame(width: min(geo.size.width * (justBanked == nil ? 0.82 : 0.6), 380))
-                                Text(justBanked == nil ? Self.title(midRun: midRun) : Self.nextChestTitle)
+                                    .frame(width: min(geo.size.width * (between ? 0.6 : 0.82), 380))
+                                Text(between ? Self.nextChestTitle : Self.title(midRun: midRun))
                                     .font(HushType.title(true))
                                     .foregroundStyle(HushTheme.parchment)
                                     .multilineTextAlignment(.center)

@@ -129,11 +129,12 @@ struct RootView: View {
             .frame(width: window.width, height: window.height)
             if frame.pose == .cover {
                 // R8 (QA-5 P1-B): after 3 s with the hinge open ≥ 92°, the card offers "Carry on" / "Home".
-                CoverCard(midRun: controller.isLiveRun, portrait: controller.portraits.cover,
+                CoverCard(midRun: controller.coverMidRun, portrait: controller.portraits.cover,
                           reduceMotion: controller.reduceMotion, escape: controller.coverEscape,
                           onCarryOn: { controller.coverCarryOn() }, onHome: { controller.coverHome() },
                           onPlay: { controller.coverPlay() }, lastRun: controller.coverLastRun,
                           banked: controller.bankedSoFar, justBanked: controller.justBanked,
+                          justEndedEmpty: controller.justEndedEmpty,
                           onEndRun: { controller.coverEndRun() })
                     .transition(.opacity)
             }
