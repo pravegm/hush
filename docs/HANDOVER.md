@@ -43,6 +43,72 @@ If anything is wrong: Settings › About, hold Version for 2 s, tap Copy log, an
 
 **To submit:** see "Submission steps" below. Everything is prepared except what needs your Apple login.
 
+## Submission steps (about 20 minutes, all need your Apple login)
+**Ready and checked:** build 11 is VALID on TestFlight. The store set is store run 40809079356, and every image was
+checked for size, format (RGB PNG, no alpha) and by eye:
+
+| Where in App Store Connect | Files | Size |
+|---|---|---|
+| iPhone 6.9" | P01–P10 (`store-69`) | 1320×2868 |
+| iPhone 6.3" | P01–P10 (`store-61`) | 1206×2622 |
+| iPhone Duo (optional until April 2027; earns the "optimized for iPhone Duo" badge) | D01–D10 (`store-duo`) | 2007×2853 |
+| Product page header (iOS 27) | header-3840x1646.png (`store-placements`) | 3840×1646 |
+| Search results image | search-3840x2560.png (`store-placements`) | 3840×2560 |
+
+All text is within Apple's limits. The rules behind each item are in docs/appstore/REQUIREMENTS-CHECK.md.
+
+**1. In App Store Connect (Hush › App Store tab), answer what only you can:**
+- **App Privacy:** Data Not Collected.
+- **Age rating:**
+  - Cartoon or Fantasy Violence: Infrequent.
+  - Horror/Fear Themes: Infrequent.
+  - Contests: Infrequent.
+  - Everything else: None or No.
+  - The result should be **9+**.
+- **Content rights:** No third-party content.
+- **Category:** Games, then Casual and Adventure.
+- **Pricing:**
+  - £1.99 (Tier 2).
+  - All territories except China mainland and Vietnam.
+  - Untick "Mac" and "Apple Vision Pro" availability.
+  - Family Sharing on.
+- **Paid Apps agreement, banking and tax:** check they are still Active (Business tab).
+- **EU Digital Services Act:** trader status, the same answer as Squish.
+- **Version release:** Manually release this version.
+- **Export compliance:** nothing to answer, because the build already declares it uses no non-exempt encryption.
+
+**2. Fill in the rest with the tool:**
+1. On GitHub, go to pravegm/hush › Actions › "App Store Connect" › Run workflow.
+2. Tick `asc`, leave `mode` = plan, and run it. It is read-only. Check the summary lists no errors.
+3. Run it again with:
+   - `mode` = push;
+   - `build` = 11;
+   - `placements_run` = 40809079356.
+
+   This fills in:
+   - the name, subtitle, description, keywords, promo text and review notes;
+   - the URLs: support https://pravegm.github.io/hush/support.html and privacy …/privacy.html;
+   - the copyright line and App Review contact, copied from Squish;
+   - Game Center leaderboards and achievements;
+   - attaches build 11;
+   - uploads the 6.9" and 6.3" screenshots, plus the header and search art.
+4. **iPhone Duo screenshots:** if the run says the API has no Duo type yet, upload them by hand:
+   1. Download the `store-duo` artifact from store run 40809079356 (Actions › App Store screenshots).
+   2. Open the iPhone Duo tab under Previews and Screenshots.
+   3. Drag in D01–D10, in order.
+5. **By hand instead of the tool:** the same artifacts work by drag and drop:
+   - `store-69` into 6.9";
+   - `store-61` into 6.3";
+   - `store-placements` into Header and Search.
+
+**3. Check, then submit:**
+- Look at the product page preview on iPhone and iPhone Duo.
+- Make sure Game Center is ticked on the 1.0 version with the leaderboards and achievements attached.
+- Press **Add for Review**, then **Submit**.
+
+**Optional:** the support page's contact is "Open an issue on GitHub", the same as Brim's, which went through review.
+If you'd rather give an email address, tell me which one and I'll add it to the support page.
+
 ## Build 9: simple (round 14, your build 8 test)
 You said: "right when i start it asks me to open the phone, i open the phone, click play, now in that open state it
 still asks me to open the phone… why do i need to open the phone to start playing? playing starts with the chest
