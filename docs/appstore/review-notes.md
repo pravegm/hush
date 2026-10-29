@@ -16,7 +16,7 @@ Thanks for reviewing Hush: a paid game. No login or accounts, no in-app purchase
 
 THE WHOLE GAME: THREE RULES (shown in the app before you play)
 iPhone Duo: 1 The chest opens with the phone. Move it slowly. 2 Drag the loot into your bag. 3 Close the phone to bank it before your candle runs out.
-Other iPhones: 1 The chest opens with the lever. Slide it up slowly. 2 Drag the loot into your bag. 3 Slide the lever down to bank it before your candle runs out.
+Other iPhones: 1 In a chest, slide the lever up slowly to open it. 2 Drag the loot into your bag. 3 Slide the lever down to bank it before your candle runs out.
 Moving fast makes noise. If the noise meter fills, the mimic wakes: "Freeze!" means keep still and it settles; if not, it bites (CHOMP): the bag is lost and the 100 s candle loses 10 s. First launch opens Home; Play is a real run. First Chest is only an optional replay (Settings > Replay First Chest).
 
 1. ANY iPHONE OR THE SIMULATOR (start here)
@@ -31,7 +31,7 @@ Every mode and achievement works with the lever.
 The phone IS the chest: 0 degrees shut, 150 wide, openness = angle / 150. At 15 degrees or less it counts as shut. No pose to hold, no lever, no pose tip.
 a) Phone shut: the outer screen shows an intro ("Steal the mimic's gold while it sleeps", the three rules, Play, "Press Play, then open the phone slowly"). Press Play, then open the phone: the chest opens with the phone.
 b) Launched with the phone open: press Play on the inner screen and the run starts with the chest already open.
-c) Close the phone to bank. With loot in the bag the close IS the bank, at any speed; with an empty bag it just ends that chest. After a bank the outer screen shows "Banked +N gold!" and "Open the phone slowly for the next chest" (after an empty chest: "Open the phone slowly"); the candle waits while shut, and End run is there. Opening again (play resumes from about 18 degrees) brings the next chest.
+c) Close the phone to bank. With loot in the bag the close IS the bank, at any speed; with an empty bag it just ends that chest. After a bank the outer screen shows "Banked +N gold!" and "Open the phone slowly for the next chest" (after an empty chest: "Nothing banked. A new chest waits."); the candle waits while shut, and End run is there. Opening again (play resumes from about 18 degrees) brings the next chest.
 d) PAUSE on the inner screen: press and hold the pause coin (a tap shows "Hold to pause").
 e) NEVER STUCK: Home is always on the pause card; Carry on appears after 3 s. If the hinge has not reported yet, the card says "Move the phone a little" (with Home). On the outer screen, "Already open?" does the same if the phone is open.
 f) There is no "Hold still" card and no "That's wide enough".

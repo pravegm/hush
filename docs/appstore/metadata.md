@@ -154,7 +154,7 @@ No tracking. Your progress stays on your iPhone.
 ```
 
 Copy rules this text keeps:
-- **Duo first, then "plays on every iPhone".** The lever is described honestly and not oversold. The store page may talk about the Duo; the *app* keys its words on the layout (founder decision 4, `ROUND-3.md`; R14/R15 wording): a Duo says "phone" ("The chest opens with the phone. Move it slowly.", "Close the phone to bank it before your candle runs out.") and never draws the lever, a phone uses lever words ("The chest opens with the lever. Slide it up slowly.", "Slide the lever down to bank it before your candle runs out."), and nothing here promises otherwise.
+- **Duo first, then "plays on every iPhone".** The lever is described honestly and not oversold. The store page may talk about the Duo; the *app* keys its words on the layout (founder decision 4, `ROUND-3.md`; R14/R15 wording): a Duo says "phone" ("The chest opens with the phone. Move it slowly.", "Close the phone to bank it before your candle runs out.") and never draws the lever, a phone uses lever words ("In a chest, slide the lever up slowly to open it.", "Slide the lever down to bank it before your candle runs out."), and nothing here promises otherwise.
 - **The three rules are the app's, word for word** (`HowToPlay.lines(slider: false)`). If the app's rules change, change this block.
 - **No pose, no angles.** R13–R15: the phone is the chest (openness = angle / 150, shut ≤ 15°), so the copy never asks for a laptop or book pose and never quotes degrees.
 - **The blur is explained once, plainly** ("softens one half of its screen for a moment when a fold starts"), as an iOS behaviour Hush works around, never as a Hush or Duo fault.
