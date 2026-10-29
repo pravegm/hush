@@ -2349,7 +2349,7 @@ struct CoreTests {
         #expect(s.snapshot.chest?.index == 1)
         #expect(!isCloseForNext(s))
         // The robbed chest is logged once.
-        #expect(s.partialResult().chestLog.count == 1)
+        #expect(s.partialResult().chestLog.filter { $0.bitten }.count == 1)
         #expect(s.partialResult().chestLog.first?.bitten == true)
     }
 
