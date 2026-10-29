@@ -824,6 +824,14 @@ struct PauseRuleTests {
         #expect(ClosingCard.title(lifted: false, awaitingHinge: true) == "Move the phone a little")
         #expect(ClosingCard.title(lifted: false, awaitingHinge: true, fresh: true, first: true)
                 == "Move the phone a little")
+        // R15d (final walkthrough): no "hold it still" under it any more.
+        for lifted in [true, false] {
+            let d = ClosingCard.detail(lifted: lifted, awaitingHinge: true)
+            #expect(d == "The mimic waits. Your candle does too.")
+            #expect(!d.lowercased().contains("still"))
+        }
+        #expect(ClosingCard.detail(lifted: false, awaitingHinge: true, fresh: true, first: true)
+                == "The mimic waits. Your candle does too.")
     }
 }
 
@@ -3545,7 +3553,9 @@ struct R11Tests {
                                         sensitivity: .normal, seen: false))
         #expect(!n.offersForgivingNudge(mode: .lesson, bites: 6, runsSoFar: 1, sensitivity: .normal, seen: false))
         #expect(!n.offersForgivingNudge(mode: .attract, bites: 6, runsSoFar: 1, sensitivity: .normal, seen: false))
-        #expect(AppRules.forgivingNudgeLine == "Keeps waking? Try a forgiving lid.")
+        // R15d: no "lid" (the phone on a Duo, the lever elsewhere).
+        #expect(AppRules.forgivingNudgeLine == "Keeps waking? Try Forgiving mode.")
+        #expect(!AppRules.forgivingNudgeLine.lowercased().split { !$0.isLetter }.contains("lid"))
         #expect(AppRules.forgivingNudgeButton == "Make it forgiving")
         #expect(AppRules.forgivingNudgeDone == "Forgiving on. Change it in Settings.")
         // A summary offers nothing unless told.
@@ -3926,7 +3936,7 @@ struct R12Tests {
         #expect(duo == ["The chest opens with the phone. Move it slowly.",
                         "Drag the loot into your bag.",
                         "Close the phone to bank it before your candle runs out."])
-        #expect(lever == ["The chest opens with the lever. Slide it up slowly.",
+        #expect(lever == ["In a chest, slide the lever up slowly to open it.",
                           "Drag the loot into your bag.",
                           "Slide the lever down to bank it before your candle runs out."])
         for line in duo {
@@ -3944,7 +3954,8 @@ struct R12Tests {
         // Open, loot, bank: the order of the game, and the candle (the clock) last. R15c: rule 1 never says "open"
         // as an order (it is read with the phone shut or open).
         #expect(duo[0].lowercased().hasPrefix("the chest opens with the phone"))
-        #expect(lever[0].lowercased().hasPrefix("the chest opens with the lever"))
+        // R15d (final walkthrough P2-4): Home has no lever, so the lever's rule 1 says where it is.
+        #expect(lever[0].hasPrefix("In a chest, slide the lever"))
         #expect(duo[1].lowercased().contains("bag"))
         #expect(duo[2].lowercased().contains("bank"))
         #expect(duo[2].hasSuffix("before your candle runs out."))
@@ -4321,6 +4332,17 @@ struct R12Tests {
         c.coverEndRun()
         #expect(!c.isLiveRun)
         #expect(c.route == .home)
+        // R15d (final walkthrough P2-1): the intro then says how it went, on Home.
+        #expect(c.coverLastRun == "Run over · 0 gold")
+        #expect(c.coverLastRun == CoverCard.lastRunLine(gold: 0))
+        // A new run forgets it (and a Home reached any other way never says it).
+        c.coverPlay()
+        hand.hold(0.3)
+        #expect(c.isLiveRun)
+        #expect(c.coverLastRun == nil)
+        c.goHome()
+        #expect(c.route == .home)
+        #expect(c.coverLastRun == nil)
         done(c)
     }
 
@@ -4481,6 +4503,128 @@ struct R12Tests {
         // The next chest came while the lid was closed (CI's BANK-CLOSE-FULL: never above 113°; R13: the 15° zone).
         #expect(arrivalAngles.count == 1)
         #expect(arrivalAngles.allSatisfy { $0 <= Tuning.hingeShutZoneAngle }, "\(arrivalAngles)")
+        done(c)
+    }
+
+    // MARK: R15d (final walkthrough)
+
+    @Test func r15dTheCoverCardsNewWords() {
+        #expect(CoverCard.endedEmptyLine == "Nothing banked. A new chest waits.")
+        #expect(!CoverCard.endedEmptyLine.lowercased().split { !$0.isLetter }.contains("lid"))
+        #expect(CoverCard.nextChestTitle == "Open the phone slowly for the next chest")
+        #expect(HowToPlay.lines(slider: true)[0] == "In a chest, slide the lever up slowly to open it.")
+        #expect(AppRules.forgivingNudgeLine == "Keeps waking? Try Forgiving mode.")
+        #expect(ClosingCard.detail(lifted: true, awaitingHinge: true) == "The mimic waits. Your candle does too.")
+    }
+
+    /// R15d (P2-5, P2-6): a close that banks says "Banked +N gold!", one that ends an empty chest says "Nothing
+    /// banked"; each lasts until the next chest is opened, and a new run starts with neither.
+    @Test func r15dTheOuterScreenSaysHowTheCloseWent() throws {
+        let (c, hand) = makeDuo(at: 150)
+        c.play()
+        openFirstChest(hand)
+        #expect(hand.last.phase == .looting)
+        #expect(c.justBanked == nil)
+        #expect(!c.justEndedEmpty)
+        // Bag an item, then close all the way: banked.
+        let item = try #require(hand.last.loot.first { $0.place == .inChest && $0.grabbable })
+        c.floorTouchBegan(1, at: item.position, time: hand.t)
+        c.floorTouchMoved(1, to: CGPoint(x: 335, y: 400), time: hand.t + 1.5)
+        c.floorTouchEnded(1, at: CGPoint(x: 335, y: 400), time: hand.t + 1.5)
+        hand.hold(0.2)
+        let bag = hand.last.bagValue
+        #expect(bag > 0)
+        let down = hand.move(to: 2, seconds: 3.2) + hand.hold(2.2)
+        #expect(has(down, isBank))
+        #expect(hand.last.phase == .ready)
+        #expect(c.justBanked == bag)
+        #expect(!c.justEndedEmpty)
+        // Reopened: the next chest opens, and the line goes.
+        hand.move(to: 70, seconds: 2.75)
+        hand.hold(0.5)
+        #expect(hand.last.phase == .looting)
+        #expect(c.justBanked == nil)
+        #expect(!c.justEndedEmpty)
+        // Closed again with nothing in the bag (opened well past the shut zone): the chest ends, "Nothing banked".
+        #expect(hand.last.bagValue == 0)
+        var emptyAt: Int?
+        var frame = 0
+        hand.move(to: 2, seconds: 3.2) { c, _, _, _ in
+            frame += 1
+            if emptyAt == nil && c.justEndedEmpty { emptyAt = frame }
+        }
+        hand.hold(1.0)
+        #expect(emptyAt != nil)
+        #expect(c.justEndedEmpty)
+        #expect(c.justBanked == nil)
+        #expect(hand.last.phase == .ready)
+        // Reopened: the next chest opens, and "Nothing banked" goes.
+        hand.move(to: 70, seconds: 2.75)
+        hand.hold(0.5)
+        #expect(hand.last.phase == .looting)
+        #expect(!c.justEndedEmpty)
+        #expect(c.justBanked == nil)
+        done(c)
+    }
+
+    /// R15d (P2-3): the cover card speaks of a live chest only while one can be played: never in the candle-out
+    /// moment, nor off a run.
+    @Test func r15dTheCandleOutMomentIsNoLiveChestOnTheCover() {
+        let (c, hand) = makeDuo(at: 150)
+        #expect(!c.coverMidRun)
+        c.play()
+        openFirstChest(hand)
+        #expect(c.isLiveRun)
+        #expect(c.coverMidRun)
+        var torchOutFrames = 0
+        var midRunInTorchOut = 0
+        var liveInTorchOut = 0
+        var midRunWhileLooting = true
+        hand.hold(Tuning.torchSeconds + Tuning.torchOutSeconds + 3) { c, s, _, _ in
+            if case .torchOut = s.phase {
+                torchOutFrames += 1
+                if c.isLiveRun { liveInTorchOut += 1 }
+                if c.coverMidRun { midRunInTorchOut += 1 }
+            } else if s.phase == .looting && c.isLiveRun && !c.coverMidRun {
+                midRunWhileLooting = false
+            }
+        }
+        #expect(torchOutFrames > 0)
+        #expect(liveInTorchOut > 0)
+        #expect(midRunInTorchOut == 0)
+        #expect(midRunWhileLooting)
+        #expect(!c.isLiveRun)
+        #expect(!c.coverMidRun)
+        done(c)
+    }
+
+    /// R15d (final walkthrough P0): the phone shut during the bite moment and opened again before it ends: the
+    /// moment's end deals the next chest (never "Close the phone for the next chest" to a phone just closed).
+    @Test func r15dAShutDuringTheBiteMomentDealsTheNextChest() {
+        let (c, hand) = makeDuo(at: 150)
+        c.play()
+        openFirstChest(hand)
+        #expect(hand.last.phase == .looting)
+        c.nudgeSessionNoise(to: 1)
+        let bit = hand.hold(0.1)
+        #expect(bit.contains(where: GameController.isBite))
+        // Shut and reopened inside the 1.8 s moment, then held.
+        var askedToClose = false
+        var awaited = false
+        var arrivals = 0
+        let watch: (GameController, HeistSnapshot, [HeistEvent], Double) -> Void = { c, s, e, _ in
+            if s.hint == .closeForNext { askedToClose = true }
+            if c.awaitingClose { awaited = true }
+            arrivals += e.filter(isArrival).count
+        }
+        hand.move(to: 2, seconds: 0.4, watch: watch)
+        hand.move(to: 150, seconds: 0.8, watch: watch)
+        hand.hold(1.2, watch: watch)
+        #expect(arrivals == 1)
+        #expect(!awaited)
+        #expect(!askedToClose)
+        #expect(!c.awaitingClose)
+        #expect(hand.last.chest?.index == 1)
         done(c)
     }
 }

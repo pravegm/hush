@@ -2312,6 +2312,93 @@ struct CoreTests {
         #expect(o.result?.chestLog.count == o.result?.chestsOpened)
     }
 
+    /// Steps at 60 Hz with a fixed lid until the bite moment ends (at most 3 s); returns every event.
+    private func untilTheMomentEnds(_ s: HeistSession, lid: LidInput) -> [HeistEvent] {
+        var out: [HeistEvent] = []
+        var t: Double = 0
+        while s.inBiteMoment && t < 3.0 {
+            out.append(contentsOf: s.step(dt: 1.0 / 60.0, lid: lid))
+            t += 1.0 / 60.0
+        }
+        return out
+    }
+
+    /// R15d (final walkthrough P0): the phone seen shut during the bite moment (`noteLidShut()`, the scene frozen on
+    /// the outer screen) and reopened before the moment ends: the moment's end deals the next chest, never
+    /// "Close the phone for the next chest" to a phone that was just closed.
+    @Test func r15dAShutNotedDuringTheBiteMomentDealsAtItsEnd() {
+        let (s, _) = lootingSession(seed: 71)
+        #expect(!s.inBiteMoment)
+        let bite: [HeistEvent] = biteWithTheLidOpen(s)
+        #expect(count(bite, isBitten) == 1)
+        #expect(s.inBiteMoment)
+        #expect(!s.awaitingClose)
+        // Noted shut: nothing happens yet (the moment plays on), and the robbed chest is still the one on screen.
+        let noted: [HeistEvent] = s.noteLidShut()
+        #expect(noted.isEmpty)
+        #expect(s.inBiteMoment)
+        #expect(s.snapshot.chest?.index == 0)
+        #expect(!s.awaitingClose)
+        // Reopened (0.5, out of the shut zone) for the rest of the moment.
+        let end: [HeistEvent] = untilTheMomentEnds(s, lid: lidAt(0.5))
+        #expect(!s.inBiteMoment)
+        #expect(count(end, isArrived) == 1)
+        let c1: ChestSpec = ChestFactory.chest(seed: 71, index: 1, found: [])
+        #expect(end.contains(HeistEvent.chestArrived(index: 1, tier: c1.tier, mimic: c1.mimic, name: c1.mimicName)))
+        #expect(!s.awaitingClose)
+        #expect(s.snapshot.chest?.index == 1)
+        #expect(!isCloseForNext(s))
+        // The robbed chest is logged once.
+        #expect(s.partialResult().chestLog.count == 1)
+        #expect(s.partialResult().chestLog.first?.bitten == true)
+    }
+
+    /// R15d: one step of the bite moment in the shut zone, then reopened before the moment ends: dealt at its end.
+    @Test func r15dAShutStepDuringTheBiteMomentDealsAtItsEnd() {
+        let (s, _) = lootingSession(seed: 71)
+        let bite: [HeistEvent] = biteWithTheLidOpen(s)
+        #expect(count(bite, isBitten) == 1)
+        #expect(s.inBiteMoment)
+        let shut: [HeistEvent] = s.step(dt: 1.0 / 60.0, lid: lidAt(0.06))
+        #expect(count(shut, isArrived) == 0)
+        #expect(s.inBiteMoment)
+        let end: [HeistEvent] = untilTheMomentEnds(s, lid: lidAt(0.5))
+        #expect(!s.inBiteMoment)
+        #expect(count(end, isArrived) == 1)
+        #expect(!s.awaitingClose)
+        #expect(s.snapshot.chest?.index == 1)
+        #expect(!isCloseForNext(s))
+    }
+
+    /// R15d: the lid open all through the bite moment still leaves the robbed chest waiting for the close (R12 rule
+    /// 4 unchanged), and a remembered shut never carries over to a later bite.
+    @Test func r15dABiteWithTheLidOpenThroughoutStillWaits() {
+        let (s, _) = lootingSession(seed: 71)
+        let bite: [HeistEvent] = biteWithTheLidOpen(s)
+        #expect(count(bite, isBitten) == 1)
+        let end: [HeistEvent] = untilTheMomentEnds(s, lid: lidAt(0.5))
+        #expect(!s.inBiteMoment)
+        #expect(count(end, isArrived) == 0)
+        #expect(s.awaitingClose)
+        #expect(isCloseForNext(s))
+        #expect(s.snapshot.chest?.index == 0)
+        // A shut noted during one moment is spent at its end: the next chest's bite, lid open throughout, waits.
+        let (q, _) = lootingSession(seed: 71)
+        _ = biteWithTheLidOpen(q)
+        q.noteLidShut()
+        _ = untilTheMomentEnds(q, lid: lidAt(0.5))
+        #expect(q.snapshot.chest?.index == 1)
+        #expect(!q.awaitingClose)
+        // Open the dealt chest, then a second bite with the lid open all through.
+        _ = run(q, seconds: 0.5, lid: lidAt(0.5))
+        guard q.snapshot.phase == .looting, !q.inBiteMoment else { return }
+        let second: [HeistEvent] = biteWithTheLidOpen(q)
+        guard count(second, isBitten) == 1 else { return }
+        _ = untilTheMomentEnds(q, lid: lidAt(0.5))
+        #expect(!q.inBiteMoment)
+        #expect(q.awaitingClose || q.isFinished)
+    }
+
     /// R12b (CI BANK-CLOSE-FULL): the lid seen shut with loot in the bag banks it, at once, and deals the next chest
     /// (closed, fresh); the events come back from `noteLidShut()` itself. An empty bag and a finished run bank
     /// nothing. R13: the lesson banks too (its gate is gone; its script hears the `.banked` through the App).
