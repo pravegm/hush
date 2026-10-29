@@ -1,4 +1,47 @@
-# Hush: morning handover (28 Oct)
+# Hush: morning handover (29 Oct)
+
+## Build 11: the one to submit (round 15)
+You said about build 9: "why cant i just have an intro screen on the outer screen to begin with with the play
+button? so that the duo is closed, i press play, and then i open the chest… it does not make sense that my duo is
+open, i click play and the game thinks its closed… as a first time user i will have zero clue". Done, exactly so.
+
+**How it plays now:**
+1. **Phone shut:** the outer screen is the intro. It shows the mimic, "Steal the mimic's gold while it sleeps", the
+   three rules and a **Play** button.
+2. **Press Play, then open the phone slowly.** The chest opens with the phone, from the first degree.
+3. **Drag the loot into your bag.**
+4. **Close the phone to bank it.** Closing is always safe with loot in the bag, at any speed. The outer screen says
+   "Banked +N gold!" and "Open the phone slowly for the next chest", with **End run** if you're done.
+5. **Phone already open?** Tap Play on the inner screen and the chest is open at once. It never asks you to close it
+   first.
+6. **The three rules** are on the outer intro and on Home for your first runs:
+   - The chest opens with the phone. Move it slowly.
+   - Drag the loot into your bag.
+   - Close the phone to bank it before your candle runs out.
+
+**Fixed overnight, from four independent reviews** (two code walkthroughs of your exact steps, a three-person
+first-time player panel and an App Review juror):
+- **New buyers:** a brand-new install launched shut now shows the intro, not Home, on the outer screen.
+- **Open and still phone:** the game asks iOS for the angle straight away, so no "Move the phone a little" wait.
+- **Bite moment:** closing the phone during it deals the next chest. It never asks to close an already-closed phone.
+- **Snap shut:** a close with loot never bites. Closing banks, just as you said.
+- **Ending on the outer screen:** End run there, or the candle running out, shows "Run over · N gold".
+- **Settings › About** links to the privacy and support pages, which Apple asks for.
+- **Store text, review notes and support page** are rewritten for this version. The screenshots are re-shot from it.
+
+**Tested:** all unit tests pass. The iPhone Duo simulator passed **all 16 hinge checks** on build 11: slow open, slam,
+close to bank, bite then close for the next chest, the outer screen, flat open, landscape and the watchdog.
+
+**Please try on your Duo (2 minutes):**
+1. **Phone shut:** open the app and press Play on the outer screen. Open the phone slowly, drag a coin into the bag,
+   then close the phone. You should see "Banked +N gold!".
+2. **Open again for the next chest.** Then open it fast once and the mimic should bite. Close the phone, then open it
+   for the next chest.
+3. **Home with the phone open:** tap Play. The chest should be open straight away.
+
+If anything is wrong: Settings › About, hold Version for 2 s, tap Copy log, and paste it to me.
+
+**To submit:** see "Submission steps" below. Everything is prepared except what needs your Apple login.
 
 ## Build 9: simple (round 14, your build 8 test)
 You said: "right when i start it asks me to open the phone, i open the phone, click play, now in that open state it
