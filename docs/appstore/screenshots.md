@@ -76,7 +76,7 @@ the app's). D02 is captured by a second pass with the hinge **shut** (0°), so t
 | 3 | `D03-loot` | Looting chest #1: a coin dropping into the bag, "6 not safe yet", the hint "Close the phone to bank" (iPhone: "Slower…") | **Drag the loot to your *bag*.** / Slowly: quick hands make noise. | flat |
 | 4 | `D04-freeze` | Waking: "Freeze!", the meter red, the eye opening | **It's waking. *Freeze!*** / Stay still and it settles. | flat |
 | 5 | `D05-bank` | "Hushed! BANKED +197 / Hush Chain ×1.1" | **Close the phone to *bank*.** / Bank before the candle burns out. | flat |
-| 6 | `D06-chomp` | The bite after the flash: teeth across the fold, "CHOMP!", "−10s" | **Too loud? *CHOMP.*** / Lose your bag and 10 seconds. | flat |
+| 6 | `D06-chomp` | A real bite on chest 1, 0.5 s after it (past the flash): teeth across the fold, "CHOMP! Too loud!", the bag lost, "−10s". Since R15c the novice pilot rarely bites, so the chest is held open and the noise held at a Waking 0.98 until the first bag clink tips it over | **Too loud? *CHOMP.*** / Lose your bag and 10 seconds. | flat |
 | 7 | `D07-chain` | A Hushed bank with the chain medal ×1.2 or more | **Sleepy banks pay *more*.** / Hush Chain: up to ×1.5 gold. | flat |
 | 8 | `D08-relic` | The relic card (art and name) | **Open wide for *relics*.** / The best loot sits deepest. | flat |
 | 9 | `D09-codex` | The Relic Codex, 9 of 24 | **Twenty-four relics. One *Codex*.** / Daily Dungeon, ranks, Game Center. | flat |
@@ -96,7 +96,7 @@ runs). P01 is the D01 tabletop composite (the Duo pitch), captioned for any iPho
 | 1 | `P01-hero-open` | **Open the chest. *Slowly.*** / Any iPhone. Best on iPhone Duo. (tabletop composite of D01) |
 | 2 | `P02-rules` | **Learn it in *three* lines.** / No tutorial to sit through. (Home, first launch: the lever's three rules) |
 | 5 | `P05-bank` | **Slide it down to *bank*.** / Bank before the candle burns out. |
-| 6 | `P06-chomp` | as D06. The moment differs: since R15c the novice pilot no longer bites on a phone, so P06 is a real bite on chest 1 (the chest open, the noise held at a Waking 0.98 until the bite, the first bag clink tips it over: CHOMP, −66, −10s; "Candle lit. Gently does it." is still up) |
+| 6 | `P06-chomp` | as D06 (the same real bite on chest 1; "Candle lit. Gently does it." is still up) |
 | 3–4, 7–10 | `P03-loot`, `P04-freeze`, `P07-chain` … `P10-results` | as D03–D04, D07–D10 |
 
 ## C. Product page header and search results art (optional, iOS 27)

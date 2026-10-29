@@ -59,9 +59,9 @@ env:
   # The final store frames. Empty until Hush has a signed-off App Store screenshots run (store.yml is adapted from
   # Swoop's in Round 3; frame names D1-hero-open, D2-freeze, D3-bank, D4-chain, D5-chomp, D6-codex and P1…P6 the same,
   # docs/appstore/screenshots.md); put that run's ID here then, as Brim did (its final run was 40363198536).
-  DEFAULT_STORE_RUN: "40675006542"   # R11 store set: 6 + 6 phone (6.9", 6.3") + 6 Duo, all checked (design/notes/ci-store-R11.md)
-  # Signed-off header and search results art (Brim had run 40376904797). Hush 1.0 ships none, so empty.
-  DEFAULT_PLACEMENTS_RUN: ""
+  DEFAULT_STORE_RUN: "40809079356"   # R15 store set (build 11 code, f82dadf): 10 + 10 phone (6.9", 6.3") + 10 Duo, all checked (docs/appstore/REQUIREMENTS-CHECK.md §3)
+  # Signed-off header and search results art (Brim had run 40376904797). R15: Hush ships both (store.yml store-placements).
+  DEFAULT_PLACEMENTS_RUN: "40809079356"   # R15: header-3840x1646.png + search-3840x2560.png (store-placements), checked
   # "false" until a green CI run is known to carry the 12 badges: a missing CI run or badges/ folder is then a warning,
   # and validate reports each badge as a gap (never pushed). ci/scenarios.txt has rendered them since R2 (40-badges,
   # screen=badges); set this to "true" once a green run's screenshots/badges/ holds all 12 (check the Midas Touch and
